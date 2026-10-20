@@ -10,6 +10,8 @@ const count = (value: unknown): number => typeof value === "number" && Number.is
 /** Claude's standard window; a request past it can only have run in the 1M one. */
 const CLAUDE_STANDARD_WINDOW = 200_000;
 const CLAUDE_LONG_WINDOW = 1_000_000;
+/** The window a Claude session runs in when the transcript cannot tell (HERDR_WEB_CLAUDE_CONTEXT_WINDOW), for an install that knows it. */
+const CLAUDE_CONFIGURED_WINDOW = count(Number(process.env["HERDR_WEB_CLAUDE_CONTEXT_WINDOW"])) || null;
 
 /**
  * The context a request filled, and the window when the transcript leaves no doubt. Only
@@ -28,7 +30,8 @@ function contextOf(used: number, model: string | null, window: number | null, be
     return resolved === null ? { used, window: null } : { used, window: resolved };
   }
   const long = model?.startsWith("claude") && (used > CLAUDE_STANDARD_WINDOW || before?.window === CLAUDE_LONG_WINDOW);
-  return { used, window: long ? CLAUDE_LONG_WINDOW : null };
+  const configured = model?.startsWith("claude") ? CLAUDE_CONFIGURED_WINDOW : null;
+  return { used, window: long ? CLAUDE_LONG_WINDOW : configured };
 }
 
 /** Read recorded settings, never infer effort from the presence of thinking text.
