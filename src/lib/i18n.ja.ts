@@ -1006,7 +1006,7 @@ export const JA: Record<string, string> = {
   "Send “{reply}”": "「{reply}」を送信",
   "Show above the message box": "入力欄の上に表示",
   "Restore defaults": "デフォルトに戻す",
-  "Context {percent}% left": "コンテキスト残り {percent}%",
+  "Context {percent}% used": "コンテキスト使用 {percent}%",
   "{used} of {window} tokens": "{used} / {window} トークン",
   "failed": "失敗",
   "Error": "エラー",

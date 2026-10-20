@@ -1004,7 +1004,7 @@ export const KO: Record<string, string> = {
   "Send “{reply}”": "“{reply}” 보내기",
   "Show above the message box": "입력창 위에 표시",
   "Restore defaults": "기본값으로 되돌리기",
-  "Context {percent}% left": "컨텍스트 {percent}% 남음",
+  "Context {percent}% used": "컨텍스트 {percent}% 사용",
   "{used} of {window} tokens": "{window} 토큰 중 {used}",
   "failed": "실패",
   "Error": "오류",

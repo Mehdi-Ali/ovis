@@ -1008,7 +1008,7 @@ export const ZH: Record<string, string> = {
   "Send “{reply}”": "发送“{reply}”",
   "Show above the message box": "显示在输入框上方",
   "Restore defaults": "恢复默认值",
-  "Context {percent}% left": "上下文剩余 {percent}%",
+  "Context {percent}% used": "上下文已用 {percent}%",
   "{used} of {window} tokens": "{used} / {window} Token",
   "failed": "失败",
   "Error": "错误",
