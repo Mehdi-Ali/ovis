@@ -478,7 +478,7 @@ const BASE: Record<string, string> = {
   "New group": "새 그룹",
   "Add group": "그룹 추가",
   "No group": "그룹 없음",
-  "Context {percent}% left": "컨텍스트 {percent}% 남음",
+  "Context {percent}% used": "컨텍스트 {percent}% 사용",
   "{used} of {window} tokens": "{window} 토큰 중 {used}",
   "Permission mode": "권한 모드",
   "Model": "모델",

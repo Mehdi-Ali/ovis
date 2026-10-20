@@ -190,7 +190,8 @@ function ContextRing({ context }: { context: NonNullable<ConversationMetadata["c
   const t = useT();
   const left = contextLeftPercent(context);
   if (left === null || context.window === null) return null;
-  const label = t("Context {percent}% left", { percent: left });
+  // local: the label counts what is used, as the token detail beside it does
+  const label = t("Context {percent}% used", { percent: 100 - left });
   const detail = t("{used} of {window} tokens", { used: formatTokens(context.used), window: formatTokens(context.window) });
   const radius = 6;
   const circumference = 2 * Math.PI * radius;
