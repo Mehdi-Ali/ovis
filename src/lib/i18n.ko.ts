@@ -435,6 +435,8 @@ export const KO: Record<string, string> = {
   "Filter panes by status": "상태별 패널 필터",
   "All": "전체",
   "Recent": "최근",
+  "Status": "상태순",
+  "Sort agents": "에이전트 정렬",
   "Workspace": "워크스페이스",
   "Selected": "선택됨",
   "Unknown workspace": "알 수 없는 워크스페이스",

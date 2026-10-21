@@ -1,5 +1,5 @@
-/* Agents takes the height of its rows, at most half the sidebar, docked above the footer; the
-   workspace list has the rest. Parted from it by space, not a rule. */
+/* Agents takes the height of its rows, at most half the sidebar, at its top (local: upstream docks
+   it above the footer); the workspace list has the rest. Parted from it by space, not a rule. */
 .agents-sidebar {
   display: flex;
   flex: 0 1 auto;
@@ -42,11 +42,20 @@
 
 .agents-sidebar.is-empty .agent-list-contents::after { display: none; }
 
-.agent-section-toggle {
+/* local: the fold and the sort menu's button share the header's line */
+.agent-section-head {
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+}
+
+.agent-section-toggle {
+  flex: 1 1 auto;
   width: 100%;
   cursor: pointer;
 }
+
+.agent-sort-toggle { flex: none; }
 
 /* the fold's caret hangs in the leading cell and shows when it is of use */
 .agent-section-caret {

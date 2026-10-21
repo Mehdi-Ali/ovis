@@ -439,6 +439,8 @@ export const ZH: Record<string, string> = {
   "Filter panes by status": "按状态筛选窗格",
   "All": "全部",
   "Recent": "最近",
+  "Status": "按状态",
+  "Sort agents": "排序代理",
   "Workspace": "工作区",
   "Selected": "已选择",
   "Unknown workspace": "未知工作区",

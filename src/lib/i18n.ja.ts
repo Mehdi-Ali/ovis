@@ -437,6 +437,8 @@ export const JA: Record<string, string> = {
   "Filter panes by status": "状態でペインを絞り込む",
   "All": "すべて",
   "Recent": "最近",
+  "Status": "状態順",
+  "Sort agents": "エージェントの並べ替え",
   "Workspace": "ワークスペース",
   "Selected": "選択中",
   "Unknown workspace": "不明なワークスペース",

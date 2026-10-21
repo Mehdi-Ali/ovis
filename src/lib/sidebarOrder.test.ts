@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { PaneInfo } from "../../shared/protocol.ts";
-import { activityOrder, liveSeqs, newSeqMemory, shownStatus, stateSeqs } from "./sidebarOrder.ts";
+import { activityOrder, liveSeqs, newSeqMemory, recentOrder, shownStatus, stateSeqs, statusOrder } from "./sidebarOrder.ts";
 import { DEFAULT_SETTINGS, sanitizeSettings } from "./settings.ts";
 
 const pane = (id: string, agent_status: string, workspace_id = `w-${id}`) => ({ pane_id: id, workspace_id, agent_status }) as PaneInfo;
@@ -100,5 +100,22 @@ describe("shown status", () => {
 it("defaults to herdr's order, and accepts only known values", () => {
   expect(DEFAULT_SETTINGS.agentOrder).toBe("workspace");
   expect(sanitizeSettings({ agentOrder: "activity" })).toMatchObject({ agentOrder: "activity" });
-  expect(sanitizeSettings({ agentOrder: "recent" })).toMatchObject({ agentOrder: "workspace" });
+  expect(sanitizeSettings({ agentOrder: "status" })).toMatchObject({ agentOrder: "status" });
+  expect(sanitizeSettings({ agentOrder: "recent" })).toMatchObject({ agentOrder: "recent" });
+  expect(sanitizeSettings({ agentOrder: "alphabet" })).toMatchObject({ agentOrder: "workspace" });
+});
+
+describe("status and recent order (local)", () => {
+  const rows = [pane("a", "idle"), pane("b", "working"), pane("c", "done"), pane("d", "blocked"), pane("e", "working")];
+  const seqs = new Map([["a", 9], ["b", 1], ["c", 2], ["d", 3], ["e", 5]]);
+  it("ranks by state as herdr rolls up, the latest change first within a state", () => {
+    expect(statusOrder(rows, (row) => row, seqs).map((row) => row.pane_id)).toEqual(["d", "c", "e", "b", "a"]);
+  });
+  it("puts a pane holding its turn for background work after the running ones", () => {
+    const held = [{ ...pane("x", "done"), background_wait: true as const }, pane("y", "working")];
+    expect(statusOrder(held, (row) => row, new Map()).map((row) => row.pane_id)).toEqual(["y", "x"]);
+  });
+  it("orders by the latest change alone, a blocked one getting no head start", () => {
+    expect(recentOrder(rows, (row) => row, seqs).map((row) => row.pane_id)).toEqual(["a", "e", "d", "c", "b"]);
+  });
 });

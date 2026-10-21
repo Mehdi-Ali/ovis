@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, ChevronRight, Ellipsis, Pin, PinOff, Terminal } from "lucide-react";
+import { ArrowDownUp, ChevronDown, ChevronRight, Clock, Ellipsis, FolderTree, ListOrdered, Pin, PinOff, Terminal, Zap } from "lucide-react";
 
 import type { Machine } from "../../shared/machines.ts";
 import { paneStorageId } from "../../shared/machines.ts";
@@ -7,9 +7,9 @@ import type { AgentStatus, PlanSummary } from "../../shared/protocol.ts";
 import { useT } from "../lib/i18n.ts";
 import { useAnnouncedText } from "../lib/useAnnouncedText.ts";
 import { agentContext, agentTabName, paneMark, sidebarAgents, type SidebarAgent } from "../lib/sidebarAgents.ts";
-import { useSettings } from "../lib/settings.ts";
+import { useSettings, type AgentOrder } from "../lib/settings.ts";
 import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
-import { activityOrder } from "../lib/sidebarOrder.ts";
+import { activityOrder, recentOrder, statusOrder } from "../lib/sidebarOrder.ts";
 import { currentSidebarPins, pruneSidebarPins, setSidebarPins, sidebarPinKey, splitPinnedRows, subscribeSidebarPins, toggleSidebarPin } from "../lib/sidebarPins.ts";
 import { PANE_DRAG_TYPE, paneDragData } from "../lib/split.ts";
 import { AgentMark, hasAgentMark } from "./AgentMark.tsx";
@@ -69,6 +69,13 @@ const DRAWER_QUERY = "(max-width: 768px)";
 interface AgentRow { machine: Machine; entry: SidebarAgent }
 /** The row whose menu is open, by its pin key: at its ⋯, or at the pointer for a right-click */
 interface PinMenu { key: string; anchor: HTMLElement; point?: { x: number; y: number }; previousFocus?: HTMLElement | null; title: string; place: string }
+/** local: the orders the Agents header's sort menu offers, as in Settings -> Agents order */
+const AGENT_ORDERS: ReadonlyArray<{ value: AgentOrder; label: string; icon: typeof Clock }> = [
+  { value: "workspace", label: "Workspaces", icon: FolderTree },
+  { value: "activity", label: "Activity", icon: Zap },
+  { value: "status", label: "Status", icon: ListOrdered },
+  { value: "recent", label: "Recent", icon: Clock },
+];
 
 /**
  * All PCs' live agents form a second list; workspace and PC folds do not hide these rows.
@@ -81,16 +88,23 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
   const t = useT();
   const listId = useId();
   const [collapsed, setCollapsed] = useState(() => window.matchMedia?.(DRAWER_QUERY).matches === true);
-  const { settings } = useSettings();
+  const { settings, update } = useSettings();
+  const [sortMenu, setSortMenu] = useState<HTMLElement | null>(null);
   // shared with the other browsers of this server (lib/preferencesSync.ts)
   const pinned = useSyncExternalStore(subscribeSidebarPins, currentSidebarPins, currentSidebarPins);
   const activity = useSidebarActivity();
-  // Settings → Agents order: herdr's order, or Activity within each PC (each herdr counts its own changes)
-  const byActivity = settings.agentOrder === "activity";
+  // Settings → Agents order (or the header's sort menu): herdr's order, else within each PC (each herdr counts its own changes)
+  const order = settings.agentOrder;
   const rows = useMemo(() => machines.flatMap((machine) => {
     const agents = sidebarAgents(machine.snapshot);
-    return (byActivity ? activityOrder(agents, (entry) => entry.pane, activity.seqs(machine.id)) : agents).map((entry): AgentRow => ({ machine, entry }));
-  }), [machines, byActivity, activity]);
+    const seqs = activity.seqs(machine.id);
+    const paneOf = (entry: SidebarAgent) => entry.pane;
+    const ordered = order === "activity" ? activityOrder(agents, paneOf, seqs)
+      : order === "status" ? statusOrder(agents, paneOf, seqs)
+      : order === "recent" ? recentOrder(agents, paneOf, seqs)
+      : agents;
+    return ordered.map((entry): AgentRow => ({ machine, entry }));
+  }), [machines, order, activity]);
   // the pinned rows stand first, in the order they were pinned
   const split = useMemo(() => splitPinnedRows(rows, pinned, ({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)), [rows, pinned]);
   const togglePin = (key: string): void => {
@@ -177,11 +191,18 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
   // Settings -> Sidebar rows -> One line: an agent row is one line too, its place dim after its title
   const oneLine = settings.sidebarRows === "one";
   return <section ref={sectionRef} className={`agents-sidebar${collapsed ? " is-collapsed" : ""}${rows.length === 0 ? " is-empty" : ""}${oneLine ? " is-one-line" : ""}`} aria-label={t("Agents")}>
-    <button type="button" className="agent-section-toggle sidebar-section-label" aria-expanded={!collapsed} aria-controls={listId} onClick={() => setCollapsed(!collapsed)}>
-      {collapsed ? <ChevronRight className="agent-section-caret" aria-hidden="true" /> : <ChevronDown className="agent-section-caret" aria-hidden="true" />}
-      <span>{t("Agents")}</span>
-      {collapsed && rows.length > 0 && <span className="agent-section-count">{rows.length}</span>}
-    </button>
+    <div className="agent-section-head">
+      <button type="button" className="agent-section-toggle sidebar-section-label" aria-expanded={!collapsed} aria-controls={listId} onClick={() => setCollapsed(!collapsed)}>
+        {collapsed ? <ChevronRight className="agent-section-caret" aria-hidden="true" /> : <ChevronDown className="agent-section-caret" aria-hidden="true" />}
+        <span>{t("Agents")}</span>
+        {collapsed && rows.length > 0 && <span className="agent-section-count">{rows.length}</span>}
+      </button>
+      {/* local: the list's order at hand, the same setting as Settings -> Agents order */}
+      <button type="button" className="sidebar-row-action agent-sort-toggle" aria-label={t("Sort agents")} title={t("Sort agents")} aria-haspopup="menu" aria-expanded={sortMenu !== null}
+        onClick={(event) => setSortMenu(sortMenu ? null : event.currentTarget)}>
+        <ArrowDownUp aria-hidden="true" />
+      </button>
+    </div>
     <div className="agent-list-contents" id={listId} hidden={collapsed}>
       <p className={shownEmpty === null ? "visually-hidden" : "agent-empty"} role="status">{shownEmpty}</p>
       {rows.length > 0 && <>
@@ -192,6 +213,9 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
         {split.rest.length > 0 && <ul className="agent-list">{split.rest.map(agentItem)}</ul>}
       </>}
     </div>
+    {sortMenu && <RowMenu anchor={sortMenu} title={t("Sort agents")} onClose={() => setSortMenu(null)} items={AGENT_ORDERS.map(({ value, label, icon }) => ({
+      id: value, label: t(label), icon, checked: order === value, run: () => update({ agentOrder: value }),
+    }))} />}
     {menu && <RowMenu anchor={menu.anchor} point={menu.point} restoreFocusTo={menu.previousFocus} title={menu.title} subtitle={menu.place} onClose={closeMenu} items={[
       menuPinned
         ? { id: "unpin", label: t("Unpin agent"), icon: PinOff, run: () => runPin(menu) }

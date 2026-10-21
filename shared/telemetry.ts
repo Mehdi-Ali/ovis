@@ -46,7 +46,7 @@ export interface TelemetrySettings {
   theme: "dark" | "light" | "system";
   density: "compact" | "comfortable";
   sidebarRows: "one" | "two";
-  agentOrder: "workspace" | "activity";
+  agentOrder: "workspace" | "activity" | "status" | "recent";
   agentMarks: "color" | "mono";
   statusIndicators: "classic" | "dots" | "symbols";
   palette: TelemetryThemeId;
@@ -121,7 +121,7 @@ const TELEMETRY_SETTINGS_VALIDATORS = {
   theme: oneOf(["dark", "light", "system"]),
   density: oneOf(["compact", "comfortable"]),
   sidebarRows: oneOf(["one", "two"]),
-  agentOrder: oneOf(["workspace", "activity"]),
+  agentOrder: oneOf(["workspace", "activity", "status", "recent"]),
   agentMarks: oneOf(["color", "mono"]),
   statusIndicators: oneOf(["classic", "dots", "symbols"]),
   palette: oneOf(TELEMETRY_THEME_IDS),

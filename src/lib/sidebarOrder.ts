@@ -85,3 +85,28 @@ export function activityOrder<T>(rows: readonly T[], paneOf: (row: T) => Pick<Pa
     .sort((a, b) => a.rank - b.rank || b.recent - a.recent || a.index - b.index)
     .map((entry) => entry.row);
 }
+
+/** local: Status order's ranks, herdr's roll-up order (lib/status.ts): needs you, finished, running, BG, ready */
+const STATUS_RANK: Readonly<Record<string, number>> = { blocked: 0, done: 1, working: 2, waiting: 3, idle: 4 };
+
+/**
+ * local: rows by state, as herdr rolls a workspace up (a blocked one first, then a finished one not
+ * looked at, then a running one, then BG, then ready), the latest change first within a state.
+ */
+export function statusOrder<T>(rows: readonly T[], paneOf: (row: T) => Pick<HerdrPane, "pane_id" | "agent_status" | "background_wait">, seqs: ReadonlyMap<string, number>): T[] {
+  return rows
+    .map((row, index) => {
+      const pane = paneOf(row);
+      return { row, index, rank: STATUS_RANK[paneStatus(pane)] ?? 5, recent: seqs.get(pane.pane_id) ?? -1 };
+    })
+    .sort((a, b) => a.rank - b.rank || b.recent - a.recent || a.index - b.index)
+    .map((entry) => entry.row);
+}
+
+/** local: rows by the latest state change alone, a waiting one getting no head start */
+export function recentOrder<T>(rows: readonly T[], paneOf: (row: T) => Pick<PaneInfo, "pane_id">, seqs: ReadonlyMap<string, number>): T[] {
+  return rows
+    .map((row, index) => ({ row, index, recent: seqs.get(paneOf(row).pane_id) ?? -1 }))
+    .sort((a, b) => b.recent - a.recent || a.index - b.index)
+    .map((entry) => entry.row);
+}
