@@ -293,35 +293,8 @@
 .file-viewer-markdown-readable { max-width: var(--chat-w); }
 
 /* Local: a markdown file's preview takes colour by structure (gruvbox), so a long document is not
-   one wall of body text. Scoped to the file viewer; chat markdown keeps the app's own look. */
-.file-viewer-markdown {
-  --md-h1: #fabd2f;
-  --md-h2: #83a598;
-  --md-h3: #8ec07c;
-  --md-h4: #d3869b;
-  --md-strong: #fe8019;
-  --md-em: #b8bb26;
-  --md-code: #b8bb26;
-  --md-link: #83a598;
-  --md-quote: #a89984;
-  --md-rail: #fabd2f;
-  --md-marker: #fe8019;
-}
-
-[data-theme="light"] .file-viewer-markdown {
-  --md-h1: #b57614;
-  --md-h2: #076678;
-  --md-h3: #427b58;
-  --md-h4: #8f3f71;
-  --md-strong: #af3a03;
-  --md-em: #79740e;
-  --md-code: #79740e;
-  --md-link: #076678;
-  --md-quote: #7c6f64;
-  --md-rail: #b57614;
-  --md-marker: #af3a03;
-}
-
+   one wall of body text. Scoped to the file viewer; chat markdown keeps the app's own look. The
+   --md-* colours are defined in src/styles.css. */
 .markdown.file-viewer-markdown .markdown-h1 { color: var(--md-h1); }
 .markdown.file-viewer-markdown .markdown-h2 { color: var(--md-h2); }
 .markdown.file-viewer-markdown .markdown-h3 { color: var(--md-h3); }
