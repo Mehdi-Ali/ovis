@@ -1,0 +1,33 @@
+# requests the shell host received while a PC file was opened in the app, in its own tab, as a raw file, and reloaded (29)
+# folder: /tmp/relay-path-leak.VHClAU/ovis-relay-private-folder-I1gn9u
+# page addresses after: http://127.0.0.1:41465/s/cb2bd54dea120f87ed1730d493ba5e4f/?ws=w5-private-plans&pane=w5%3Ap1&view=terminal&file=%2Ftmp%2Frelay-path-leak.VHClAU%2Fovis-relay-private-folder-I1gn9u%2Fprivate-notes.md  http://127.0.0.1:41465/s/cb2bd54dea120f87ed1730d493ba5e4f/?read=%2Ftmp%2Frelay-path-leak.VHClAU%2Fovis-relay-private-folder-I1gn9u%2Fother-notes.md&machine=local  http://127.0.0.1:41465/s/cb2bd54dea120f87ed1730d493ba5e4f/?read=%2Ftmp%2Frelay-path-leak.VHClAU%2Fovis-relay-private-folder-I1gn9u%2Fprivate-notes.md%23L1&machine=local
+# leaked: 4
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/
+GET /assets/theme-bootstrap-f1c4fae877.js
+GET /assets/index-Bagv0Xyr.css
+GET /assets/index-B2vFTotE.js
+GET /assets/rolldown-runtime-Dd_uD5pT.js
+GET /assets/jsx-runtime-DKj5X9O4.js
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/manifest.webmanifest?v=2
+GET /assets/ChatTimeline-CFdMbsXi.js
+GET /assets/shell-BBbgEv9o.js
+GET /assets/shell-_96B6d_r.css
+GET /assets/channel-CQl_2jqN.js
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/sw.js
+GET /icons/icon-192.png?v=sheep1
+GET /favicon.ico?v=sheep1
+GET /assets/PretendardVariable.subset.91-Csm0YNoH.woff2
+GET /assets/PretendardVariable.subset.88-CqX6JSgh.woff2
+GET /assets/PretendardVariable.subset.86-XG7lTN_6.woff2
+GET /icons/icon-192.png?v=sheep1
+GET /assets/JetBrainsMono-Regular-BQaDgvhP.woff2
+GET /favicon.ico?v=sheep1
+GET /assets/markdownPreview.worker-BPHs_-G9.js
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/?read=%2Ftmp%2Frelay-path-leak.VHClAU%2Fovis-relay-private-folder-I1gn9u%2Fprivate-notes.md&machine=local
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/manifest.webmanifest?v=2
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/?read=%2Ftmp%2Frelay-path-leak.VHClAU%2Fovis-relay-private-folder-I1gn9u%2Fother-notes.md&machine=local
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/manifest.webmanifest?v=2
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/?read=%2Ftmp%2Frelay-path-leak.VHClAU%2Fovis-relay-private-folder-I1gn9u%2Fprivate-notes.md%23L1&machine=local
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/manifest.webmanifest?v=2
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/?ws=w5-private-plans&pane=w5%3Ap1&view=terminal&file=%2Ftmp%2Frelay-path-leak.VHClAU%2Fovis-relay-private-folder-I1gn9u%2Fprivate-notes.md
+GET /s/cb2bd54dea120f87ed1730d493ba5e4f/manifest.webmanifest?v=2

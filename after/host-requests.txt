@@ -1,0 +1,33 @@
+# requests the shell host received while a PC file was opened in the app, in its own tab, as a raw file, and reloaded (29)
+# folder: /tmp/relay-path-leak.VHClAU/ovis-relay-private-folder-BLVTy4
+# page addresses after: http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/#ws=w9-private-plans&pane=w9%3Ap1&view=terminal&file=%2Ftmp%2Frelay-path-leak.VHClAU%2Fovis-relay-private-folder-BLVTy4%2Fprivate-notes.md  http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/#read=%2Ftmp%2Frelay-path-leak.VHClAU%2Fovis-relay-private-folder-BLVTy4%2Fother-notes.md&machine=local  http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/#read=%2Ftmp%2Frelay-path-leak.VHClAU%2Fovis-relay-private-folder-BLVTy4%2Fprivate-notes.md%23L1&machine=local
+# leaked: 0
+GET /s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/theme-bootstrap-f1c4fae877.js referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/index-Bagv0Xyr.css referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/index-Bt17QbzE.js referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/rolldown-runtime-Dd_uD5pT.js referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/jsx-runtime-DKj5X9O4.js referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /s/446863bf3f43d1ad56f07c1274870d71/manifest.webmanifest?v=2 referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/ChatTimeline-5_JdDCg9.js referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/shell-CvIaTqWS.js referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/shell-_96B6d_r.css referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/channel-DW2eYxvM.js referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /s/446863bf3f43d1ad56f07c1274870d71/sw.js referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /icons/icon-192.png?v=sheep1 referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /favicon.ico?v=sheep1 referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/PretendardVariable.subset.91-Csm0YNoH.woff2 referer=http://127.0.0.1:37989/assets/index-Bagv0Xyr.css
+GET /assets/PretendardVariable.subset.88-CqX6JSgh.woff2 referer=http://127.0.0.1:37989/assets/index-Bagv0Xyr.css
+GET /assets/PretendardVariable.subset.86-XG7lTN_6.woff2 referer=http://127.0.0.1:37989/assets/index-Bagv0Xyr.css
+GET /icons/icon-192.png?v=sheep1 referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/JetBrainsMono-Regular-BQaDgvhP.woff2 referer=http://127.0.0.1:37989/assets/index-Bagv0Xyr.css
+GET /favicon.ico?v=sheep1 referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /assets/markdownPreview.worker-BPHs_-G9.js referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /s/446863bf3f43d1ad56f07c1274870d71/ referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /s/446863bf3f43d1ad56f07c1274870d71/manifest.webmanifest?v=2 referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /s/446863bf3f43d1ad56f07c1274870d71/ referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /s/446863bf3f43d1ad56f07c1274870d71/manifest.webmanifest?v=2 referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /s/446863bf3f43d1ad56f07c1274870d71/
+GET /s/446863bf3f43d1ad56f07c1274870d71/manifest.webmanifest?v=2 referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
+GET /s/446863bf3f43d1ad56f07c1274870d71/
+GET /s/446863bf3f43d1ad56f07c1274870d71/manifest.webmanifest?v=2 referer=http://127.0.0.1:37989/s/446863bf3f43d1ad56f07c1274870d71/
