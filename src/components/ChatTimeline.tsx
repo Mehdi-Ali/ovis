@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { flushSync } from "react-dom";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 
 import { ChatRowMemoryContext, type ChatRowMemory } from "../lib/chatRowState.tsx";
 import { dropPendingListScroll } from "../lib/followScroll.ts";
 import { chatSelectionClipboardPayload } from "../lib/markdownClipboard.ts";
 // ChatTimeline.css is imported by ChatView: the frame and the loading state need it before this chunk
+
+/** how far the drawn height may fall under the list's content length from rounding alone */
+const DRAWN_ROUNDING_PX = 1;
 
 export interface ChatTimelineRow {
   readonly key: string;
@@ -30,13 +34,15 @@ export interface ChatTimelineProps<Row extends ChatTimelineRow> {
   footer: ReactNode;
   label: string;
   onScroll: () => void;
+  /** The follow moved the view itself, to `top`: where the next scroll event is read from. */
+  onFollowed: (top: number) => void;
   /** The reader opened something in a row (a tool, a folded block, a whole output): they read there. */
   onOpen: () => void;
   renderRow: (row: Row, index: number) => ReactNode;
 }
 
 /** One scroll owner; selected and focused rows stay real DOM nodes outside its window. */
-export function ChatTimeline<Row extends ChatTimelineRow>({ rows, scope, source, scroller, listRef, following, manualLayout, smoothFollow, memories, header, footer, label, onScroll, onOpen, renderRow }: ChatTimelineProps<Row>) {
+export function ChatTimeline<Row extends ChatTimelineRow>({ rows, scope, source, scroller, listRef, following, manualLayout, smoothFollow, memories, header, footer, label, onScroll, onFollowed, onOpen, renderRow }: ChatTimelineProps<Row>) {
   const [selectionKeys, setSelectionKeys] = useState<string[]>([]);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   useLayoutEffect(() => {
@@ -167,6 +173,53 @@ export function ChatTimeline<Row extends ChatTimelineRow>({ rows, scope, source,
     return () => observer.disconnect();
   }, [scroller, listRef, following, manualLayout]);
 
+  // A measured row is followed before the frame paints. Once the list has taken in a batch of
+  // measurements, its new total and positions are drawn at once (flushSync, in a microtask: outside
+  // the list's own batch and any React commit) and the reader is put at that end. The list's own
+  // scroll to the end lands a frame later or more (on a slow device the next change comes first, and
+  // the reader never catches up), and aims at an end it computed before the rows around it moved.
+  // A scroll the reader made that the chat has not heard yet (its event comes with the next frame)
+  // is read first, as that event would read it: a reader who left the end is not pulled back.
+  const followQueued = useRef(false);
+  // a row in the batch other than the last one growing (a row above that folded or grew, which the
+  // list holds the view for with room it takes back later, or a row that got shorter): the list's
+  // own scroll, as before
+  const followListScroll = useRef(false);
+  const scrolled = useRef(onScroll);
+  scrolled.current = onScroll;
+  // where the view was when the chat last heard of it: its scroll event, or this follow's own move
+  const heardTop = useRef<number | null>(null);
+  const heard = useCallback(() => {
+    heardTop.current = scroller.current?.scrollTop ?? null;
+    scrolled.current();
+  }, [scroller]);
+  const followMeasured = useCallback((lastGrew: boolean) => {
+    followListScroll.current ||= !lastGrew;
+    if (followQueued.current) return;
+    followQueued.current = true;
+    queueMicrotask(() => {
+      followQueued.current = false;
+      const listScroll = followListScroll.current;
+      followListScroll.current = false;
+      const node = scroller.current, list = listRef.current;
+      if (node === null || list === null || !following.current || manualLayout.current) return;
+      if (node.scrollTop !== heardTop.current) {
+        heard();
+        if (!following.current || manualLayout.current) return;
+      }
+      if (listScroll) { list.scrollToEnd({ animated: false }); return; }
+      flushSync(() => undefined);
+      // drawn at another height than the list's total (it is still laying out): the list's own scroll
+      if (Math.abs(node.scrollHeight - list.getState().contentLength) > DRAWN_ROUNDING_PX) { list.scrollToEnd({ animated: false }); return; }
+      dropPendingListScroll(list);
+      // down only: never take the view up from where the list put it
+      const end = node.scrollHeight - node.clientHeight;
+      if (node.scrollTop < end) node.scrollTop = end;
+      heardTop.current = node.scrollTop;
+      onFollowed(node.scrollTop);
+    });
+  }, [scroller, listRef, following, manualLayout, heard, onFollowed]);
+
   useLayoutEffect(() => {
     const transcript = scroller.current?.querySelector<HTMLElement>(".chat-transcript");
     if (transcript) {
@@ -209,12 +262,8 @@ export function ChatTimeline<Row extends ChatTimelineRow>({ rows, scope, source,
     alwaysRender={{ keys: pinned }}
     ListHeaderComponent={<div className="chat-virtual-header">{header}</div>}
     ListFooterComponent={<div ref={footerRef} className="chat-virtual-footer">{footer}</div>}
-    onScroll={onScroll}
+    onScroll={heard}
     onLoad={() => { if (following.current) listRef.current?.scrollToEnd({ animated: false }); }}
-    onItemSizeChanged={() => {
-      if (!following.current || manualLayout.current) return;
-      // The list's own scroll to the end waits for the rows it measured, so it lands on the real end
-      listRef.current?.scrollToEnd({ animated: false });
-    }}
+    onItemSizeChanged={(info) => { if (following.current && !manualLayout.current) followMeasured(info.size > info.previous && info.index === rows.length - 1); }}
   />;
 }

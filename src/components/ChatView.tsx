@@ -1321,6 +1321,9 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
   // previous scroll event (#2042).
   const lastRowOffset = useRef<{ key: string; offset: number } | null>(null);
   const lastScrollHeight = useRef(0);
+  // The least height the transcript was drawn at since that scroll event: one that shrank and grew
+  // back between two scroll events (a measured row above, then the next output) still shrank
+  const leastScrollHeight = useRef(Infinity);
   // When the reader last used upward scroll input.
   const scrollInputAt = useRef(-Infinity);
   const pointerDragAt = useRef(-Infinity);
@@ -1328,6 +1331,8 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
   // transcript moved up since. No pointermove comes while its thumb is dragged.
   const scrollbarPress = useRef<{ y: number; movedUp: boolean } | null>(null);
   const onScrollRef = useRef<() => void>(() => undefined);
+  // the timeline put the view at the end itself: a move from there is read from there
+  const followed = useCallback((top: number) => { lastScrollTop.current = top; }, []);
   const signature = useRef("");
   // Older pages sit above the newest one. Once any shows, the newest page is
   // polled from its start at that moment, so the two always meet.
@@ -1816,6 +1821,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
   const measureEnd = (): void => {
     const node = scroller.current;
     if (!node) return;
+    leastScrollHeight.current = Math.min(leastScrollHeight.current, node.scrollHeight);
     // Every measurement path must respect a pending restore/minimap/page navigation.
     // Only genuinely short content cannot be moved away from its end, unless the reader opened
     // something in it: the records that make it longer must not pull that away (readOpened).
@@ -1986,6 +1992,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
     const distanceFromBottom = node.scrollHeight - node.clientHeight - node.scrollTop;
     const scrollingDown = node.scrollTop > lastScrollTop.current;
     const scrollingUp = node.scrollTop < lastScrollTop.current;
+    const movedUp = Math.max(0, lastScrollTop.current - node.scrollTop);
     lastScrollTop.current = node.scrollTop;
     // A pointer press alone is not intent: a drag must also move the transcript up. A held scrollbar
     // thumb's move is decided when it is let go (the pointerup above): while it rests, the layout
@@ -2015,13 +2022,18 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
     const shrunkAbove = row !== null && rowBefore?.key === row.key ? Math.max(0, rowBefore.offset - row.offset) : 0;
     // the transcript got shorter: at its end the browser moves the view up with it
     const shrunk = Math.max(0, lastScrollHeight.current - node.scrollHeight);
+    // shorter for a while since then and grown back (a row above measured smaller, then the next
+    // output): the list and the browser moved the view up for it, by no more than twice the shrink
+    const shrankBetween = Math.max(0, lastScrollHeight.current - leastScrollHeight.current);
     lastScrollHeight.current = node.scrollHeight;
+    leastScrollHeight.current = Infinity;
     // Without input, a move up while the transcript got shorter is the layout's, however far: the
     // list holding the rows and the browser keeping the view inside the transcript can both move it
     // for one shrink. Over a transcript that did not shrink it is the reader's once the view is past
     // the layout allowance from the end, however many small moves took it there. Growth never
     // excuses a move up.
-    const shrankUnderView = shrunkAbove > READER_ALLOWANCE_PX || shrunk > READER_ALLOWANCE_PX;
+    const shrankUnderView = shrunkAbove > READER_ALLOWANCE_PX || shrunk > READER_ALLOWANCE_PX
+      || (shrankBetween > READER_ALLOWANCE_PX && movedUp <= 2 * shrankBetween + LAYOUT_ALLOWANCE_PX);
     const heldInPlace = scrollingUp && !byReader && (shrankUnderView || distanceFromBottom <= LAYOUT_ALLOWANCE_PX);
     const leftEnd = scrollingUp && !heldInPlace;
     // Reaching the rounded endpoint clears reading intent unless still paging upward.
@@ -2416,6 +2428,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
       footer={footer}
       label={logLabel}
       onScroll={onScroll}
+      onFollowed={followed}
       onOpen={readOpened}
       renderRow={renderTurn}
     /> : <div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={logLabel}>

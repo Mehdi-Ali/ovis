@@ -691,7 +691,9 @@ try {
         const tick = () => {
           if (!content.isConnected) { reject(new Error("The streaming row was unmounted")); return; }
           const elapsed = performance.now() - started;
-          if (seq < 70 && elapsed >= seq * 110) {
+          // A frame the machine held up lands every change that came meanwhile at once, as a stream's
+          // backlog does: one change per frame after a stall would be the check's own burst
+          while (seq < 70 && elapsed >= seq * 110) {
             seq++;
             const paragraph = document.createElement("p");
             paragraph.textContent = `Continuous paragraph ${seq}: ${"streamed words grow the measured row while the reader follows. ".repeat(3)}`;
