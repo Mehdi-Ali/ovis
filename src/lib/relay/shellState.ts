@@ -17,7 +17,7 @@ import { ServerIdentityChangedError } from "./device.ts";
 import type { RelayDevice } from "./device.ts";
 
 /** Why a connection did not come up; each is a screen with its own `data-relay-state`. */
-export type RelayFailure = "pc-offline" | "pc-unresponsive" | "relay-unreachable" | "needs-update" | "revoked" | "identity-changed" | "code-expired" | "bad-offer";
+export type RelayFailure = "pc-offline" | "pc-unresponsive" | "relay-unreachable" | "needs-update" | "revoked" | "identity-changed" | "code-expired" | "pair-declined" | "bad-offer";
 
 /**
  * Where a PC below MIN_SERVER_VERSION is in its update (skew.ts): its update status being read, an
@@ -38,6 +38,8 @@ export type RelayShellState =
   | { kind: "empty" }
   | { kind: "confirm"; offer: RelayOffer }
   | { kind: "connecting"; name: string | null }
+  /** pairing without a code: the digits to compare with the PC's screen; `confirmed` once this phone said they match */
+  | { kind: "compare"; name: string | null; digits: string; confirmed: boolean }
   /** the phone's key for a PC whose identity changed is gone; only a new QR code from the PC pairs it again */
   | { kind: "forgotten"; name: string | null }
   /** a link with another key under a PC's id (forgedOffer): refused every time, and no saved key is touched */
@@ -83,8 +85,11 @@ export function offerOf(device: RelayDevice): RelayOffer {
  * never assigned the connection could not be reached, a PC that never answered once it had is
  * offline, and a PC that answered but never finished admitting the device is unresponsive.
  */
-export function failureOf(error: unknown, attempt: { code: boolean; paired: boolean }): RelayFailure {
+export function failureOf(error: unknown, attempt: { code: boolean; paired: boolean; compared?: boolean }): RelayFailure {
   if (error instanceof UnsafeRelayDestinationError) return "bad-offer";
+  // once digits were shown, the PC answered: a refusal or a deadline there means it was not approved in time
+  if (attempt.compared && (error instanceof RelayAdmissionTimeoutError
+    || error instanceof MuxProtocolError && (error.code === "auth_failed" || error.code === "timeout"))) return "pair-declined";
   if (error instanceof ServerIdentityChangedError) return "identity-changed";
   if (error instanceof RelayUnreachableError) return "relay-unreachable";
   if (error instanceof RelayAdmissionTimeoutError) return "pc-unresponsive";

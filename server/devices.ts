@@ -314,14 +314,35 @@ export class DeviceStore {
 
   /** No cookie is issued: even the first relay pairing is durable and closes the gate at once. */
   pairRelay(code: string, label: string, publicKey: string, now = Date.now()): { device: DeviceMatch } | null {
-    this.assertWritable();
-    if (now < this.relayBlockedUntil) throw new PairingRateLimitedError(Math.ceil((this.relayBlockedUntil - now) / 1000));
-    this.relayFailures = this.relayFailures.filter((at) => now - at < PAIRING_WINDOW_MS);
+    this.assertRelayPairing(now);
     if (!this.checkPairingCode(code, now) || !isRelayPublicKey(publicKey)) {
-      this.relayFailures.push(now);
-      if (this.relayFailures.length >= 20) this.relayBlockedUntil = now + PAIRING_WINDOW_MS;
+      this.noteRelayFailure(now);
       return null;
     }
+    return this.enrollRelay(label, publicKey, now);
+  }
+
+  /** Throws while relay pairing is paused after too many failures; both pairing ways share the count. */
+  assertRelayPairing(now = Date.now()): void {
+    this.assertWritable();
+    if (now < this.relayBlockedUntil) throw new PairingRateLimitedError(Math.ceil((this.relayBlockedUntil - now) / 1000));
+  }
+
+  /** A relay pairing that did not end in a device: a wrong code, or a comparison declined, abandoned or timed out. */
+  noteRelayFailure(now = Date.now()): void {
+    this.relayFailures = this.relayFailures.filter((at) => now - at < PAIRING_WINDOW_MS);
+    this.relayFailures.push(now);
+    if (this.relayFailures.length >= 20) this.relayBlockedUntil = now + PAIRING_WINDOW_MS;
+  }
+
+  /** A pairing by comparing digits the owner approved on this PC (server/relay/session.ts): no code is spent. */
+  pairRelayApproved(label: string, publicKey: string, now = Date.now()): { device: DeviceMatch } | null {
+    this.assertRelayPairing(now);
+    if (!isRelayPublicKey(publicKey)) { this.noteRelayFailure(now); return null; }
+    return this.enrollRelay(label, publicKey, now);
+  }
+
+  private enrollRelay(label: string, publicKey: string, now: number): { device: DeviceMatch } {
     const device: StoredDevice = {
       id: randomBytes(8).toString("hex"), label: normalizeLabel(label, "Device"), role: "drive",
       token_hash: hash(randomBytes(32).toString("hex")), relay_public_key: publicKey,

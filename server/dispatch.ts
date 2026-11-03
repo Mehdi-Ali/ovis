@@ -5,7 +5,7 @@ import type { RequestLog } from "./request-log.ts";
 import { handlePaneRequest } from "./pane-routes.ts";
 import { handleIntegrationsRequest } from "./integrations-routes.ts";
 import type { OrderSequence } from "./order-sequence.ts";
-import type { DevicePairedEvent, HealthAuth, SecuritySummary, SessionSnapshot } from "../shared/protocol.ts";
+import type { DevicePairedEvent, HealthAuth, RelayPairingsEvent, SecuritySummary, SessionSnapshot } from "../shared/protocol.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { authClient, deviceCookieValue, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { bindScope, cameThroughProxy, decideAccess, forwardingHeaders, isLoopbackAddress, isServeOwnerRequest, lanExposed, observedIngress } from "./access.ts";
@@ -280,7 +280,14 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
       // a stream that came in through the open LAN is told nothing: every enrollment follows the write
       // that closed the gate, so whoever holds it has no access left by the time there is news
       const openAccess = access.level === "full" && access.via === "open";
-      const pairings = { subscribe: (listener: (event: DevicePairedEvent) => void) => devices.onPaired((event, origin) => { if (!openAccess && event.device_id !== deviceId && !sameBrowser(origin, keys)) listener(event); }) };
+      // a relay pairing waiting for approval reaches only a window that may approve it (server/relay/routes.ts):
+      // driving, direct to this PC, and not a Portal visitor
+      const approver = access.level === "full" && access.role === "drive" && access.via !== "open" && access.via !== "relay" && access.via !== "portal";
+      const pairings = { subscribe: (listener: (event: DevicePairedEvent | RelayPairingsEvent) => void) => {
+        const stopPaired = devices.onPaired((event, origin) => { if (!openAccess && event.device_id !== deviceId && !sameBrowser(origin, keys)) listener(event); });
+        const stopRelay = approver ? ctx.services.relay.approvals.subscribe((list) => listener({ type: "relay-pairings", pairings: list })) : undefined;
+        return () => { stopPaired(); stopRelay?.(); };
+      } };
       const response = await handleMachineRequest(request, machines, deviceId ? (close) => devices.onRevoke(deviceId, close) : portalRecheckMs !== undefined ? (close) => { const timer = setTimeout(close, portalRecheckMs); return () => clearTimeout(timer); } : undefined, preferences, readOnly, herdrSidebar, seen, pairings, ctx.relayBodyBudget);
       response.headers.set("cache-control", "no-store");
       if (issuedKey !== null && response.ok) response.headers.append("set-cookie", streamCookie(issuedKey, isSecureRequest(request)));

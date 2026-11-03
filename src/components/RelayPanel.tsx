@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Link2, RefreshCw } from "lucide-react";
 
 import "./RelayPanel.css";
 
-import { ApiError, requestRelayOffer, startPairing, type RelayOffer } from "../lib/api.ts";
+import { ApiError, requestRelayLink, requestRelayOffer, startPairing, type RelayOffer } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
 import { callNative, hasNativePlugin } from "../lib/nativeApp.ts";
 import { announcePairingCode, PAIRING_CODE_EVENT } from "../lib/useRelay.ts";
@@ -158,7 +158,33 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
         <div className="phone-actions">
           <button type="button" className="btn" disabled={state === "minting"} onClick={() => void renew()}><RefreshCw aria-hidden="true" />{t("New code")}</button>
         </div>
+        <CodelessLink />
       </div>
     </div>
+  );
+}
+
+/**
+ * No camera: a link without a code, sent to the phone any way at all. It holds nothing secret, so
+ * the phone that opens it and this PC show six digits to compare, and the owner approves the
+ * phone here (RelayPairingPrompt).
+ */
+function CodelessLink() {
+  const t = useT();
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const copy = async () => {
+    try {
+      const { url } = await requestRelayLink();
+      await navigator.clipboard.writeText(url);
+      setNote({ ok: true, text: t("Copied. Open it on the phone: both screens show six digits to compare, and you approve the phone here.") });
+    } catch (reason) { setNote({ ok: false, text: failureText(reason) }); }
+  };
+  return (
+    <>
+      <div className="phone-actions">
+        <button type="button" className="btn" onClick={() => void copy()}><Link2 aria-hidden="true" />{t("Copy a link without a code")}</button>
+      </div>
+      {note !== null && <p className={note.ok ? "settings-hint" : "settings-hint relay-error"} role={note.ok ? "status" : "alert"}>{note.text}</p>}
+    </>
   );
 }

@@ -3,7 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DeviceStore } from "../../../server/devices.ts";
-import { bounded } from "../../../server/relay/test-helpers.ts";
+import { RelaySession } from "../../../server/relay/session.ts";
+import { bounded, relayFixture } from "../../../server/relay/test-helpers.ts";
+import type { RelayPairingRequest } from "../../../shared/machines.ts";
 import { exportPublicKey, generateKeyPair, openDaemonSecureChannel } from "../../../shared/relay-e2ee.ts";
 import type { SecureChannel, Transport } from "../../../shared/relay-e2ee.ts";
 import { decodeFrame, encodeFrame, FrameType, LIMITS_V1, MuxProtocolError } from "../../../shared/relay-mux.ts";
@@ -364,3 +366,71 @@ for (const attack of ["welcome", "nonce", "ping", "auth-ok", "features", "assign
     expect(f.trace.filter((entry) => entry.startsWith("client:"))).toEqual(attack === "assigned" ? [] : ["client:HELLO"]);
   });
 }
+
+/** The phone's real channel against the PC's real session, over one relay connection that passes frames on. */
+async function comparing(compare: (digits: string) => Promise<void>) {
+  const f = relayFixture();
+  cleanups.push(() => f.close());
+  const keys = generateKeyPair();
+  let session: RelaySession | undefined;
+  let socket: FakeSocket;
+  const daemon: Transport = {
+    onmessage: null, onclose: null, onerror: null,
+    send: (data) => socket.deliver(data),
+    // as on a WebSocket, the PC's close reaches the phone in a later task than the frames it sent first
+    close: (code, reason) => { setImmediate(() => socket.close(code, reason)); },
+  };
+  socket = new FakeSocket(daemon);
+  // frames the phone sends as soon as its side opens wait for the session, as a relay's latency would make them
+  const early: (string | ArrayBuffer)[] = [];
+  void openDaemonSecureChannel(daemon, { daemonKeyPair: keys, events: { onmessage: (data) => { if (session) session.receive(data); else early.push(data); } } }).then((channel) => {
+    session = new RelaySession({
+      channel, services: f.app.context.services, port: f.app.port, serverId: "12".repeat(16), serverVersion: "0.4.20",
+      minSupportedClient: "0.4.20", routingOverhead: 0, maxWireMessageBytes: 64 * 1024,
+    });
+    for (const data of early.splice(0)) session.receive(data);
+  }, () => {});
+  const store = new MemoryDeviceStore();
+  const offer = { v: 1 as const, server_id: "12".repeat(16), server_public_key: exportPublicKey(keys.publicKey), relay: "wss://relay.example" };
+  const waiting = Promise.withResolvers<RelayPairingRequest>();
+  const cleared = Promise.withResolvers<void>();
+  let seen = false;
+  cleanups.push(f.app.context.services.relay.approvals.subscribe((list) => {
+    if (list[0]) { seen = true; waiting.resolve(list[0]); } else if (seen) cleared.resolve();
+  }));
+  const opening = openRelayChannel(offer, {
+    store, compare,
+    socket: () => {
+      queueMicrotask(() => socket.deliver(JSON.stringify({ type: "assigned", connection_id: "ab".repeat(16) })));
+      return socket;
+    },
+  });
+  void opening.catch(() => {});
+  return { f, store, offer, opening, waiting: bounded(waiting.promise), cleared: bounded(cleared.promise) };
+}
+
+it("pairs a new device without a code once both screens show the same digits and the PC approves it", async () => {
+  const shown = Promise.withResolvers<string>();
+  const matched = Promise.withResolvers<void>();
+  const { f, store, offer, opening, waiting } = await comparing((digits) => { shown.resolve(digits); return matched.promise; });
+  const request = await waiting;
+  expect(await bounded(shown.promise)).toBe(request.digits);
+  expect(f.app.context.services.relay.approvals.decide(request.id, true)).toBe(true);
+  matched.resolve();
+  const channel = await bounded(opening);
+  cleanups.push(() => channel.close());
+  const saved = await store.get(offer.server_id);
+  expect(saved?.device_id).toBe(channel.device.device_id);
+  expect(f.app.context.services.devices.list(null).find((device) => device.id === saved?.device_id)?.via_relay).toBe(true);
+});
+
+it("saves no key when the PC declines, and lands on the not-approved screen", async () => {
+  const { f, store, offer, opening, waiting, cleared } = await comparing(() => new Promise(() => {}));
+  const request = await waiting;
+  expect(f.app.context.services.relay.approvals.decide(request.id, false)).toBe(true);
+  const error = await bounded(opening.then(() => null, (reason: unknown) => reason));
+  expect(error).toBeInstanceOf(MuxProtocolError);
+  expect(failureOf(error, { code: false, paired: false, compared: true })).toBe("pair-declined");
+  expect(await store.get(offer.server_id)).toBeUndefined();
+  await cleared;
+});

@@ -1,0 +1,5 @@
+### Added
+- A phone can pair through the Ovis relay without a code: **Copy a link without a code** under the
+  QR code gives a link to send any way you like. The phone and the PC then show the same six digits,
+  and the pairing finishes only when the phone says they match and you approve it on the PC. A relay
+  in the middle cannot make the two numbers agree. QR pairing works as before.

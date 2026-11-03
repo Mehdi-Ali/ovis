@@ -44,4 +44,10 @@ export const RELAY_JA: Record<string, string> = {
   "Asking the PC to update…": "PCにアップデートを依頼しています…",
   "Waiting for {name} to restart…": "{name}の再起動を待っています…",
   "The update did not finish.": "アップデートが完了しませんでした。",
+  "Does {name} show this number?": "{name} にもこの数字が表示されていますか?",
+  "Approve this phone on {name} to finish.": "{name} でこのスマートフォンを承認すると完了します。",
+  "Pair only if the PC's screen shows the same six digits. Then approve this phone on the PC.": "PC の画面に同じ 6 桁の数字が表示されているときだけペアリングしてください。そのあと PC でこのスマートフォンを承認します。",
+  "The numbers match": "数字が一致しています",
+  "{name} did not approve this phone": "{name} はこのスマートフォンを承認しませんでした",
+  "It was declined on the PC, or not approved in time. Open the link again to compare new numbers.": "PC で拒否されたか、時間内に承認されませんでした。リンクをもう一度開いて新しい数字を比べてください。",
 };

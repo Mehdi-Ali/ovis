@@ -44,4 +44,10 @@ export const RELAY_KO: Record<string, string> = {
   "Asking the PC to update…": "PC에 업데이트를 요청하는 중…",
   "Waiting for {name} to restart…": "{name}이(가) 다시 시작되기를 기다리는 중…",
   "The update did not finish.": "업데이트가 끝나지 않았습니다.",
+  "Does {name} show this number?": "{name}에도 이 숫자가 보이나요?",
+  "Approve this phone on {name} to finish.": "{name}에서 이 휴대폰을 승인하면 끝납니다.",
+  "Pair only if the PC's screen shows the same six digits. Then approve this phone on the PC.": "PC 화면에 같은 여섯 자리 숫자가 보일 때만 연결하세요. 그다음 PC에서 이 휴대폰을 승인하세요.",
+  "The numbers match": "숫자가 같아요",
+  "{name} did not approve this phone": "{name}에서 이 휴대폰을 승인하지 않았습니다",
+  "It was declined on the PC, or not approved in time. Open the link again to compare new numbers.": "PC에서 거절했거나 제시간에 승인하지 않았습니다. 링크를 다시 열어 새 숫자를 비교하세요.",
 };
