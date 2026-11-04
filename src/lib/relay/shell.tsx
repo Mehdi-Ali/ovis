@@ -138,6 +138,8 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
   };
 
   const connect = async (attempt: Attempt): Promise<void> => {
+    // digits shown on an earlier try say nothing about how this one fails
+    attempt.compared = false;
     last = attempt;
     opening?.abort();
     const controller = new AbortController();

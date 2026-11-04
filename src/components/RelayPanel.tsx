@@ -3,6 +3,7 @@ import { Link2, RefreshCw } from "lucide-react";
 
 import "./RelayPanel.css";
 
+import { copyText } from "../lib/clipboard.ts";
 import { ApiError, requestRelayLink, requestRelayOffer, startPairing, type RelayOffer } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
 import { callNative, hasNativePlugin } from "../lib/nativeApp.ts";
@@ -172,11 +173,15 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
 function CodelessLink() {
   const t = useT();
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const linkRef = useRef<HTMLElement | null>(null);
   const copy = async () => {
     try {
       const { url } = await requestRelayLink();
-      await navigator.clipboard.writeText(url);
-      setNote({ ok: true, text: t("Copied. Open it on the phone: both screens show six digits to compare, and you approve the phone here.") });
+      setLink(url);
+      // where the browser refuses the clipboard (plain http on the LAN), the link stays on screen, selected
+      if (await copyText(url, linkRef.current)) setNote({ ok: true, text: t("Copied. Open it on the phone: both screens show six digits to compare, and you approve the phone here.") });
+      else setNote(null);
     } catch (reason) { setNote({ ok: false, text: failureText(reason) }); }
   };
   return (
@@ -184,6 +189,7 @@ function CodelessLink() {
       <div className="phone-actions">
         <button type="button" className="btn" onClick={() => void copy()}><Link2 aria-hidden="true" />{t("Copy a link without a code")}</button>
       </div>
+      {link !== null && note?.ok !== true && <code className="settings-hint relay-codeless-link" ref={linkRef}>{link}</code>}
       {note !== null && <p className={note.ok ? "settings-hint" : "settings-hint relay-error"} role={note.ok ? "status" : "alert"}>{note.text}</p>}
     </>
   );
