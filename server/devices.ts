@@ -300,13 +300,13 @@ export class DeviceStore {
   }
 
   /** One authorization write precedes every state change and enrollment announcement. */
-  private enroll(device: StoredDevice, now: number, origin: readonly string[]): void {
+  private enroll(device: StoredDevice, now: number, origin: readonly string[], codeSpent = true): void {
     const next = [...this.devices, device];
     const gate = this.gateClosedAt ?? device.created_at;
     this.save(next, gate);
     this.devices = next;
     this.gateClosedAt = gate;
-    this.pending = null;
+    if (codeSpent) this.pending = null;
     // A relay enrollment closes the gate immediately, invalidating every first-cookie candidate.
     if (device.relay_public_key !== undefined) this.unconfirmedFirstPairs = [];
     this.announce(device, now, origin);
@@ -319,7 +319,7 @@ export class DeviceStore {
       this.noteRelayFailure(now);
       return null;
     }
-    return this.enrollRelay(label, publicKey, now);
+    return this.enrollRelay(label, publicKey, now, true);
   }
 
   /** Throws while relay pairing is paused after too many failures; both pairing ways share the count. */
@@ -339,16 +339,17 @@ export class DeviceStore {
   pairRelayApproved(label: string, publicKey: string, now = Date.now()): { device: DeviceMatch } | null {
     this.assertRelayPairing(now);
     if (!isRelayPublicKey(publicKey)) { this.noteRelayFailure(now); return null; }
-    return this.enrollRelay(label, publicKey, now);
+    // no code was used, so one still showing on the PC keeps working
+    return this.enrollRelay(label, publicKey, now, false);
   }
 
-  private enrollRelay(label: string, publicKey: string, now: number): { device: DeviceMatch } {
+  private enrollRelay(label: string, publicKey: string, now: number, codeSpent: boolean): { device: DeviceMatch } {
     const device: StoredDevice = {
       id: randomBytes(8).toString("hex"), label: normalizeLabel(label, "Device"), role: "drive",
       token_hash: hash(randomBytes(32).toString("hex")), relay_public_key: publicKey,
       created_at: new Date(now).toISOString(), last_seen_at: null,
     };
-    this.enroll(device, now, []);
+    this.enroll(device, now, [], codeSpent);
     return { device: { id: device.id, label: device.label, role: device.role } };
   }
 

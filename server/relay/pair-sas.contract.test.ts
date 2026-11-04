@@ -167,6 +167,20 @@ test("a phone that offers the feature gets it, and pairs once its digits match a
   expect(f.app.context.services.relay.approvals.list()).toEqual([]);
 });
 
+test("an approved comparison leaves a pairing code that is still showing usable", async () => {
+  const f = fixture();
+  const code = f.app.context.services.devices.startPairing();
+  const { p } = await direct(f);
+  await p.hello();
+  const waiting = prompts(f, (list) => list.length === 1);
+  await compare(p);
+  const [request] = await waiting;
+  await confirm(p);
+  f.app.context.services.relay.approvals.decide(request!.id, true);
+  expect((await p.inbox.next()).type).toBe(FrameType.AUTH_OK);
+  expect(f.app.context.services.devices.activePairing()?.code).toBe(code.code);
+});
+
 test("the phone's word alone does not pair it: it waits for the owner", async () => {
   const f = fixture();
   const { p } = await direct(f);

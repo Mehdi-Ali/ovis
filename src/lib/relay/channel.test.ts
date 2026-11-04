@@ -6,6 +6,7 @@ import { DeviceStore } from "../../../server/devices.ts";
 import { RelaySession } from "../../../server/relay/session.ts";
 import { bounded, relayFixture } from "../../../server/relay/test-helpers.ts";
 import type { RelayPairingRequest } from "../../../shared/machines.ts";
+import type { RelayOffer } from "../../../shared/relay-offer.ts";
 import { exportPublicKey, generateKeyPair, openDaemonSecureChannel } from "../../../shared/relay-e2ee.ts";
 import type { SecureChannel, Transport } from "../../../shared/relay-e2ee.ts";
 import { decodeFrame, encodeFrame, FrameType, LIMITS_V1, MuxProtocolError } from "../../../shared/relay-mux.ts";
@@ -367,11 +368,9 @@ for (const attack of ["welcome", "nonce", "ping", "auth-ok", "features", "assign
   });
 }
 
-/** The phone's real channel against the PC's real session, over one relay connection that passes frames on. */
-async function comparing(compare: (digits: string) => Promise<void>) {
-  const f = relayFixture();
-  cleanups.push(() => f.close());
-  const keys = generateKeyPair();
+/** One relay connection from the phone's real channel to the PC's real session, passing frames on. */
+function connectReal(f: ReturnType<typeof relayFixture>, keys: ReturnType<typeof generateKeyPair>, offer: RelayOffer, store: MemoryDeviceStore,
+  compare?: (digits: string) => Promise<void>) {
   let session: RelaySession | undefined;
   let socket: FakeSocket;
   const daemon: Transport = {
@@ -385,11 +384,26 @@ async function comparing(compare: (digits: string) => Promise<void>) {
   const early: (string | ArrayBuffer)[] = [];
   void openDaemonSecureChannel(daemon, { daemonKeyPair: keys, events: { onmessage: (data) => { if (session) session.receive(data); else early.push(data); } } }).then((channel) => {
     session = new RelaySession({
-      channel, services: f.app.context.services, port: f.app.port, serverId: "12".repeat(16), serverVersion: "0.4.20",
+      channel, services: f.app.context.services, port: f.app.port, serverId: offer.server_id, serverVersion: "0.4.20",
       minSupportedClient: "0.4.20", routingOverhead: 0, maxWireMessageBytes: 64 * 1024,
     });
     for (const data of early.splice(0)) session.receive(data);
   }, () => {});
+  const opening = openRelayChannel(offer, {
+    store, ...(compare ? { compare } : {}),
+    socket: () => {
+      queueMicrotask(() => socket.deliver(JSON.stringify({ type: "assigned", connection_id: "ab".repeat(16) })));
+      return socket;
+    },
+  });
+  void opening.catch(() => {});
+  return opening;
+}
+
+async function comparing(compare: (digits: string) => Promise<void>) {
+  const f = relayFixture();
+  cleanups.push(() => f.close());
+  const keys = generateKeyPair();
   const store = new MemoryDeviceStore();
   const offer = { v: 1 as const, server_id: "12".repeat(16), server_public_key: exportPublicKey(keys.publicKey), relay: "wss://relay.example" };
   const waiting = Promise.withResolvers<RelayPairingRequest>();
@@ -398,16 +412,25 @@ async function comparing(compare: (digits: string) => Promise<void>) {
   cleanups.push(f.app.context.services.relay.approvals.subscribe((list) => {
     if (list[0]) { seen = true; waiting.resolve(list[0]); } else if (seen) cleared.resolve();
   }));
-  const opening = openRelayChannel(offer, {
-    store, compare,
-    socket: () => {
-      queueMicrotask(() => socket.deliver(JSON.stringify({ type: "assigned", connection_id: "ab".repeat(16) })));
-      return socket;
-    },
-  });
-  void opening.catch(() => {});
+  const opening = connectReal(f, keys, offer, store, compare);
   return { f, store, offer, opening, waiting: bounded(waiting.promise), cleared: bounded(cleared.promise) };
 }
+
+it("pairs again with a new code a phone that already holds a key for the PC", async () => {
+  const f = relayFixture();
+  cleanups.push(() => f.close());
+  const keys = generateKeyPair();
+  const store = new MemoryDeviceStore();
+  const base = { v: 1 as const, server_id: "12".repeat(16), server_public_key: exportPublicKey(keys.publicKey), relay: "wss://relay.example" };
+  const devices = f.app.context.services.devices;
+  const first = await bounded(connectReal(f, keys, { ...base, code: devices.startPairing().code }, store));
+  first.close();
+  // a fresh QR code scanned on the same phone: the PC makes a new device for the same key, and the phone keeps it
+  const second = await bounded(connectReal(f, keys, { ...base, code: devices.startPairing().code }, store));
+  cleanups.push(() => second.close());
+  expect(second.device.device_id).not.toBe(first.device.device_id);
+  expect((await store.get(base.server_id))?.device_id).toBe(second.device.device_id);
+});
 
 it("pairs a new device without a code once both screens show the same digits and the PC approves it", async () => {
   const shown = Promise.withResolvers<string>();

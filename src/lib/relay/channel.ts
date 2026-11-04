@@ -226,7 +226,8 @@ export async function openRelayChannel(offer: RelayOffer, options: RelayChannelO
         throw new MuxProtocolError("protocol_error", "Unexpected frame before AUTH_OK");
       }
       if (comparing && !confirmed) throw new MuxProtocolError("protocol_error", "AUTH_OK before the digits were confirmed");
-      if (device.device_id !== null && frame.payload.device_id !== device.device_id) {
+      // a sign-in names this phone's own device; a pairing (a code, or digits compared) is given a new one
+      if (offer.code === undefined && !comparing && frame.payload.device_id !== device.device_id) {
         throw new MuxProtocolError("auth_failed", "AUTH_OK named a different device");
       }
       const admitted = await store.update(offer.server_id, (current) => {
