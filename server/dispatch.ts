@@ -236,6 +236,13 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
     || pathname === "/api/relay" || pathname.startsWith("/api/relay/")
     || (request.method === "POST" && (pathname === "/api/push/subscribe" || pathname === "/api/push/status"))
   );
+  // pairing without a code ends in an approval only a window that hears of it can give (relay-pairings below):
+  // an ungated LAN window never does, so it neither makes such a link nor answers one
+  if (access.level === "full" && access.via === "open" && request.method === "POST"
+    && (pathname === "/api/relay/link" || pathname === "/api/relay/pairing")) {
+    setRequestRoute("open-refusal");
+    return jsonResponse({ error: { code: "owner_only", message: "Pair without a code from this PC itself, or from a paired device: an open LAN window is not told when a phone waits for approval." } }, 403);
+  }
   // and what it keeps open is closed after a while, so it comes through Portal's sign-in again (portal.ts recheckMs)
   const portalRecheckMs = access.level === "full" && access.via === "portal" ? options.portal?.recheckMs : undefined;
   if (access.level === "full" && access.via === "portal" && standingAccess) {

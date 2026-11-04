@@ -175,13 +175,15 @@ function CodelessLink() {
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const linkRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (link !== null && linkRef.current) window.getSelection()?.selectAllChildren(linkRef.current);
+  }, [link]);
   const copy = async () => {
     try {
       const { url } = await requestRelayLink();
-      setLink(url);
-      // where the browser refuses the clipboard (plain http on the LAN), the link stays on screen, selected
-      if (await copyText(url, linkRef.current)) setNote({ ok: true, text: t("Copied. Open it on the phone: both screens show six digits to compare, and you approve the phone here.") });
-      else setNote(null);
+      // where the browser refuses the clipboard (plain http on the LAN), the link stays on screen, selected once drawn
+      if (await copyText(url)) { setLink(null); setNote({ ok: true, text: t("Copied. Open it on the phone: both screens show six digits to compare, and you approve the phone here.") }); }
+      else { setLink(url); setNote(null); }
     } catch (reason) { setNote({ ok: false, text: failureText(reason) }); }
   };
   return (
@@ -189,7 +191,7 @@ function CodelessLink() {
       <div className="phone-actions">
         <button type="button" className="btn" onClick={() => void copy()}><Link2 aria-hidden="true" />{t("Copy a link without a code")}</button>
       </div>
-      {link !== null && note?.ok !== true && <code className="settings-hint relay-codeless-link" ref={linkRef}>{link}</code>}
+      {link !== null && <code className="settings-hint relay-codeless-link" ref={linkRef}>{link}</code>}
       {note !== null && <p className={note.ok ? "settings-hint" : "settings-hint relay-error"} role={note.ok ? "status" : "alert"}>{note.text}</p>}
     </>
   );

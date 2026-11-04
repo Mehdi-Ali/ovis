@@ -133,7 +133,8 @@ two screens instead, as in Bluetooth's numeric comparison:
    (in constant time) and ends the session with `auth_failed` if it does not hold.
 6. **Compare.** Both show `SHA-256("ovis-relay-pair-digits/1" || binding || device key || Np || Nc)`,
    its first 8 bytes as a number modulo 10^6, as six digits. The PC shows them in every one of
-   its own windows that may approve a phone (driving, direct, not a Portal visitor): **{name} wants to
+   its own windows that may approve a phone (driving, direct, not a Portal visitor, not an open LAN
+   window, which also gets 403 `owner_only` for the codeless link and the approval): **{name} wants to
    pair through the relay. Approve it only if its screen shows 123 456**, with Approve and Decline.
 7. **Confirm and approve.** The phone sends `PAIR_CONFIRM` once its person taps **The numbers
    match**, and the PC's owner approves (`POST /api/relay/pairing`). Only both together make the
