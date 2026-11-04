@@ -153,7 +153,7 @@ after which the session ends with `timeout` and the prompt goes. At most three p
 approval at once; a fourth gets `auth_failed`. Every comparison that ends without a device
 (declined, abandoned, timed out, a broken commitment) counts toward the same 20 failed relay
 pairings in 10 minutes as a wrong code, after which the PC takes no relay pairing for 10 minutes.
-The prompt lives in memory only. The relay learns nothing new: the comparison travels inside the
+**Revoke all** ends every comparison under way, an approved one included, and withdraws its prompt. The prompt lives in memory only. The relay learns nothing new: the comparison travels inside the
 encrypted channel, so it sees only a few more frames and their sizes and timing.
 
 The phone's screen asks **Does {name} show this number?** with **The numbers match** and **Cancel**,

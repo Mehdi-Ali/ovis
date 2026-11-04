@@ -181,6 +181,33 @@ test("an approved comparison leaves a pairing code that is still showing usable"
   expect(f.app.context.services.devices.activePairing()?.code).toBe(code.code);
 });
 
+test("revoking every device ends a comparison under way, even one the owner already approved", async () => {
+  const f = fixture();
+  const { p } = await direct(f);
+  await p.hello();
+  const waiting = prompts(f, (list) => list.length === 1);
+  await compare(p);
+  const [request] = await waiting;
+  expect(f.app.context.services.relay.approvals.decide(request!.id, true)).toBe(true);
+  f.app.context.services.devices.revokeAll();
+  await confirm(p);
+  expect(await sessionError(p)).toBe("auth_failed");
+  expect(f.app.context.services.devices.list(null)).toEqual([]);
+});
+
+test("revoking every device withdraws a prompt still waiting", async () => {
+  const f = fixture();
+  const { p } = await direct(f);
+  await p.hello();
+  const waiting = prompts(f, (list) => list.length === 1);
+  await compare(p);
+  await waiting;
+  const cleared = prompts(f, (list) => list.length === 0);
+  f.app.context.services.devices.revokeAll();
+  await cleared;
+  expect(await sessionError(p)).toBe("auth_failed");
+});
+
 test("the phone's word alone does not pair it: it waits for the owner", async () => {
   const f = fixture();
   const { p } = await direct(f);

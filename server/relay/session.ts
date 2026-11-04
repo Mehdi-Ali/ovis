@@ -75,7 +75,7 @@ export class RelaySession {
   /** A pairing by comparing digits under way; `ended` once it made a device or counted as a failure. */
   private sas: {
     label: string; publicKey: string; commitment: Uint8Array; pcNonce: Uint8Array; expiresAt: number;
-    phoneConfirmed: boolean; approved: boolean; ended: boolean; withdraw?: () => void; cancelDeadline?: () => void;
+    phoneConfirmed: boolean; approved: boolean; ended: boolean; withdraw?: () => void; cancelDeadline?: () => void; stopRevokeAll?: () => void;
   } | undefined;
   private device: DeviceMatch | undefined;
   private unwatch: (() => void) | undefined;
@@ -231,6 +231,8 @@ export class RelaySession {
         // past the comparison's deadline the session ends with `timeout` and its prompt goes at once;
         // the mux's own setup deadline stays just behind it as the backstop
         this.sas.cancelDeadline = this.clock.setTimeout(() => { if (this.pairing) this.close("timeout"); }, PAIR_APPROVAL_MS);
+        // revoking every device also ends a comparison under way, even one the owner already approved
+        this.sas.stopRevokeAll = this.options.services.devices.onRevokeAll(() => { if (this.pairing) this.close("auth_failed"); });
         this.mux.extendSetup(PAIR_APPROVAL_MS + 1_000);
         this.mux.sendSession({ type: FrameType.PAIR_CHALLENGE, flags: 0, stream_id: 0, payload: { nonce: toBase64Url(this.sas.pcNonce) } });
         return;
@@ -288,6 +290,7 @@ export class RelaySession {
     if (!sas || sas.ended) return;
     sas.ended = true;
     sas.cancelDeadline?.();
+    sas.stopRevokeAll?.();
     sas.withdraw?.();
     if (!counted) this.options.services.devices.noteRelayFailure();
   }

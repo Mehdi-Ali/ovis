@@ -166,6 +166,7 @@ export class DeviceStore {
   private unconfirmedFirstPairs: UnconfirmedFirstPair[] = [];
   private readonly path: string;
   private readonly revocations = new Map<string, Set<() => void>>();
+  private readonly revokeAllListeners = new Set<() => void>();
   private readonly pairings = new Set<(event: DevicePairedEvent, origin: readonly string[]) => void>();
   readonly error: string | null = null;
 
@@ -453,6 +454,16 @@ export class DeviceStore {
    * The gate stays closed, with a timestamp even when nothing was ever confirmed (only first-pair
    * candidates existed): revoking must never reopen the LAN, not even after a restart.
    */
+  /**
+   * Told on every revokeAll, after the empty registry is saved: a relay pairing by comparing digits
+   * that is still under way (server/relay/session.ts) ends there, approved or not, so no device is
+   * made from a comparison the owner's "revoke all" came after.
+   */
+  onRevokeAll(listener: () => void): () => void {
+    this.revokeAllListeners.add(listener);
+    return () => { this.revokeAllListeners.delete(listener); };
+  }
+
   revokeAll(): string[] {
     this.assertWritable();
     const gate = this.gateClosedAt ?? this.devices[0]?.created_at ?? new Date().toISOString();
@@ -465,6 +476,7 @@ export class DeviceStore {
     const listeners = [...this.revocations.values()];
     this.revocations.clear();
     for (const closes of listeners) for (const close of closes) close();
+    for (const listener of [...this.revokeAllListeners]) listener();
     return revoked;
   }
 
