@@ -117,6 +117,8 @@ export async function openRelayChannel(offer: RelayOffer, options: RelayChannelO
     let phoneNonce: Uint8Array | undefined;
     let binding: Uint8Array | undefined;
     let challenge: Uint8Array | undefined;
+    /** set once PAIR_CONFIRM went out: before it, AUTH_OK would be a PC skipping the comparison on this phone */
+    let confirmed = false;
     let secure: SecureChannel | undefined;
     let mux: MuxEngine | undefined;
     let connectionId = "";
@@ -214,13 +216,16 @@ export async function openRelayChannel(offer: RelayOffer, options: RelayChannelO
         await send({ type: FrameType.PAIR_REVEAL, flags: 0, stream_id: 0, payload: { nonce: toBase64Url(phoneNonce) } });
         // never awaited here: the PC's refusal or timeout must still come through while the person looks
         void options.compare?.(digits).then(() => {
-          if (phase === "auth") return send({ type: FrameType.PAIR_CONFIRM, flags: 0, stream_id: 0, payload: { confirmed: true } });
+          if (phase !== "auth") return;
+          confirmed = true;
+          return send({ type: FrameType.PAIR_CONFIRM, flags: 0, stream_id: 0, payload: { confirmed: true } });
         }).catch(failed);
         return;
       }
       if (phase !== "auth" || frame.type !== FrameType.AUTH_OK) {
         throw new MuxProtocolError("protocol_error", "Unexpected frame before AUTH_OK");
       }
+      if (comparing && !confirmed) throw new MuxProtocolError("protocol_error", "AUTH_OK before the digits were confirmed");
       if (device.device_id !== null && frame.payload.device_id !== device.device_id) {
         throw new MuxProtocolError("auth_failed", "AUTH_OK named a different device");
       }

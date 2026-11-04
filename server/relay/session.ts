@@ -240,6 +240,8 @@ export class RelaySession {
         if (this.state !== "pair-commit" || !sas || !this.sasBinding) { this.close("protocol_error"); return; }
         const phoneNonce = fromBase64Url(frame.payload.nonce);
         if (!commitmentHolds(sas.commitment, this.sasBinding, sas.publicKey, phoneNonce)) { this.close("auth_failed"); return; }
+        // a pause that began while this phone held its reveal still keeps its prompt off the owner's screen
+        this.options.services.devices.assertRelayPairing();
         const asked = this.options.services.relay.approvals.ask(sas.label,
           pairDigits(this.sasBinding, sas.publicKey, phoneNonce, sas.pcNonce), sas.expiresAt);
         if (!asked) { this.close("auth_failed"); return; }

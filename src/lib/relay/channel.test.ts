@@ -434,3 +434,35 @@ it("saves no key when the PC declines, and lands on the not-approved screen", as
   expect(await store.get(offer.server_id)).toBeUndefined();
   await cleared;
 });
+
+it("does not take AUTH_OK from a PC before this phone said the digits match", async () => {
+  const keys = generateKeyPair();
+  let socket: FakeSocket;
+  const daemon: Transport = {
+    onmessage: null, onclose: null, onerror: null,
+    send: (data) => socket.deliver(data),
+    close: (code, reason) => { setImmediate(() => socket.close(code, reason)); },
+  };
+  socket = new FakeSocket(daemon);
+  const ready = Promise.withResolvers<SecureChannel>();
+  const send = (frame: MuxFrame) => ready.promise.then((channel) => channel.send(encodeFrame(frame).slice().buffer));
+  // a PC endpoint that skips the comparison: it admits the phone as soon as the phone reveals its nonce
+  void openDaemonSecureChannel(daemon, { daemonKeyPair: keys, events: { onmessage: (data) => {
+    const frame = decodeFrame(new Uint8Array(data as ArrayBuffer));
+    if (frame.type === FrameType.HELLO) void send({ type: FrameType.WELCOME, flags: 0, stream_id: 0, payload: { protocol: "ovis-mux", version: 1,
+      features: ["pair-sas"], limits: LIMITS_V1, nonce: base64url(new Uint8Array(32)), server_version: "0.4.21", relay_protocol: 1, min_supported_client: "0.4.20" } });
+    if (frame.type === FrameType.PAIR_REQUEST) void send({ type: FrameType.PAIR_CHALLENGE, flags: 0, stream_id: 0, payload: { nonce: base64url(new Uint8Array(32).fill(7)) } });
+    if (frame.type === FrameType.PAIR_REVEAL) void send({ type: FrameType.AUTH_OK, flags: 0, stream_id: 0, payload: { session_id: "ab".repeat(16), device_id: "cd".repeat(8), role: "drive" } });
+  } } }).then((channel) => ready.resolve(channel), () => {});
+  const store = new MemoryDeviceStore();
+  const offer = { v: 1 as const, server_id: "12".repeat(16), server_public_key: exportPublicKey(keys.publicKey), relay: "wss://relay.example" };
+  const shown = Promise.withResolvers<void>();
+  const opening = openRelayChannel(offer, { store, compare: () => { shown.resolve(); return new Promise(() => {}); },
+    socket: () => { queueMicrotask(() => socket.deliver(JSON.stringify({ type: "assigned", connection_id: "ab".repeat(16) }))); return socket; } });
+  cleanups.push(() => socket.close());
+  const error = await bounded(opening.then(() => null, (reason: unknown) => reason));
+  await bounded(shown.promise);
+  expect(error).toBeInstanceOf(MuxProtocolError);
+  expect((error as MuxProtocolError).code).toBe("protocol_error");
+  expect(await store.get(offer.server_id)).toBeUndefined();
+});
