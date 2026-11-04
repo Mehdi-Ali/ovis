@@ -24,6 +24,8 @@ import { RELAY_KO } from "./i18n/relay.ko.ts";
  * braces keep their English names.
  */
 const BASE: Record<string, string> = {
+  "Remove": "제거",
+  "Remove {name}": "{name} 제거",
   "Save": "저장",
   "Goal": "목표",
   "Waiting for your answer": "답변을 기다리는 중",
@@ -278,6 +280,8 @@ const BASE: Record<string, string> = {
   "{n} background task": "백그라운드 작업 {n}개",
   "{n} background tasks": "백그라운드 작업 {n}개",
   "Try again": "다시 시도",
+  "The relay did not start: {message}": "릴레이를 시작하지 못했습니다: {message}",
+  "Turning on the relay closes the device gate: a new browser then needs a pairing code or the access token.": "릴레이를 켜면 기기 게이트가 닫힙니다. 그 뒤 새 브라우저는 페어링 코드나 접속 토큰이 필요합니다.",
   // tabs: the strip over the pane, and the New tab dialog
   "New tab": "새 탭",
   "Rename tab": "탭 이름 바꾸기",
@@ -335,6 +339,7 @@ const BASE: Record<string, string> = {
   "Pair a phone through the relay": "릴레이로 휴대폰 연결",
   "{name} wants to pair through the relay. Approve it only if its screen shows": "{name}이(가) 릴레이로 연결하려고 합니다. 그 화면에 다음 숫자가 보일 때만 승인하세요:",
   "Decline": "거절",
+  "differs": "다름",
 };
 
 /** The parts KO is made of; src/lib/i18n.test.ts fails when a key is in two parts, since a spread keeps only the last. */

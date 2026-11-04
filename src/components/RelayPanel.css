@@ -40,3 +40,8 @@
   overflow-wrap: anywhere;
   user-select: all;
 }
+
+/* the PC's relay id under its QR code, to compare with the one a phone shows for a mismatched key */
+.relay-pairing-id {
+  margin-top: var(--space-3);
+}

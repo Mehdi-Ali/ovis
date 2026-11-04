@@ -8,9 +8,10 @@ import { ApiError, requestRelayLink, requestRelayOffer, startPairing, type Relay
 import { useT } from "../lib/i18n.ts";
 import { callNative, hasNativePlugin } from "../lib/nativeApp.ts";
 import { announcePairingCode, PAIRING_CODE_EVENT } from "../lib/useRelay.ts";
-import type { RelayStatus } from "../../shared/protocol.ts";
+import type { PairingCode, RelayStatus } from "../../shared/protocol.ts";
 import { decodeOffer } from "../../shared/relay-offer.ts";
 import { QrReveal, ShareLink } from "./PhonePanel.tsx";
+import { KeyId } from "./KeyId.tsx";
 import { QrCode } from "./QrCode.tsx";
 
 export const failureText = (error: unknown): string => error instanceof ApiError ? error.detail : error instanceof Error ? error.message : String(error);
@@ -44,11 +45,21 @@ export async function openOwnOffer(url: string): Promise<void> {
   window.location.assign(url);
 }
 
+// a code announced by a relay QR (announceFromRelay), not by the Devices group
+let relayAnnouncing = false;
+function announceFromRelay(code: PairingCode): void {
+  relayAnnouncing = true;
+  try { announcePairingCode(code); } finally { relayAnnouncing = false; }
+}
+
 /**
  * The QR code of the pending pairing offer, counted down to its expiry. An offer is asked for when
  * this opens with the relay online, when the Devices group starts a new code (the server keeps one
  * pending code, so both show the same), when the code ran out, and on New code, which starts a
- * new code first; never on a timer or a render.
+ * new code first; never on a timer or a render. The setup guide's and Settings' relay QR codes can be
+ * up at once: a code another one announces is the one this shows already, or this asks for the offer
+ * again without announcing it (the server's offer reuses its pending code), so the two never keep
+ * answering each other.
  */
 export function RelayPairing({ phone = false }: { phone?: boolean }) {
   const t = useT();
@@ -60,10 +71,15 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
   const [generation, setGeneration] = useState(0);
   // this panel's own announcement must not make it ask twice
   const announcing = useRef(false);
+  // the code on screen, and an ask for the offer that is not announced (another relay QR's code)
+  const shown = useRef<string | null>(null);
+  const quiet = useRef(false);
   const again = () => setGeneration((value) => value + 1);
 
   useEffect(() => {
     let cancelled = false;
+    const silent = quiet.current;
+    quiet.current = false;
     setState("minting");
     requestRelayOffer().then((next) => {
       if (cancelled) return;
@@ -72,9 +88,10 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
       // the server made this offer's code, maybe with no New code pressed: the page watches it like any other
       // (the Devices group re-reads its list while a code is out and closes the dialog once the phone is in)
       const code = decodeOffer(next.url)?.code;
-      if (code !== undefined) {
+      shown.current = code ?? null;
+      if (code !== undefined && !silent) {
         announcing.current = true;
-        try { announcePairingCode({ code, expires_at: next.expires_at }); } finally { announcing.current = false; }
+        try { announceFromRelay({ code, expires_at: next.expires_at }); } finally { announcing.current = false; }
       }
     }, (reason: unknown) => {
       if (cancelled) return;
@@ -86,7 +103,15 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
   }, [generation]);
 
   useEffect(() => {
-    const onCode = () => { if (!announcing.current) again(); };
+    const onCode = (event: Event) => {
+      if (announcing.current) return;
+      const code = (event as CustomEvent<PairingCode | undefined>).detail?.code;
+      if (relayAnnouncing) {
+        if (code === undefined || code !== shown.current) { quiet.current = true; again(); }
+        return;
+      }
+      again();
+    };
     window.addEventListener(PAIRING_CODE_EVENT, onCode);
     return () => window.removeEventListener(PAIRING_CODE_EVENT, onCode);
   }, []);
@@ -116,7 +141,7 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
     try {
       const code = await startPairing();
       announcing.current = true;
-      try { announcePairingCode(code); } finally { announcing.current = false; }
+      try { announceFromRelay(code); } finally { announcing.current = false; }
       again();
     } catch (reason) {
       setOffer(null);
@@ -132,6 +157,14 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
       {state === "minting" && t("Getting a code…")}
     </>
   );
+  // the id a phone shows when a link carries another key: compared here, on the PC itself
+  const serverId = offer !== null ? decodeOffer(offer.url)?.server_id ?? null : null;
+  const pcId = serverId !== null && (
+    <div className="relay-pairing-id">
+      <p className="settings-description">{t("This PC's ID")}</p>
+      <KeyId id={serverId} label={t("This PC's ID")} />
+    </div>
+  );
   const newCode = <button type="button" className="btn" disabled={state === "minting"} onClick={() => void renew()}><RefreshCw aria-hidden="true" />{t("New code")}</button>;
   // on the phone itself: the link to send to the other device, and its QR code only once asked for
   if (phone) return (
@@ -142,6 +175,7 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
       {offer !== null && <ShareLink url={offer.url} copyLabel={t("Copy link")}>{newCode}</ShareLink>}
       {offer === null && <div className="phone-actions">{newCode}</div>}
       {offer !== null && <QrReveal value={offer.url} label={t("QR code that pairs a phone through the relay")} hint={t("Scan it with the other device's camera.")} />}
+      {pcId}
     </div>
   );
   return (
@@ -160,6 +194,7 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
           <button type="button" className="btn" disabled={state === "minting"} onClick={() => void renew()}><RefreshCw aria-hidden="true" />{t("New code")}</button>
         </div>
         <CodelessLink />
+        {pcId}
       </div>
     </div>
   );

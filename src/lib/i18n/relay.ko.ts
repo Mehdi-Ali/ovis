@@ -50,4 +50,10 @@ export const RELAY_KO: Record<string, string> = {
   "The numbers match": "숫자가 같아요",
   "{name} did not approve this phone": "{name}에서 이 휴대폰을 승인하지 않았습니다",
   "It was declined on the PC, or not approved in time. Open the link again to compare new numbers.": "PC에서 거절했거나 제시간에 승인하지 않았습니다. 링크를 다시 열어 새 숫자를 비교하세요.",
+  "Not a valid key": "올바른 키가 아닙니다",
+  "ID this link names": "이 링크가 가리키는 ID",
+  "ID this phone paired with": "이 폰이 페어링한 ID",
+  "ID of the key this link carries": "이 링크가 가진 키의 ID",
+  "ID of the key this phone saved": "이 폰에 저장된 키의 ID",
+  "Only the PC itself shows its ID, under Settings → Phone & devices. Marked groups differ.": "PC의 ID는 PC 자신의 설정 → 폰 및 기기에서만 확인할 수 있습니다. 표시된 묶음이 다른 부분입니다.",
 };

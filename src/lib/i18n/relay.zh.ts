@@ -50,4 +50,10 @@ export const RELAY_ZH: Record<string, string> = {
   "The numbers match": "数字一致",
   "{name} did not approve this phone": "{name} 没有批准这部手机",
   "It was declined on the PC, or not approved in time. Open the link again to compare new numbers.": "PC 上拒绝了，或没有及时批准。请重新打开链接，比对新的数字。",
+  "Not a valid key": "不是有效的密钥",
+  "ID this link names": "此链接指明的 ID",
+  "ID this phone paired with": "此手机配对的 ID",
+  "ID of the key this link carries": "此链接所带密钥的 ID",
+  "ID of the key this phone saved": "此手机保存的密钥的 ID",
+  "Only the PC itself shows its ID, under Settings → Phone & devices. Marked groups differ.": "只有电脑自己在设置 → 手机与设备中显示它的 ID。标记出的分组就是不同之处。",
 };
