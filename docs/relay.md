@@ -145,8 +145,12 @@ Why it holds: the phone is bound to `Np` before it sees `Nc`, and the PC chooses
 `Np`, so neither end, nor a relay that is both ends at once, can steer the digits. A relay that
 passes the comparison on unchanged is refused at step 5, since the commitment is bound to the
 phone's channel. A relay that runs a comparison of its own with each end gets the same six digits
-on both screens once in a million tries, and each try costs a person declining a prompt. Without
-step 3, a relay could try handshakes until the digits matched; the commitment is what stops that.
+on both screens once in a million tries. Not every try shows: the PC's digits are known to the
+other end once `PAIR_CHALLENGE` arrives, so a peer may abandon a comparison before its reveal, and
+then no prompt appears. Each abandoned comparison still counts as a failed relay pairing, so within
+the 20 failures allowed in 10 minutes a relay gets about 20 tries, one in fifty thousand, before
+relay pairing pauses. Without step 3, a relay could try handshakes until the digits matched; the
+commitment is what stops that.
 
 Limits: both people have 90 seconds from `PAIR_REQUEST` (under the relay's 120-second idle close),
 after which the session ends with `timeout` and the prompt goes. At most three phones wait for
