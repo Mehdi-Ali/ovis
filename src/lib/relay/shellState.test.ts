@@ -11,7 +11,7 @@ import { bootRelayShell, takeEntryUrl } from "./boot.ts";
 import { RelayAdmissionTimeoutError, RelayUnreachableError, UnsafeRelayDestinationError } from "./channel.ts";
 import { ServerIdentityChangedError } from "./device.ts";
 import { testOffer } from "./device.test.ts";
-import { failureOf, forgedOffer, forgetsDevice, iosBrowserTab, offerOf, shellEntry } from "./shellState.ts";
+import { failureOf, forgedOffer, forgetsDevice, iosBrowserTab, offerOf, pairsAgainWithoutKey, shellEntry } from "./shellState.ts";
 
 const APP = "https://app.example";
 
@@ -218,5 +218,19 @@ describe("the offer fragment", () => {
       // Bun has no window of its own: leave none behind
       if (saved.window === undefined) delete (globalThis as { window?: unknown }).window;
     }
+  });
+});
+
+describe("a link without a code on a phone that holds an old key", () => {
+  const refused = new MuxProtocolError("auth_failed", "auth_failed");
+  it("drops the key and compares digits once, after the PC refused the old key", () => {
+    expect(pairsAgainWithoutKey(refused, { code: false, paired: false, codeless: true })).toBe(true);
+  });
+  it("never for a code, after digits were compared, a second time, or another error", () => {
+    expect(pairsAgainWithoutKey(refused, { code: true, paired: false, codeless: false })).toBe(false);
+    expect(pairsAgainWithoutKey(refused, { code: false, paired: false, codeless: true, compared: true })).toBe(false);
+    expect(pairsAgainWithoutKey(refused, { code: false, paired: false, codeless: true, refreshed: true })).toBe(false);
+    expect(pairsAgainWithoutKey(refused, { code: false, paired: true, codeless: false })).toBe(false);
+    expect(pairsAgainWithoutKey(new MuxProtocolError("timeout", "timeout"), { code: false, paired: false, codeless: true })).toBe(false);
   });
 });

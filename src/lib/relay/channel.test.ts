@@ -14,7 +14,7 @@ import type { MuxFrame } from "../../../shared/relay-mux.ts";
 import { MuxEngine } from "../../../shared/relay-mux-engine.ts";
 import { ADMISSION_MS, ASSIGNMENT_MS, openRelayChannel, PC_ANSWER_MS, RelayAdmissionTimeoutError, RelayUnreachableError } from "./channel.ts";
 import type { RelaySocket } from "./channel.ts";
-import { failureOf } from "./shellState.ts";
+import { failureOf, pairsAgainWithoutKey } from "./shellState.ts";
 import { base64url, getDevice } from "./device.ts";
 import { MemoryDeviceStore } from "./device.test.ts";
 
@@ -488,4 +488,31 @@ it("does not take AUTH_OK from a PC before this phone said the digits match", as
   expect(error).toBeInstanceOf(MuxProtocolError);
   expect((error as MuxProtocolError).code).toBe("protocol_error");
   expect(await store.get(offer.server_id)).toBeUndefined();
+});
+
+it("a phone the PC removed is refused at sign-in from a link without a code, and pairs by digits once its old key is gone", async () => {
+  const f = relayFixture();
+  cleanups.push(() => f.close());
+  const keys = generateKeyPair();
+  const store = new MemoryDeviceStore();
+  const base = { v: 1 as const, server_id: "12".repeat(16), server_public_key: exportPublicKey(keys.publicKey), relay: "wss://relay.example" };
+  const devices = f.app.context.services.devices;
+  const first = await bounded(connectReal(f, keys, { ...base, code: devices.startPairing().code }, store));
+  first.close();
+  devices.revoke(first.device.device_id!);
+  const shown = Promise.withResolvers<string>();
+  const compare = (digits: string) => { shown.resolve(digits); return Promise.resolve(); };
+  // what the shell gets from the first try: the PC's refusal of the old key (shellState.ts pairsAgainWithoutKey)
+  const refused = await bounded(connectReal(f, keys, base, store, compare).then(() => null, (reason: unknown) => reason));
+  expect(pairsAgainWithoutKey(refused, { code: false, paired: false, codeless: true })).toBe(true);
+  await store.remove(base.server_id);
+  const waiting = Promise.withResolvers<RelayPairingRequest>();
+  cleanups.push(f.app.context.services.relay.approvals.subscribe((list) => { if (list[0]) waiting.resolve(list[0]); }));
+  const again = connectReal(f, keys, base, store, compare);
+  const request = await bounded(waiting.promise);
+  expect(await bounded(shown.promise)).toBe(request.digits);
+  f.app.context.services.relay.approvals.decide(request.id, true);
+  const channel = await bounded(again);
+  cleanups.push(() => channel.close());
+  expect((await store.get(base.server_id))?.device_id).toBe(channel.device.device_id);
 });

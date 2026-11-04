@@ -103,6 +103,17 @@ export function failureOf(error: unknown, attempt: { code: boolean; paired: bool
   }
 }
 
+/**
+ * A link without a code that this phone opened while it still held a key for that PC, refused at
+ * sign-in: the PC no longer knows the key (it removed this phone). The link is there to pair again
+ * by comparing digits, so the old key goes and the attempt runs once more without it. A code
+ * attempt, one already compared, or one that already did this never does.
+ */
+export function pairsAgainWithoutKey(error: unknown, attempt: { code: boolean; paired: boolean; compared?: boolean; refreshed?: boolean; codeless: boolean }): boolean {
+  return attempt.codeless && !attempt.code && !attempt.compared && !attempt.refreshed
+    && error instanceof MuxProtocolError && error.code === "auth_failed";
+}
+
 /** The failures after which the saved key is no good: the PC removed this phone, or never admitted it. */
 export function forgetsDevice(failure: RelayFailure): boolean {
   return failure === "revoked";

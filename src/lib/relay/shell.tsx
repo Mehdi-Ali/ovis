@@ -21,7 +21,7 @@ import { takeEntryUrl } from "./boot.ts";
 import { RelayUnreachableError } from "./channel.ts";
 import { indexedDeviceStore, indexedPendingPush } from "./device.ts";
 import type { RelayDeviceStore } from "./device.ts";
-import { failureOf, forgedOffer, forgetsDevice, iosBrowserTab, offerOf, shellEntry } from "./shellState.ts";
+import { failureOf, forgedOffer, forgetsDevice, iosBrowserTab, offerOf, pairsAgainWithoutKey, shellEntry } from "./shellState.ts";
 import type { PcUpdate, RelayShellState } from "./shellState.ts";
 import { relaySkew, reloadOnce } from "./skew.ts";
 import type { ReloadMemory } from "./skew.ts";
@@ -75,6 +75,10 @@ interface Attempt {
   paired: boolean;
   /** the attempt showed digits to compare: the PC took the pairing without a code */
   compared?: boolean;
+  /** opened from a link without a code, to pair by comparing digits */
+  codeless?: boolean;
+  /** a saved key the PC refused was already dropped for this link (shellState.ts pairsAgainWithoutKey) */
+  refreshed?: boolean;
 }
 
 /** Settings' Forget this PC: the phone's key for the PC is gone; the PC lists the device until it is revoked there. */
@@ -130,6 +134,11 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
 
   const failed = async (error: unknown, attempt: Attempt): Promise<void> => {
     comparison = null;
+    if (pairsAgainWithoutKey(error, { ...attempt, codeless: attempt.codeless === true })) {
+      await store.remove(attempt.offer.server_id);
+      await connect({ ...attempt, refreshed: true });
+      return;
+    }
     const failure = failureOf(error, { code: attempt.code, paired: attempt.paired, compared: attempt.compared === true });
     if (forgetsDevice(failure)) await store.remove(attempt.offer.server_id).catch(() => undefined);
     // the relay's close code is the one fact the sentence does not carry; a plain refusal adds nothing
@@ -280,7 +289,7 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
 
   const pair = (): void => {
     if (entry.offer === null) return;
-    void connect({ offer: entry.offer, code: entry.offer.code !== undefined, paired: false });
+    void connect({ offer: entry.offer, code: entry.offer.code !== undefined, paired: false, codeless: entry.offer.code === undefined });
   };
 
   const retry = (): void => {
