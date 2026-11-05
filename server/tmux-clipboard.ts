@@ -116,6 +116,18 @@ function clientTmpdir(pid: number): string {
 /** the sockets this state folder's servers hooked, by hook index, so a run after a crash unsets them */
 const HOOKED_FILE = "tmux-hooks.json";
 
+/** N of tmux's automatic buffer name `bufferN`, or null for a buffer named by hand */
+function automaticNumber(name: string): number | null {
+  const match = /^buffer(\d+)$/.exec(name);
+  return match ? Number(match[1]) : null;
+}
+
+function highest(buffers: Set<string>): number {
+  let most = -1;
+  for (const key of buffers) most = Math.max(most, automaticNumber(key.split("\t")[0]!) ?? -1);
+  return most;
+}
+
 export class TmuxCopyHooks {
   private readonly secret = randomBytes(32).toString("hex");
   private headerFile: string | null = null;
@@ -133,6 +145,8 @@ export class TmuxCopyHooks {
   private warned = false;
   /** the buffers each hooked tmux held at the last look (`name\tcreated`): a hook's copy is the one buffer new since */
   private readonly seen = new Map<string, Set<string>>();
+  /** the highest automatic buffer number (`bufferN`) each hooked tmux has shown: tmux numbers its copies on from it */
+  private readonly lastNumber = new Map<string, number>();
   private readonly leftovers: Promise<void>;
   private again = false;
   private stopped = false;
@@ -281,6 +295,7 @@ export class TmuxCopyHooks {
     const buffers = await this.buffers(socket);
     if (buffers === null) return;
     this.seen.set(socket, buffers);
+    this.lastNumber.set(socket, highest(buffers));
     const post = `${this.curl} -fsS -m 2 -o /dev/null -H @${header} --data-urlencode socket=#{q:socket_path} --data-urlencode pane=#{pane_id} ${this.url(index)} || true`;
     if (await run(this.tmux!, ["-S", socket, "set-hook", "-g", `pane-set-clipboard[${index}]`, `run-shell -b "${post}"`]) !== null) {
       this.hooked.add(socket);
@@ -296,6 +311,7 @@ export class TmuxCopyHooks {
   private async uninstall(socket: string): Promise<void> {
     this.hooked.delete(socket);
     this.seen.delete(socket);
+    this.lastNumber.delete(socket);
     const index = this.index();
     if (index !== null) await this.unsetOurs(socket, index);
     this.writeHooked();
@@ -363,8 +379,13 @@ export class TmuxCopyHooks {
     if (now === null) return;
     const fresh = [...now].filter((key) => !(this.seen.get(socket)?.has(key) ?? false));
     this.seen.set(socket, now);
+    const last = this.lastNumber.get(socket) ?? -1;
+    this.lastNumber.set(socket, Math.max(last, highest(now)));
+    // and it is the very next copy tmux numbered: a skipped number is a copy tmux already dropped
+    // (a small buffer-limit), which may have been this hook's, so nothing goes
     if (fresh.length !== 1) return;
     const name = fresh[0]!.split("\t")[0]!;
+    if (automaticNumber(name) !== last + 1) return;
     const [text, window, clients] = await Promise.all([
       run(this.tmux!, ["-S", socket, "show-buffer", "-b", name], MAX_TMUX_COPY_BYTES),
       run(this.tmux!, ["-S", socket, "display-message", "-p", "-t", pane, "#{window_id}"]),

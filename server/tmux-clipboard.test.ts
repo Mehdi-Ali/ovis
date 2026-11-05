@@ -147,6 +147,14 @@ describe.skipIf(tmuxProgram === null || process.platform === "win32")("tmux copy
       await run("set-buffer", "made here");
       expect((await hooked.handle(post({ socket, pane: shown }), "127.0.0.1")).status).toBe(204);
       expect(copies).toEqual([["pane-tmux", "copied in tmux ✓"]]);
+      // with a buffer-limit of one, a copy in the other window drops this one before its post is read: the one
+      // buffer left is the other window's, and its number skips the one dropped, so nothing goes
+      await run("set", "-g", "buffer-limit", "1");
+      await run("set-buffer", "copied here, then dropped");
+      await run("set-buffer", "copied in the window behind");
+      expect((await hooked.handle(post({ socket, pane: shown }), "127.0.0.1")).status).toBe(204);
+      expect(copies).toEqual([["pane-tmux", "copied in tmux ✓"]]);
+      await run("set", "-g", "buffer-limit", "50");
       await run("set-buffer", "from the window behind");
       expect((await hooked.handle(post({ socket, pane: hidden }), "::1")).status).toBe(204);
       const big = join(dir, "big");
