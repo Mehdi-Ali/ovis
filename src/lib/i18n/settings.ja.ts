@@ -371,4 +371,6 @@ export const SETTINGS_JA: Record<string, string> = {
   "On this device, list the agents above the workspaces: the ones that need you first, then working, done and idle. Pinned agents stay on top.": "このデバイスでは、エージェントをワークスペースの上に表示します。応答が必要なものが先で、次に作業中、完了、待機の順です。ピン留めしたエージェントは一番上のままです。",
   "Within a state": "同じ状態の中で",
   "Longest wait": "待ち時間順",
+  "Send later button": "あとで送信ボタン",
+  "A button in the message box schedules the message for a set time. This PC sends it then, also with every device closed.": "メッセージ欄のボタンで、メッセージを指定した時刻に送るよう予約します。すべてのデバイスを閉じていても、この PC がその時刻に送信します。",
 };

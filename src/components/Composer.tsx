@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { ArrowUp, ClipboardPaste, FileText, Folder, FolderGit2, GitBranch, LoaderCircle, MessageSquarePlus, Minimize2, Package, Plus, Puzzle, Square, TriangleAlert, UserRound, X, type LucideIcon } from "lucide-react";
+import { ArrowUp, ClipboardPaste, Clock, FileText, Folder, FolderGit2, GitBranch, LoaderCircle, MessageSquarePlus, Minimize2, Package, Plus, Puzzle, Square, TriangleAlert, UserRound, X, type LucideIcon } from "lucide-react";
 
 import "./Composer.css";
 
@@ -61,6 +61,8 @@ import { useFacesArrived } from "../lib/fontFaces.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/mentions.ts";
 import { resolveComposerMenuActiveItemId } from "../lib/composerMenuHighlight.ts";
 import { enterSendsOn, quickReplyButtons, useSettings } from "../lib/settings.ts";
+import { planResetTime } from "../lib/sendLater.ts";
+import { SendLaterDialog } from "./SendLaterDialog.tsx";
 import { composerUsage, formatPercent, formatResetIn, HIGH_PERCENT, meterPercent, meterText, providerForAgent, statusWindows, usageName, useUsage, windowLabel } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { Artifacts } from "./Artifacts.tsx";
@@ -111,6 +113,8 @@ export interface ComposerProps {
   /** opens the New tab dialog on this pane's workspace, to start another agent with its model, effort, skills
    * and first message (NewSessionDialog); none: the pane has no workspace to add a tab to */
   onOpenNewSession?: () => void;
+  /** Send later (#2919): the PC keeps the message and sends it at `sendAt`; absent where the PC cannot (an older one, or watching) */
+  onSchedule?: (text: string, sendAt: string) => Promise<void>;
   /** the pane's working folder, named in the strip tucked under the card; nothing is drawn for it while absent */
   cwd?: string | null;
   /** the pane's branch, beside the folder in that strip; nothing is drawn for it while absent */
@@ -261,6 +265,7 @@ export function Composer({
   inert = false,
   onOpenHistory,
   onOpenNewSession,
+  onSchedule,
   cwd = null,
   branch = null,
   worktreeRepo = null,
@@ -280,6 +285,11 @@ export function Composer({
   const enterSends = enterSendsOn(settings, useMediaQuery("(pointer: coarse)"));
   const usageEnabled = settings.showUsage && !mobile && machineId === "local" && providerForAgent(agent) !== null;
   const { report: usageReport } = useUsage(usageEnabled);
+  // Send later's dialog, with the box's text as it opened; the plan limit's reset is read only while it is up
+  const [sendLater, setSendLater] = useState<string | null>(null);
+  const { report: resetReport } = useUsage(sendLater !== null && machineId === "local" && providerForAgent(agent) !== null);
+  const resetUsage = resetReport === null ? undefined : composerUsage(resetReport.providers, agent, settings.usageOrder, settings.usageHidden);
+  const planReset = resetUsage === undefined ? null : planResetTime(statusWindows(resetUsage), Date.now());
   const usage = usageEnabled && usageReport !== null ? composerUsage(usageReport.providers, agent, settings.usageOrder, settings.usageHidden) : undefined;
   const usageWindows = usage === undefined ? [] : statusWindows(usage);
   const usageLimit = usageWindows[0];
@@ -1585,6 +1595,19 @@ export function Composer({
           )}
         </div>
         <div className="composer-controls composer-controls-right">
+          {/* only once this device turned it on (Settings → Chat → Composer): the composer's row stays minimal */}
+          {onSchedule && settings.composerSendLater && role !== "observe" && (
+            <button
+              type="button"
+              className="icon-button composer-send-later"
+              aria-label={t("Send later…")}
+              title={t("Send later…")}
+              disabled={!connected || sending || uploading || text.trim().length === 0 || attachments.length > 0 || carried.length > 0}
+              onClick={() => setSendLater(text)}
+            >
+              <Clock aria-hidden="true" />
+            </button>
+          )}
           {!sendShown ? (
             <button
               type="button"
@@ -1634,6 +1657,14 @@ export function Composer({
           </span>}
         </div>
       )}
+      {sendLater !== null && onSchedule && <SendLaterDialog title={t("Send later")} text={sendLater} planReset={planReset} submitLabel={t("Schedule")}
+        onSubmit={async (scheduled, sendAt) => {
+          await onSchedule(scheduled, sendAt);
+          // what was scheduled leaves the box; anything typed since stays
+          setText((current) => current === sendLater ? "" : current);
+          setSendLater(null);
+        }}
+        onClose={() => setSendLater(null)} />}
       {/* above the whole composer: inside the surface it would cover the text being dictated */}
       {dictation.shown && <VoiceRecordingPill dictation={dictation} align="start" />}
     </div>

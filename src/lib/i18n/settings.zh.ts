@@ -371,4 +371,6 @@ export const SETTINGS_ZH: Record<string, string> = {
   "On this device, list the agents above the workspaces: the ones that need you first, then working, done and idle. Pinned agents stay on top.": "在此设备上，把代理列在工作区上方：先是需要你回应的，然后是工作中、已完成和空闲。已固定的代理仍在最上面。",
   "Within a state": "同一状态内",
   "Longest wait": "按等待时长",
+  "Send later button": "稍后发送按钮",
+  "A button in the message box schedules the message for a set time. This PC sends it then, also with every device closed.": "消息框中的按钮可将消息预约在指定时间发送。即使关闭所有设备，这台电脑也会在那时发送。",
 };

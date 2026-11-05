@@ -371,4 +371,6 @@ export const SETTINGS_KO: Record<string, string> = {
   "On this device, list the agents above the workspaces: the ones that need you first, then working, done and idle. Pinned agents stay on top.": "이 기기에서 에이전트를 워크스페이스 위에 보여 줍니다. 내 응답이 필요한 에이전트가 먼저, 그다음 작업 중, 완료, 대기 순입니다. 고정한 에이전트는 맨 위에 그대로 있습니다.",
   "Within a state": "같은 상태 안에서",
   "Longest wait": "오래 기다린 순",
+  "Send later button": "나중에 보내기 버튼",
+  "A button in the message box schedules the message for a set time. This PC sends it then, also with every device closed.": "메시지 입력칸의 버튼으로 메시지를 정한 시각에 보내도록 예약합니다. 모든 기기를 닫아도 이 PC가 그때 보냅니다.",
 };

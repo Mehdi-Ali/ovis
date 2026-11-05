@@ -30,6 +30,7 @@ import { BACKGROUND_AGENT_PATH, handleBackgroundAgentRequest } from "./backgroun
 import { paneGet, ping } from "./herdr/client.ts";
 import { handlePushRequest } from "./push.ts";
 import { handlePromptRequest, type OpenCodePromptState } from "./prompt.ts";
+import { handleScheduledRequest } from "./scheduled-messages.ts";
 import { attachableIdentity } from "./pty/sidecar.ts";
 import { runtime } from "./herdr-core/runtime.ts";
 import { handleUpdateRequest, updateRequestAllowed } from "./update-api.ts";
@@ -607,6 +608,15 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
   if (pathname.startsWith("/api/pane/prompt")) {
     try {
       const response = await handlePromptRequest(request, url, { serialize, codexHome: options.codexHome, claudeTranscript: (paneId) => claudeAgents.sessionOf(paneId)?.path ?? null, readOnly, openCodeStateDir: options.openCodeStateDir, openCodeState, onAnswered: () => options.telemetry?.tally("prompt_answers") });
+      if (response) return response;
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+
+  if (pathname === "/api/scheduled" || pathname.startsWith("/api/scheduled/")) {
+    try {
+      const response = await handleScheduledRequest(request, pathname, core.scheduled, { readOnly, device: access.level === "full" ? access.device?.id ?? null : null });
       if (response) return response;
     } catch (error) {
       return errorResponse(error);
