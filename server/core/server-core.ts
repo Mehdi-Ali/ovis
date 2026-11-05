@@ -19,7 +19,7 @@ import { ScheduledMessages } from "../scheduled-messages.ts";
 import { attachableIdentity, sidecarAvailable } from "../pty/sidecar.ts";
 import type { UsageLoginService } from "../usage-login.ts";
 import type { UsageService } from "../usage.ts";
-import { createSubmitText } from "./composer.ts";
+import { createSubmitText, pendingText } from "./composer.ts";
 import { type Client, createConnections, type SocketData } from "./connections.ts";
 import { createInputLane } from "./input.ts";
 import { createPendingDelivery } from "./pending.ts";
@@ -90,7 +90,7 @@ export function createCore({ options, devices, preferences, usage, usageLogin, b
     // the messages first: the old ID's terminal closing holds what it still leases
     paneMoved: (from, to) => { movePendingPane(from, to); scheduled.paneMoved(from, to); paneMoved(from, to); } });
   const scheduled = new ScheduledMessages({
-    stateDir: options.stateDir, identity: scheduledIdentity, send: sendScheduled, changed: () => broadcastAll({ type: "scheduled-changed" }),
+    stateDir: options.stateDir, checkText: pendingText, identity: scheduledIdentity, send: sendScheduled, changed: () => broadcastAll({ type: "scheduled-changed" }),
     // the device that scheduled a message must still be paired, and still drive, when it goes
     mayDrive: (device) => device === null || devices.list(null).some((entry) => entry.id === device && entry.role === "drive"),
   });

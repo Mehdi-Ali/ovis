@@ -13,6 +13,12 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
+/** the core's pendingText as far as these tests lean on it: trailing line breaks go, and blank text is refused */
+const pendingText = (text: string): string => {
+  const trimmed = text.replace(/[\r\n]+$/, "");
+  if (!trimmed.trim()) throw new Error("A pending chat message must be nonempty text");
+  return trimmed;
+};
 const IDENTITY: PendingIdentity = { agent: "claude", terminalId: "t1", session: "claude:herdr:s1", processPid: 7, processBirth: 1 };
 type Send = Parameters<ScheduledDeps["send"]>;
 
@@ -25,7 +31,7 @@ function store(answers: Array<{ ok: boolean; code?: string; message?: string } |
   const waiters: Array<() => void> = [];
   const clock = { now: Date.parse("2026-11-05T10:00:00Z") };
   const scheduled = new ScheduledMessages({
-    stateDir, identity: async () => ({ ...IDENTITY }), mayDrive: () => true, changed: () => { changes++; }, now: () => clock.now,
+    stateDir, checkText: pendingText, identity: async () => ({ ...IDENTITY }), mayDrive: () => true, changed: () => { changes++; }, now: () => clock.now,
     send: async (...args) => {
       sends.push(args);
       args[4]();
@@ -50,7 +56,7 @@ it("keeps a scheduled message in the state folder, readable only by this user, a
   expect(message).toMatchObject({ pane_id: "p1", text: "continue", send_at: "2026-11-05T06:00:00.000Z", state: "scheduled" });
   const file = join(stateDir, "scheduled-messages.json");
   if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
-  const again = new ScheduledMessages({ stateDir, identity: async () => IDENTITY, send: async () => ({ ok: true }), mayDrive: () => true, changed: () => {} });
+  const again = new ScheduledMessages({ stateDir, checkText: pendingText, identity: async () => IDENTITY, send: async () => ({ ok: true }), mayDrive: () => true, changed: () => {} });
   expect(again.list()).toEqual([message]);
 });
 

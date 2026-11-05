@@ -20,7 +20,6 @@ import type { ScheduledMessage } from "../shared/protocol.ts";
 import { HerdrError } from "./herdr/client.ts";
 import { jsonResponse, setRequestRoute } from "./http.ts";
 import type { PendingIdentity } from "./pending-input.ts";
-import { pendingText } from "./core/composer.ts";
 
 type Reply = { ok: boolean; code?: string; message?: string };
 
@@ -45,6 +44,8 @@ export class ScheduledError extends Error {
 export interface ScheduledDeps {
   /** where the messages are kept; none keeps them in memory only */
   stateDir?: string;
+  /** a message's text as a queued one must be, or a throw saying why (server/core/composer.ts pendingText) */
+  checkText: (text: string) => string;
   /** what runs in the pane now (pane_not_found when it is gone) */
   identity: (paneId: string) => Promise<PendingIdentity>;
   send: (paneId: string, text: string, identity: PendingIdentity, automatic: boolean, authorize: () => void) => Promise<Reply>;
@@ -228,7 +229,7 @@ export class ScheduledMessages {
 
   private text(value: unknown): string {
     if (typeof value !== "string") throw new ScheduledError("invalid_submit_text", "text is required");
-    try { return pendingText(value); } catch (error) { throw new ScheduledError("invalid_submit_text", error instanceof Error ? error.message : String(error)); }
+    try { return this.deps.checkText(value); } catch (error) { throw new ScheduledError("invalid_submit_text", error instanceof Error ? error.message : String(error)); }
   }
 
   private sendAt(value: unknown): string {
