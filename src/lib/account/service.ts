@@ -137,8 +137,9 @@ export class AccountService {
     return pcs.map(parsePc).filter((pc): pc is DirectoryPc => pc !== null);
   }
 
-  async putPc(serverId: string, label: string): Promise<void> {
-    await this.call("PUT", `/v1/pcs/${serverId}`, { label });
+  /** Lists a PC in the account's directory, with its relay key and relay so a new device can compare digits with it. */
+  async putPc(serverId: string, entry: { label: string; public_key: string; relay: string }): Promise<void> {
+    await this.call("PUT", `/v1/pcs/${serverId}`, entry);
   }
 
   /**
