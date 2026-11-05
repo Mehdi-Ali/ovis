@@ -200,4 +200,7 @@ export const DEVICES_JA: Record<string, string> = {
   "Disconnect from all PCs": "すべての PC から切断",
   "Disconnect everywhere?": "すべてから切断しますか？",
   "A new device joined at {time}: {name}, approved on {approver}. If that was not you, revoke it.": "{time} に新しいデバイス {name} が {approver} の承認で参加しました。心当たりがなければ取り消してください。",
+  "{name} was removed from this PC at {time}.": "{time} に {name} がこの PC から外れました。",
+  "{name} was revoked on this PC at {time}.": "{time} にこの PC で {name} を取り消しました。",
+  "{name} was removed from every PC of the account at {time}, by {by}.": "{time} に {by} が {name} をアカウントのすべての PC から外しました。",
 };

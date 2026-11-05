@@ -200,4 +200,7 @@ export const DEVICES_ZH: Record<string, string> = {
   "Disconnect from all PCs": "从所有 PC 断开",
   "Disconnect everywhere?": "全部断开？",
   "A new device joined at {time}: {name}, approved on {approver}. If that was not you, revoke it.": "{time} 新设备 {name} 经 {approver} 批准加入。如果不是你，请撤销。",
+  "{name} was removed from this PC at {time}.": "{time} {name} 已从此 PC 移除。",
+  "{name} was revoked on this PC at {time}.": "{time} 已在此 PC 上撤销 {name}。",
+  "{name} was removed from every PC of the account at {time}, by {by}.": "{time} {by} 已将 {name} 从账户的所有 PC 中移除。",
 };

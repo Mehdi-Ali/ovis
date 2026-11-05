@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
-import type { DevicePairedEvent, Machine, MachineEvent, RelayPairingRequest, RemotePairingRequest } from "../../shared/machines.ts";
+import type { DevicePairedEvent, DeviceRemovedEvent, Machine, MachineEvent, RelayPairingRequest, RemotePairingRequest } from "../../shared/machines.ts";
 import { ApiError, authenticate, fetchMachines, observePaneSessions, paneSessionEvents, paneSessionsMoving, verifySourceBoot } from "./api.ts";
 import { passingFolder, recentDirectories } from "./recent-directories.ts";
 import { keepMachineEvents } from "./machineEventStream.ts";
@@ -167,7 +167,7 @@ export function useRosterLoader({ rosterIn, setMachines, setMachineRosterLoaded,
   return { snapshotRequests, reorderCoordinator, load, scheduleRefetch };
 }
 
-export function useRosterEvents({ onPaneMoved, machineSessions, locked, receivePreferencesRef, snapshotRequests, onRoster, reorderCoordinator, setMachines, rosterIn, setMachineRosterLoaded, machinesRef, onPaneStatus, onPaneExited, followFocusRef, selectionRef, splitShownRef, splitRef, pendingLink, selectionHint, setSelectedPaneId, setNotificationViewTarget, setTerminalPeek, setAutoSelected, scheduleRefetch, preferencesResubscribedRef, preferencesDisconnectedRef, preferencesClosedRef, dropIn, chime, setPairedNotices, setRelayPairings, setRemotePairings, getTakeNotificationTargetRef }: {
+export function useRosterEvents({ onPaneMoved, machineSessions, locked, receivePreferencesRef, snapshotRequests, onRoster, reorderCoordinator, setMachines, rosterIn, setMachineRosterLoaded, machinesRef, onPaneStatus, onPaneExited, followFocusRef, selectionRef, splitShownRef, splitRef, pendingLink, selectionHint, setSelectedPaneId, setNotificationViewTarget, setTerminalPeek, setAutoSelected, scheduleRefetch, preferencesResubscribedRef, preferencesDisconnectedRef, preferencesClosedRef, dropIn, chime, setPairedNotices, setRelayPairings, setRemotePairings, setRemovedNotices, getTakeNotificationTargetRef }: {
   machineSessions: MachineSessionRegistry;
   locked: boolean | null;
   receivePreferencesRef: RefObject<ReturnType<typeof usePreferencesSync>["receive"]>;
@@ -203,6 +203,8 @@ export function useRosterEvents({ onPaneMoved, machineSessions, locked, receiveP
   setRelayPairings: Dispatch<SetStateAction<readonly RelayPairingRequest[]>>;
   /** devices asking to join the account through this PC (components/AccountApprovals.tsx) */
   setRemotePairings: Dispatch<SetStateAction<readonly RemotePairingRequest[]>>;
+  /** devices removed from this PC (components/DevicePairedNotice.tsx, DeviceRemovedNotice) */
+  setRemovedNotices: Dispatch<SetStateAction<readonly DeviceRemovedEvent[]>>;
   getTakeNotificationTargetRef: () => RefObject<(target: NotificationTarget) => void>;
 }) {
   useCloseSessionsWhenLocked(machineSessions, locked);
@@ -218,8 +220,8 @@ export function useRosterEvents({ onPaneMoved, machineSessions, locked, receiveP
       if (payload.type === "device-paired") { setPairedNotices((list) => withPairedNotice(list, payload)); return; }
       if (payload.type === "relay-pairings") { setRelayPairings(payload.pairings); return; }
       if (payload.type === "remote-pairings") { setRemotePairings(payload.pairings); return; }
-      // the device list's own refresh shows removals for now; their notice comes with the account screens
-      if (payload.type === "device-removed") return;
+      // a device removed from this PC: told once per removal, kept until read, the oldest giving way
+      if (payload.type === "device-removed") { setRemovedNotices((list) => withPairedNotice(list, payload)); return; }
       // A poll started before this event can carry an older roster or pane status.
       snapshotRequests.current.invalidate();
       if (payload.type === "machines") {

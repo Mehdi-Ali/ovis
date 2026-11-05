@@ -200,4 +200,7 @@ export const DEVICES_KO: Record<string, string> = {
   "Disconnect from all PCs": "모든 PC에서 끊기",
   "Disconnect everywhere?": "모든 PC에서 끊을까요?",
   "A new device joined at {time}: {name}, approved on {approver}. If that was not you, revoke it.": "{time}에 새 기기 {name}이(가) {approver}의 승인으로 들어왔습니다. 본인이 아니라면 취소하세요.",
+  "{name} was removed from this PC at {time}.": "{time}에 {name}이(가) 이 PC에서 빠졌습니다.",
+  "{name} was revoked on this PC at {time}.": "{time}에 이 PC에서 {name}을(를) 취소했습니다.",
+  "{name} was removed from every PC of the account at {time}, by {by}.": "{time}에 {by}에서 {name}을(를) 계정의 모든 PC에서 뺐습니다.",
 };
