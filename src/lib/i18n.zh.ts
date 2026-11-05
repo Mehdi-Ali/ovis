@@ -28,6 +28,10 @@ import { RELAY_ZH } from "./i18n/relay.zh.ts";
  * Placeholders in braces keep their English names.
  */
 const BASE: Record<string, string> = {
+  "never": "从未",
+  "just now": "刚刚",
+  "{n} min ago": "{n} 分钟前",
+  "{n} h ago": "{n} 小时前",
   "Remove": "移除",
   "Remove {name}": "移除 {name}",
   "Save": "保存",

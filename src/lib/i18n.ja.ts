@@ -26,6 +26,10 @@ import { RELAY_JA } from "./i18n/relay.ja.ts";
  * in English. Placeholders in braces keep their English names.
  */
 const BASE: Record<string, string> = {
+  "never": "なし",
+  "just now": "たった今",
+  "{n} min ago": "{n} 分前",
+  "{n} h ago": "{n} 時間前",
   "Remove": "削除",
   "Remove {name}": "{name} を削除",
   "Save": "保存",

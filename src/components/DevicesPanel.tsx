@@ -9,7 +9,8 @@ import { PAIRING_CODE_EVENT } from "../lib/useRelay.ts";
 import type { HealthAuth, PairedDevice, PairingCode } from "../../shared/protocol.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { SettingsRow } from "./SettingsControls.tsx";
-import { currentLocale, t as tt, useT } from "../lib/i18n.ts";
+import { useT } from "../lib/i18n.ts";
+import { lastSeen } from "../lib/lastSeen.ts";
 import { pairThisBrowser, UnconfirmedPairing } from "../lib/pairing.ts";
 
 const POLL_MS = 3000;
@@ -36,15 +37,6 @@ export const VIA: Record<NonNullable<HealthAuth["via"]>, string> = {
   portal: "You are in through Portal's sign-in.",
   open: "This browser is in only because nothing is paired yet: from anywhere that can reach this address, so would anyone.",
 };
-
-function lastSeen(value: string | null): string {
-  if (value === null) return tt("never");
-  const minutes = Math.round((Date.now() - Date.parse(value)) / 60_000);
-  if (minutes < 2) return tt("just now");
-  if (minutes < 60) return tt("{n} min ago", { n: minutes });
-  if (minutes < 60 * 48) return tt("{n} h ago", { n: Math.round(minutes / 60) });
-  return new Date(value).toLocaleDateString(currentLocale());
-}
 
 /** Settings → Devices: the paired devices, and a code to pair one more. */
 export function DevicesPanel({ onPair, onDevicePaired, auth, onPaired, onRevokedAll }: DevicesPanelProps) {

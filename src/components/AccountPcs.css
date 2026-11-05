@@ -1,0 +1,30 @@
+/*
+ * The relay shell's account part (AccountPcs.tsx), inside the shell's card (RelayShell.css): a PC
+ * row is the shell's own row with a dim line for its state under the name, in words, never a badge.
+ */
+
+.account-pc-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.account-pc-state {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+/* a PC that does not open yet: the row without the link's hover */
+.account-pc-waiting:hover {
+  color: var(--text-strong);
+}
+
+/* the sign-in under the saved PCs, or the QR route under the sign-in: a hairline from what comes before it */
+.account-or {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: var(--hairline) solid var(--border);
+}

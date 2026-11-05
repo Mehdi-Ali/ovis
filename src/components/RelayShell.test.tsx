@@ -20,6 +20,32 @@ const render = (shown: RelayShellProps): string => {
     else Reflect.deleteProperty(navigator, "languages");
   }
 };
+describe("the front page's account part", () => {
+  const pc = (server_id: string, name: string, state: "paired" | "needs-approval" | "offline" | "needs-update", paired = state === "paired") => ({ server_id, name, state, last_seen_at: null, listed: true, paired });
+
+  it("offers GitHub and Apple alike, under one title, before the QR route", () => {
+    const html = render({ ...props({ kind: "empty", account: { kind: "signed-out", error: null } }), scoped: false, onSignIn: none });
+    expect(html).toContain('data-account-state="signed-out"');
+    const buttons = [...html.matchAll(/<button type="button" class="([^"]+)">(Continue with [^<]+)</g)].map(([, kind, label]) => [kind, label]);
+    expect(buttons).toEqual([["btn", "Continue with GitHub"], ["btn", "Continue with Apple"]]);
+    expect(html.match(/<h1/g)).toHaveLength(1);
+    expect(html.indexOf("Continue with Apple")).toBeLessThan(html.indexOf("Or scan the QR code on your PC"));
+  });
+
+  it("opens a paired PC and leaves one that has not approved this device as a plain row", () => {
+    const html = render({ ...props({ kind: "list", devices: [], account: { kind: "signed-in", provider: "github", error: null,
+      pcs: [pc("a".repeat(32), "p620", "paired"), pc("b".repeat(32), "nuc", "needs-approval"), pc("c".repeat(32), "old-desktop", "offline", false), pc("d".repeat(32), "laptop", "offline", true)] } }), scoped: false, onSignIn: none });
+    expect(html).toContain(`href="/s/${"a".repeat(32)}/"`);
+    expect(html).not.toContain(`href="/s/${"b".repeat(32)}/"`);
+    // offline says nothing about pairing: only the PC this device is paired with opens
+    expect(html).not.toContain(`href="/s/${"c".repeat(32)}/"`);
+    expect(html).toContain(`href="/s/${"d".repeat(32)}/"`);
+    expect(html).toContain("This device is not approved on it yet");
+    expect(html).not.toContain("Continue with GitHub");
+  });
+
+});
+
 const groupsOf = (html: string) => [...html.matchAll(/<span class="(key-id-group(?: key-id-differs)?)">([0-9a-f]{4})/g)].map(([, kind, group]) => [group, kind === "key-id-group key-id-differs"]);
 
 describe("a key that is not the PC's", () => {

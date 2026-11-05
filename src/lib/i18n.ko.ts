@@ -24,6 +24,10 @@ import { RELAY_KO } from "./i18n/relay.ko.ts";
  * braces keep their English names.
  */
 const BASE: Record<string, string> = {
+  "never": "없음",
+  "just now": "방금",
+  "{n} min ago": "{n}분 전",
+  "{n} h ago": "{n}시간 전",
   "Remove": "제거",
   "Remove {name}": "{name} 제거",
   "Save": "저장",

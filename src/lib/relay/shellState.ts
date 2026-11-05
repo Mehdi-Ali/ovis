@@ -10,6 +10,8 @@ import { deriveServerId } from "../../../shared/relay-server-proof.ts";
 import { decodeOffer } from "../../../shared/relay-offer.ts";
 import type { UpdateStep } from "../../../shared/update.ts";
 import type { RelayOffer } from "../../../shared/relay-offer.ts";
+import type { MyPc } from "../account/myPcs.ts";
+import type { AccountProvider } from "../account/store.ts";
 import { inNativeApp } from "../nativeApp.ts";
 import { serverIdOfPath } from "../shellMode.ts";
 import { RelayAdmissionTimeoutError, RelayUnreachableError, UnsafeRelayDestinationError } from "./channel.ts";
@@ -58,10 +60,19 @@ export type PcUpdate =
   | { phase: "restarting" }
   | { phase: "failed"; detail: string | null };
 
+/**
+ * The front page's account part: the sign-in buttons, the wait while the provider's pages are up,
+ * or the account's PCs (null while they load). Null on a PC's own page, which has no account part.
+ */
+export type AccountView =
+  | { kind: "signed-out"; error: string | null }
+  | { kind: "signing-in" }
+  | { kind: "signed-in"; provider: AccountProvider; pcs: MyPc[] | null; error: string | null };
+
 export type RelayShellState =
-  | { kind: "list"; devices: RelayDevice[] }
+  | { kind: "list"; devices: RelayDevice[]; account?: AccountView | null }
   | { kind: "outdated"; name: string | null; serverVersion: string; minVersion: string; update: PcUpdate }
-  | { kind: "empty" }
+  | { kind: "empty"; account?: AccountView | null }
   | { kind: "confirm"; offer: RelayOffer }
   | { kind: "connecting"; name: string | null }
   /** pairing without a code: the digits to compare with the PC's screen; `confirmed` once this phone said they match */

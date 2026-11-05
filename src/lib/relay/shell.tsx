@@ -11,7 +11,13 @@ import { MIN_SERVER_VERSION, MuxProtocolError } from "../../../shared/relay-mux.
 import type { RelayOffer } from "../../../shared/relay-offer.ts";
 import type { UpdateStatus } from "../../../shared/update.ts";
 import { RelayShell } from "../../components/RelayShell.tsx";
+import { myPcs } from "../account/myPcs.ts";
+import { accountServiceOf, AccountService, SignedOutError } from "../account/service.ts";
+import { beginSignIn, finishSignIn, SignInError, signInReturn } from "../account/signin.ts";
+import { indexedAccountStore } from "../account/store.ts";
+import type { AccountProvider, AccountStore } from "../account/store.ts";
 import { fetchUpdateStatus, requestUpdate } from "../api.ts";
+import { t } from "../i18n.ts";
 import { deviceLabel } from "../phone.ts";
 import { registerPendingPush } from "../push.ts";
 import type { PendingPushStore } from "../push.ts";
@@ -22,7 +28,7 @@ import { RelayUnreachableError } from "./channel.ts";
 import { indexedDeviceStore, indexedPendingPush, ServerIdentityChangedError } from "./device.ts";
 import type { RelayDeviceStore } from "./device.ts";
 import { failureOf, forgedOffer, forgetsDevice, iosBrowserTab, keyMismatch, offerOf, pairsAgainWithoutKey, shellEntry } from "./shellState.ts";
-import type { PcUpdate, RelayShellState } from "./shellState.ts";
+import type { AccountView, PcUpdate, RelayShellState } from "./shellState.ts";
 import { relaySkew, reloadOnce } from "./skew.ts";
 import type { ReloadMemory } from "./skew.ts";
 import { openRelayTransport } from "./transport.ts";
@@ -44,6 +50,13 @@ export interface RelayShellMount {
   shellVersion?: string;
   /** brings in a newer shell: the worker checks for one, then the page reloads */
   reload?: () => Promise<void>;
+  /** this client's account key and sign-in; the `ovis-account` database by default */
+  accountStore?: AccountStore;
+  /** the account service's origin; the page's `ovis-account-service` meta by default, and no sign-in without one */
+  accountService?: string | null;
+  accountFetch?: (input: Request | string | URL, init?: RequestInit) => Promise<Response>;
+  /** takes the page to the provider's sign-in; the return comes back to the front page */
+  openSignIn?: (url: string) => void;
 }
 
 declare const __APP_VERSION__: string;
@@ -86,8 +99,19 @@ export async function forgetSavedPc(serverId: string, store: RelayDeviceStore = 
   await store.remove(serverId);
 }
 
+/** What a failed sign-in says on the front page. */
+function signInFailure(error: unknown): string {
+  if (error instanceof SignInError && error.code === "denied") return t("The sign-in was cancelled.");
+  return t("The sign-in did not finish. Try again.");
+}
+
 export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
   const store = mount.store ?? indexedDeviceStore;
+  const accountStore = mount.accountStore ?? indexedAccountStore;
+  const accountService = mount.accountService === undefined ? accountServiceOf(document) : mount.accountService;
+  const account = new AccountService({ store: accountStore, ...(mount.accountFetch ? { fetch: mount.accountFetch } : {}) });
+  const openSignIn = mount.openSignIn ?? ((url: string) => { window.location.assign(url); });
+  let accountView: AccountView | null = accountService === null ? null : { kind: "signed-out", error: null };
   const open = mount.open ?? openRelayTransport;
   const navigate = mount.navigate ?? ((path: string) => { window.location.assign(path); });
   const label = mount.label ?? deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0);
@@ -129,7 +153,45 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
   const show = (state: RelayShellState): void => {
     shell ??= createRoot(mount.container);
     shell.render(createElement(StrictMode, null, createElement(SettingsProvider, null,
-      createElement(RelayShell, { state, scoped, iosTab, onPair: pair, onRetry: retry, onCancel: cancel, onBack: toFront, onForget: forget, onUpdate: update, onMatch: match }))));
+      createElement(RelayShell, { state, scoped, iosTab, onPair: pair, onRetry: retry, onCancel: cancel, onBack: toFront, onForget: forget, onUpdate: update, onMatch: match, ...(accountService === null ? {} : { onSignIn: signIn }) }))));
+  };
+
+  /** The front page: the saved PCs, or the account's once signed in. */
+  const showFront = async (): Promise<void> => {
+    const devices = await store.list();
+    show(devices.length === 0 ? { kind: "empty", account: accountView } : { kind: "list", devices, account: accountView });
+  };
+
+  /** The account's directory merged with the PCs this device is paired with; the pairings work whatever the service says. */
+  const loadAccount = async (): Promise<void> => {
+    if (accountService === null) { await showFront(); return; }
+    const session = await account.session();
+    if (session === undefined) { await showFront(); return; }
+    const signedIn = { kind: "signed-in", provider: session.provider, pcs: null, error: null } as const;
+    accountView = signedIn;
+    await showFront();
+    try {
+      const directory = await account.listPcs();
+      accountView = { ...signedIn, pcs: myPcs(directory, await store.list(), { now: Date.now() }) };
+    } catch (error) {
+      if (error instanceof SignedOutError) accountView = { kind: "signed-out", error: t("Your sign-in ended. Sign in again to see every PC of your account.") };
+      else {
+        console.warn("Ovis: the account's PCs could not be read", error);
+        accountView = { ...signedIn, pcs: myPcs([], await store.list(), { now: Date.now() }), error: t("The account service could not be reached. The PCs this device is paired with still work.") };
+      }
+    }
+    await showFront();
+  };
+
+  const signIn = (provider: AccountProvider): void => {
+    if (accountService === null) return;
+    accountView = { kind: "signing-in" };
+    void showFront();
+    beginSignIn(provider, { store: accountStore, service: accountService, redirectUri: `${window.location.origin}/` }).then(openSignIn).catch(async (error: unknown) => {
+      console.warn("Ovis: the sign-in did not start", error);
+      accountView = { kind: "signed-out", error: signInFailure(error) };
+      await showFront();
+    });
   };
 
   const failed = async (error: unknown, attempt: Attempt): Promise<void> => {
@@ -360,6 +422,10 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
     arrived();
   });
 
+  // a sign-in coming back: the code leaves the address before anything else, as an offer does
+  const returned = accountService !== null && entry.serverId === null && entry.offer === null ? signInReturn(new URL(mount.entryUrl).hash) : null;
+  if (returned !== null) window.history.replaceState(null, "", window.location.pathname);
+
   if (arrived()) return;
   if (entry.serverId !== null) {
     const saved = await store.get(entry.serverId);
@@ -369,6 +435,15 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
     else await connect({ offer: offerOf(saved), code: false, paired: saved.device_id !== null });
     return;
   }
-  const devices = await store.list();
-  show(devices.length === 0 ? { kind: "empty" } : { kind: "list", devices });
+  if (returned !== null) {
+    accountView = { kind: "signing-in" };
+    await showFront();
+    try {
+      await finishSignIn(returned, { store: accountStore, ...(mount.accountFetch ? { fetch: mount.accountFetch } : {}) });
+    } catch (error) {
+      console.warn("Ovis: the sign-in did not finish", error instanceof Error ? error.name : error);
+      accountView = { kind: "signed-out", error: signInFailure(error) };
+    }
+  }
+  await loadAccount();
 }
