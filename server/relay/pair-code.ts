@@ -25,6 +25,8 @@ const NAMEPLATE_TRIES = 5;
 const REOPEN_MS = 1000;
 /** under the relay's 120 s idle close (relay/core.ts IDLE_MS), so a code nobody tries keeps its nameplate */
 const KEEPALIVE_MS = 30_000;
+/** how long a nameplate may wait for the relay before its six-digit code is started */
+const PAIR_CODE_HOLD_MS = 60_000;
 
 export class PairCodeUnavailableError extends Error {}
 
@@ -68,7 +70,13 @@ export class RelayPairCodes {
   /** bumped by every mint and cancel: a mint still waiting on the relay that is no longer the newest stops there */
   private generation = 0;
 
-  constructor(private readonly options: RelayPairCodesOptions) {}
+  /** set while mint starts the six-digit code its typed code is bound to: that one replaces nothing of its own */
+  private binding = false;
+
+  constructor(private readonly options: RelayPairCodesOptions) {
+    // a six-digit code started anywhere else (New code, the Devices group) ends the typed code bound to the old one
+    options.devices.onPairingStarted(() => { if (!this.binding) this.cancel(); });
+  }
 
   private url(nameplate: string): string {
     const url = new URL("/v1/pair", this.options.relay.replace(/^wss:/, "https:"));
@@ -86,22 +94,34 @@ export class RelayPairCodes {
     const generation = this.generation;
     const { devices } = this.options;
     devices.assertRelayPairing();
-    const pairing = devices.startPairing();
-    const expires = Date.parse(pairing.expires_at);
     for (let tried = 0; tried < NAMEPLATE_TRIES; tried++) {
       const code = randomPairCode();
+      // the six-digit code is started only once the relay holds the nameplate, so a code the relay
+      // refuses leaves the QR code showing as it was
       const current: Current = {
-        code, nameplate: splitPairCode(code).nameplate, bound: pairing, expires, tries: PAIR_CODE_TRIES,
+        code, nameplate: splitPairCode(code).nameplate, bound: { code: "", expires_at: "" }, expires: Date.now() + PAIR_CODE_HOLD_MS, tries: PAIR_CODE_TRIES,
         socket: null, attempt: null, next: new PairCodeHost(code), reopen: null, keepalive: null, done: false,
-        expiry: setTimeout(() => this.finish(current), Math.max(0, expires - Date.now())),
+        expiry: setTimeout(() => this.finish(current), PAIR_CODE_HOLD_MS),
       };
       this.current = current;
       const held = await this.hold(current);
       // hidden, or replaced by a newer code, while the relay answered: this one must not live on
       if (generation !== this.generation || current.done) { this.finish(current); throw new PairCodeUnavailableError("This code was replaced."); }
-      if (held === "held") return { code: formatPairCode(code), expires_at: pairing.expires_at };
-      this.finish(current);
-      if (held === "failed") break;
+      if (held !== "held") {
+        this.finish(current);
+        if (held === "failed") break;
+        continue;
+      }
+      let pairing: { code: string; expires_at: string };
+      this.binding = true;
+      try { pairing = devices.startPairing(); }
+      catch (error) { this.finish(current); throw error; }
+      finally { this.binding = false; }
+      current.bound = pairing;
+      current.expires = Date.parse(pairing.expires_at);
+      clearTimeout(current.expiry);
+      current.expiry = setTimeout(() => this.finish(current), Math.max(0, current.expires - Date.now()));
+      return { code: formatPairCode(code), expires_at: pairing.expires_at };
     }
     throw new PairCodeUnavailableError("The relay did not take a pairing code. Try again, or scan the QR code.");
   }

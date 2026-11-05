@@ -173,6 +173,7 @@ export class DeviceStore {
   private readonly revocations = new Map<string, Set<() => void>>();
   private readonly revokeAllListeners = new Set<() => void>();
   private readonly pairings = new Set<(event: DevicePairedEvent, origin: readonly string[]) => void>();
+  private readonly codeStarts = new Set<() => void>();
   readonly error: string | null = null;
 
   /**
@@ -257,6 +258,12 @@ export class DeviceStore {
     return this.devices.map((d) => ({ id: d.id, label: d.label, role: d.role, created_at: d.created_at, last_seen_at: d.last_seen_at, current: d.id === currentId, ...(d.relay_public_key === undefined ? {} : { via_relay: true as const }) }));
   }
 
+  /** Hears of every new six-digit code, which replaces the one pending (a typed relay code bound to it goes: server/relay/pair-code.ts). */
+  onPairingStarted(listener: () => void): () => void {
+    this.codeStarts.add(listener);
+    return () => { this.codeStarts.delete(listener); };
+  }
+
   /** The current code when it can still be used, without changing its attempts or expiry. */
   activePairing(now = Date.now()): PairingCode | null {
     const pending = this.pending;
@@ -273,7 +280,9 @@ export class DeviceStore {
     this.codeIssues.push(now);
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
     this.pending = { code, expires: now + CODE_TTL_MS, attempts: 0 };
-    return { code, expires_at: new Date(this.pending.expires).toISOString() };
+    const started = { code, expires_at: new Date(this.pending.expires).toISOString() };
+    for (const listener of this.codeStarts) listener();
+    return started;
   }
 
   /** `{ token }` when the code is right; null when it is wrong, spent or expired. */

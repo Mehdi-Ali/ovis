@@ -340,7 +340,7 @@ it("starts, decodes an offer, pairs, authenticates, and carries full HTTP and WS
   const returning = await client(f, offer, false, paired.device);
   expect((await returning.http("/api/relay")).status).toBe(200);
   expect(await (await returning.http("/api/access")).json()).toMatchObject({ relay: { phase: "online" } });
-  for (const path of ["/api/relay/offer", "/api/relay/code", "/api/relay/reset-identity", "/api/relay/start", "/api/relay/stop"]) {
+  for (const path of ["/api/relay/offer", "/api/relay/code", "/api/relay/code/cancel", "/api/relay/reset-identity", "/api/relay/start", "/api/relay/stop"]) {
     const refused = await returning.http(path, { method: "POST", headers: [["x-herdr-update", "1"]] });
     expect(refused.status).toBe(403);
     expect(await refused.json()).toMatchObject({ error: { code: "local_required" } });
@@ -862,13 +862,21 @@ it("three wrong codes end it, deliver nothing, and never pause pairing with the 
   expect((await client(f, await f.offer())).device).toBeDefined();
 });
 
-it("a code whose six-digit code was replaced tells a device that knew it, and hands over no offer", async () => {
+it("a code whose six-digit code a phone spent with the QR code tells a device that knew it, and hands over no offer", async () => {
+  const f = await fixture(false, { pairCodeRelay: "wss://pair.test" });
+  await f.start();
+  const minted = await mintCode(f);
+  await client(f, await f.offer());
+  const typed = await typeCode(f, minted.code);
+  expect(typed.error).toBeInstanceOf(PairCodeExpiredError);
+});
+
+it("a new six-digit code takes the typed code off the relay", async () => {
   const f = await fixture(false, { pairCodeRelay: "wss://pair.test" });
   await f.start();
   const minted = await mintCode(f);
   f.app.context.services.devices.startPairing();
-  const typed = await typeCode(f, minted.code);
-  expect(typed.error).toBeInstanceOf(PairCodeExpiredError);
+  expect(await typeCode(f, minted.code)).toEqual({ close: PAIR_CLOSE.NO_HOST });
 });
 
 it("a relay that is not Ovis's own has no codes to type", async () => {

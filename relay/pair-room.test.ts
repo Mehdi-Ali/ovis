@@ -79,6 +79,16 @@ describe("pairing rendezvous", () => {
     host.socket.close();
   });
 
+  test("a host's text that is JSON but no object is ignored, and the relay keeps running", async () => {
+    const { host, guest, attempt } = await hostAndGuest();
+    for (const text of ["null", "1", "[]", '"drop"']) host.socket.send(text);
+    host.socket.send(new Uint8Array([...fromHex(attempt), 4]));
+    expect([...(await guest.next("the frame after them") as Uint8Array)]).toEqual([4]);
+    expect((await fetch(`${base.replace("ws://", "http://")}/health`)).status).toBe(200);
+    guest.socket.close();
+    host.socket.close();
+  });
+
   test("a frame over the limit closes its sender", async () => {
     const { host, guest } = await hostAndGuest();
     guest.socket.send(new Uint8Array(PAIR_MAX_FRAME + 1));

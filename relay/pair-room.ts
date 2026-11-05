@@ -174,6 +174,8 @@ export class PairRoom<S extends object> {
     if (bytes === null) {
       let message: unknown;
       try { message = JSON.parse(frame as string); } catch { return; }
+      // `null`, a number or a list is JSON too, and no message of the host's
+      if (typeof message !== "object" || message === null || Array.isArray(message)) return;
       const drop = message as { type?: unknown; attempt?: unknown };
       if (drop.type === "drop" && guest && drop.attempt === guest.info.attempt) this.end(guest.socket, PAIR_CLOSE.DROPPED, "the PC ended this try");
       return;

@@ -75,6 +75,9 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
   const shown = useRef<string | null>(null);
   const quiet = useRef(false);
   const again = () => setGeneration((value) => value + 1);
+  // a six-digit code started anywhere else ends the typed code on the PC (server/relay/pair-code.ts): its words go too
+  const [typedReset, setTypedReset] = useState(0);
+  const dropTyped = () => setTypedReset((value) => value + 1);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +108,7 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
   useEffect(() => {
     const onCode = (event: Event) => {
       if (announcing.current) return;
+      dropTyped();
       const code = (event as CustomEvent<PairingCode | undefined>).detail?.code;
       if (relayAnnouncing) {
         if (code === undefined || code !== shown.current) { quiet.current = true; again(); }
@@ -138,6 +142,7 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
 
   const renew = async () => {
     setState("minting");
+    dropTyped();
     try {
       const code = await startPairing();
       announcing.current = true;
@@ -175,7 +180,7 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
       {offer !== null && <ShareLink url={offer.url} copyLabel={t("Copy link")}>{newCode}</ShareLink>}
       {offer === null && <div className="phone-actions">{newCode}</div>}
       {offer !== null && <QrReveal value={offer.url} label={t("QR code that pairs a phone through the relay")} hint={t("Scan it with the other device's camera.")} />}
-      <TypedCode onMinted={() => { quiet.current = true; again(); }} />
+      <TypedCode reset={typedReset} onMinted={() => { quiet.current = true; again(); }} />
       {pcId}
     </div>
   );
@@ -195,7 +200,7 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
           <button type="button" className="btn" disabled={state === "minting"} onClick={() => void renew()}><RefreshCw aria-hidden="true" />{t("New code")}</button>
         </div>
         <CodelessLink />
-        <TypedCode onMinted={() => { quiet.current = true; again(); }} />
+        <TypedCode reset={typedReset} onMinted={() => { quiet.current = true; again(); }} />
         {pcId}
       </div>
     </div>
@@ -208,9 +213,10 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
  * so the QR code above is asked for again (`onMinted`). The other device then shows this PC's ID
  * to compare with the one below.
  */
-function TypedCode({ onMinted }: { onMinted: () => void }) {
+function TypedCode({ reset, onMinted }: { reset: number; onMinted: () => void }) {
   const t = useT();
   const [code, setCode] = useState<RelayCode | null>(null);
+  useEffect(() => { setCode(null); }, [reset]);
   const [failure, setFailure] = useState<string | null>(null);
   const [left, setLeft] = useState("");
   useEffect(() => {
