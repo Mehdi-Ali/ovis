@@ -701,6 +701,40 @@ describe("relay Worker", () => {
   });
 });
 
+describe("relay Worker pairing rendezvous", () => {
+  const pairUrl = (role: string, plate = "AB1") => `https://relay.test/v1/pair?nameplate=${plate}&role=${role}&v=1`;
+  const openPair = async (room: RelayRoom, fake: ReturnType<typeof fakeState>, role: string) => {
+    expect((await room.fetch(new Request(pairUrl(role), upgrade))).status).toBe(101);
+    return fake.sockets.at(-1)!;
+  };
+
+  test("routes a pairing socket to the nameplate's own Durable Object, apart from every server_id", async () => {
+    const rooms: string[] = [];
+    const allow = { limit: async () => ({ success: true }) };
+    const e = { RELAY: { idFromName: (name: string) => name, get: (id: unknown) => ({ fetch: async () => { rooms.push(id as string); return new Response(null, { status: 101 }); } }) }, RELAY_LIMITER: allow, RELAY_GLOBAL_LIMITER: allow } satisfies Env;
+    expect((await handle(new Request(pairUrl("host"), { headers: { upgrade: "websocket" } }), e)).status).toBe(101);
+    expect(rooms).toEqual(["pair:AB1"]);
+  });
+
+  test("host and guest meet, frames pass scoped to the attempt, and it survives an eviction", async () => {
+    const fake = fakeState();
+    let room = new RelayRoom(fake.state);
+    const host = await openPair(room, fake, "host");
+    expect(host.json(0)).toEqual({ type: "waiting" });
+    const guest = await openPair(room, fake, "guest");
+    const { attempt } = host.json(1) as { attempt: string };
+    room = new RelayRoom(fake.state);
+    room.webSocketMessage(guest, new Uint8Array([7]).buffer);
+    const up = host.sent[2] as Uint8Array;
+    expect(Array.from(up.slice(16))).toEqual([7]);
+    expect(Array.from(up.slice(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("")).toBe(attempt);
+    room.webSocketMessage(host, up.buffer.slice(0) as ArrayBuffer);
+    expect(Array.from(guest.sent[0] as Uint8Array)).toEqual([7]);
+    closeFromFar(room, host);
+    expect(guest.closedWith?.code).toBe(1001);
+  });
+});
+
 describe("relay usage counters", () => {
   /** an Analytics Engine dataset that records what it is given */
   const dataset = () => {
