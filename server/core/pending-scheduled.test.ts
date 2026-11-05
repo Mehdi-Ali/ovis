@@ -165,3 +165,37 @@ it("lets no queued message of a connection go on its own while a scheduled one m
   await serialize("p", () => {});
   expect(writes).toEqual(["\u001b[200~queued\u001b[201~", "Enter"]);
 });
+
+it("asks for the user's OK, typing nothing, when the last row could be a password prompt and no client tells the width", async () => {
+  const d = delivery("idle");
+  const identity = await d.pending.scheduledIdentity("p");
+  d.shown.screen = "👨‍👩‍👧‍👦👨‍👩‍👧‍👦\nEnter passphras\ne:";
+  expect(await d.pending.sendScheduled("p", "continue", identity, true, () => {})).toMatchObject({ ok: false, code: "needs_ok_prompt" });
+  expect(d.writes).toEqual([]);
+});
+
+it("keeps a connection's queued message queued, typing nothing, while a scheduled paste may sit in an idle pane's input", async () => {
+  const writes: string[] = [];
+  spyOn(herdr, "paneProcessInfo").mockImplementation(async () =>
+    ({ pane_id: "p", shell_pid: 41000, foreground_processes: [{ pid: 41001, name: "codex", argv: ["codex"] }] }) as Awaited<ReturnType<typeof herdr.paneProcessInfo>>);
+  spyOn(processStart, "processStartedAtAsync").mockResolvedValue(1000);
+  spyOn(herdr, "paneRead").mockImplementation(async () => ({ text: "› Ask Codex to do anything\n" }) as Awaited<ReturnType<typeof herdr.paneRead>>);
+  spyOn(herdr, "paneSendText").mockImplementation(async (_pane, text) => { writes.push(text); });
+  spyOn(herdr, "paneSendKeys").mockImplementation(async (_pane, keys) => { writes.push(keys.join(",")); });
+  const owner = { data: connectionData({ deviceId: undefined, readOnly: false }), getBufferedAmount: () => 0, send: () => 1 };
+  owner.data.attached.set("p", { keepSize: false });
+  const pane = { pane_id: "p", terminal_id: "p", workspace_id: "w", tab_id: "t", agent: "codex", agent_status: "idle", focused: false, revision: 0 };
+  const facts = { attached: true, origin: true, sameAttachment: true, samePty: true, sameClaim: true, claimed: true, member: true, ready: true, held: false, currentHeld: false, mirror: false, cols: 80 };
+  let tail: Promise<unknown> = Promise.resolve();
+  const serialize = <T,>(_pane: string, run: () => T | Promise<T>): Promise<T> => { const next = tail.catch(() => {}).then(run); tail = next; return next; };
+  const delivery = createPendingDelivery({
+    options: { submitDelayMs: 0 }, clients: new Set([owner]), attachments: new Map(), sight: () => ({ facts: () => facts, write: () => {} }), serialize,
+    lastTyped: new Map(), submitText: async () => {}, authorizeSocket: () => {}, clientSnapshot: async () => ({ panes: [pane] }), omo: { sessionOf: () => null },
+    scheduledUncertain: () => true, SUBMIT_DEADLINE_MS: 1000, SUBMIT_DELAY_MS: 0, TYPED_SETTLE_MS: 0,
+  } as unknown as Parameters<typeof createPendingDelivery>[0]);
+  delivery.pending.status("p", "idle");
+  await delivery.pendingFrames.submit(owner as never, { type: "submit", id: 1, pane_id: "p", text: "queued", payload: "unused", delivery: "queue" } as never);
+  await serialize("p", () => {});
+  expect(writes).toEqual([]);
+  expect(delivery.pending.waiting("p")).toBe(true);
+});

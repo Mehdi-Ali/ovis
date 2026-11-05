@@ -279,4 +279,6 @@ export const COMPOSER_ZH: Record<string, string> = {
   "Needs your OK: a message to this pane may still be in its input line. Check the terminal first.": "需要你确认：此窗格的输入行中可能还留着上一条消息。请先检查终端。",
   "Needs your OK: it came due while this PC's server was not running": "需要你确认：此电脑的服务器未运行时已到发送时间",
   "Pick a time that has not passed yet.": "请选择一个尚未过去的时间。",
+  "Needs your OK: the pane moved since it was scheduled": "需要你确认：预约后窗格已被移动",
+  "Needs your OK: the terminal may be asking for a password. Check it first.": "需要你确认：终端可能正在询问密码。请先检查。",
 };

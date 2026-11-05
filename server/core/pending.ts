@@ -55,13 +55,9 @@ export type PendingOwner = Client | FirstMessageOwner;
  * user scheduled (server/scheduled-messages.ts), which keeps no Pi receipt. `authorize` throws once it may no
  * longer type; `cols`: the grid a password prompt is read for.
  */
-/**
- * The grid a password prompt is read for when no client has the pane attached (nothing then tells its width): a row that
- * wrapped reached the right edge, so it is as wide as the widest row, and a final space may be trimmed. This only ever
- * finds more prompts than the true width would (secretPrompt joins a row that long), never fewer.
- */
-const widestRow = (screen: string): number => Math.max(0, ...screen.split(/\r?\n/).map((row) => row.trimEnd().length));
-interface Sender { owner: Client | null; authorize(): void; cols(screen: string): number | undefined; widthKnown?: boolean }
+/** Whether the screen's last row with text ends with a colon, as every password prompt secretPrompt knows does. */
+const lastRowEndsWithColon = (screen: string): boolean => /:\s*$/.test(screen.split(/\r?\n/).filter((row) => row.trim()).at(-1) ?? "");
+interface Sender { owner: Client | null; authorize(): void; cols(): number | undefined; promptUnknown?: boolean }
 const isClient = (owner: PendingOwner): owner is Client => owner !== FIRST_MESSAGE_OWNER;
 /** a first message's lease is the delivering connection's, taken at each attempt: none is kept on the record */
 type PendingItem = PendingRecord<PendingOwner, PendingLease | null>;
@@ -558,10 +554,13 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     // the live screen, not the viewport: a pane scrolled into its history still draws its next
     // menu or password prompt at the bottom (server/prompt.ts liveScreen)
     const screen = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-    // with no width known, a wrapped row is read both as the widest row and one column more (a final space trimmed), so
-    // a prompt cut mid-word or at a space is found either way
-    if (secretPrompt(screen, sender.cols(screen)) !== null || (sender.widthKnown === false && secretPrompt(screen, sender.cols(screen)! - 1) !== null)) {
+    if (secretPrompt(screen, sender.cols()) !== null) {
       throw new HerdrError("agent_blocked", "The terminal is waiting for masked input; answer it with the secret-input form first");
+    }
+    // with no client attached nothing tells the pane's width, so a wrapped prompt cannot be told from text: every password
+    // prompt secretPrompt knows ends its last row with a colon, and such a screen waits for the user's OK, never guessed (#2919)
+    if (sender.promptUnknown && lastRowEndsWithColon(screen)) {
+      throw new HerdrError("needs_ok_prompt", "The terminal may be asking for a password, and with no device attached its lines cannot be read whole. Check it, then send this or discard it.");
     }
     const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);
     // a message Claude Code holds for its invisible characters is a card to answer first, also once its hint has gone.
@@ -1118,7 +1117,8 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
               // already waiting its turn here, this one takes its place behind it instead.
               // A held message is never typed by arriving after the turn: it waits for Send now.
               // Queued, it never clears a stopped send Claude put back in its box, as the drain does not (#2546).
-              if (message.delivery === "queue" && !pending.waiting(message.pane_id)) return dispatchPendingText(connectionSender(client, message.pane_id, lease!), message.pane_id, text, context.identity, false, arrivedAt, undefined, false, message.id, agentOnly, true);
+              // a scheduled paste that may sit in the input keeps this one queued, as the drain does (#2919)
+              if (message.delivery === "queue" && !pending.waiting(message.pane_id) && !scheduledUncertain(message.pane_id)) return dispatchPendingText(connectionSender(client, message.pane_id, lease!), message.pane_id, text, context.identity, false, arrivedAt, undefined, false, message.id, agentOnly, true);
             }
             pending.observe(message.pane_id, held && !context.working ? "working" : context.pane.agent_status, mark);
             // hold: kept for the owner's Send now, never sent by the turn's end
@@ -1280,7 +1280,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
         return { ok: false, code: "pending_wait", message: "The pane's queued messages, or the turn the last one started, go first" };
       }
       const id = `scheduled:${crypto.randomUUID()}`;
-      return dispatchPendingText({ owner: null, authorize, cols: (screen) => attachments.get(paneId)?.cols ?? widestRow(screen) + 1, widthKnown: attachments.has(paneId) }, paneId, pendingText(text), identity,
+      return dispatchPendingText({ owner: null, authorize, cols: () => attachments.get(paneId)?.cols, promptUnknown: !attachments.has(paneId) }, paneId, pendingText(text), identity,
         automatic, Date.now(), (working, restarting) => pending.committingUnrecorded(paneId, id, working, restarting), !automatic, 0, true);
     });
 

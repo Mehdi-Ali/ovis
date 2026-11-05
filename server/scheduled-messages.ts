@@ -36,6 +36,7 @@ const RETRY_MS = 30_000;
 const MAX_TIMER_MS = 2_147_483_647;
 const FILE = "scheduled-messages.json";
 const NEEDS_OK_UNCERTAIN = { code: "needs_ok", message: "A message to this pane may still be in its input line. Check the terminal, then send this one or discard it." };
+const NEEDS_OK_MOVED = { code: "needs_ok_moved", message: "The pane moved to another workspace after this was scheduled. Send it now or discard it." };
 const NEEDS_OK_RESTART = { code: "needs_ok_restart", message: "This came due while this PC's server was not running. Send it now or discard it." };
 
 interface Entry { message: ScheduledMessage; identity: PendingIdentity; device: string | null; triedAt?: number }
@@ -172,7 +173,14 @@ export class ScheduledMessages {
   /** herdr moved the pane under a new ID: its messages follow it */
   paneMoved(from: string, to: string): void {
     let moved = false;
-    for (const entry of this.entries.values()) if (entry.message.pane_id === from) { entry.message.pane_id = to; moved = true; }
+    for (const entry of this.entries.values()) {
+      if (entry.message.pane_id !== from) continue;
+      entry.message.pane_id = to;
+      moved = true;
+      // what was learned about the pane under its old ID (an uncertain paste, an unconfirmed turn) does not follow it: every
+      // message of a moved pane waits for the user's OK, never typed on its own
+      if (entry.message.state === "scheduled") { entry.message.state = "held"; entry.message.error = { ...NEEDS_OK_MOVED }; }
+    }
     // a move that cannot be written is logged: the terminals' own move after this hook still runs
     if (moved) try { this.commit(); } catch (error) { console.error(`scheduled messages: ${error instanceof Error ? error.message : String(error)}`); }
   }

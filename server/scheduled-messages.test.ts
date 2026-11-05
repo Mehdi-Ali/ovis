@@ -343,3 +343,15 @@ it("keeps a held message held when its edit leaves the time in the past: Save ne
   expect(sends).toEqual([]);
   expect(scheduled.update({ id: "a", send_at: "2026-11-05T11:00:00Z" })).toMatchObject({ state: "scheduled" });
 });
+
+it("asks for the user's OK on every scheduled message of a pane herdr moved", async () => {
+  const { scheduled, sends, clock } = store();
+  await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T10:30:00Z" }, null);
+  scheduled.start();
+  scheduled.paneMoved("p1", "p9");
+  clock.now = Date.parse("2026-11-05T10:31:00Z");
+  scheduled.paneEvent("p9");
+  await settle();
+  expect(sends).toEqual([]);
+  expect(scheduled.list()[0]).toMatchObject({ pane_id: "p9", state: "held", error: { code: "needs_ok_moved" } });
+});

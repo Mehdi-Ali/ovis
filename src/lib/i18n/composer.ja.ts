@@ -279,4 +279,6 @@ export const COMPOSER_JA: Record<string, string> = {
   "Needs your OK: a message to this pane may still be in its input line. Check the terminal first.": "確認が必要です: このペインの入力行に前のメッセージが残っているかもしれません。先にターミナルを確認してください。",
   "Needs your OK: it came due while this PC's server was not running": "確認が必要です: この PC のサーバーが動いていない間に予定時刻を過ぎました",
   "Pick a time that has not passed yet.": "まだ過ぎていない時刻を選んでください。",
+  "Needs your OK: the pane moved since it was scheduled": "確認が必要です: 予約したあとでペインが移動しました",
+  "Needs your OK: the terminal may be asking for a password. Check it first.": "確認が必要です: ターミナルがパスワードを求めているかもしれません。先に確認してください。",
 };
