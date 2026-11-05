@@ -181,8 +181,37 @@ first). Same answer as `records`.
 ## Account service API
 
 The service the apps and PCs call; a self-hosted install can point both at its own. Clients
-authenticate with `Authorization: Bearer <token>` from the service's sign-in; the PC never signs in
-and proves its relay key instead. JSON bodies, errors as `{ "error": { "code", "message" } }`.
+authenticate with `Authorization: Bearer <access_token>` from [signing in](#signing-in); the PC never
+signs in and proves its relay key instead. JSON bodies, errors as `{ "error": { "code", "message" } }`.
+
+### Signing in
+
+A sign-in only finds the account's PCs and rings its devices. It never admits a device anywhere:
+that stays with each PC's `devices.json` ([Rules](#rules)).
+
+OAuth's authorization code flow with PKCE, `S256` only:
+
+1. `GET /v1/signin/{github|apple}?redirect_uri&state&code_challenge&code_challenge_method=S256` sends
+   the browser to the provider's sign-in, then back to `redirect_uri?code&state`. The `code` is
+   good once, for 60 seconds.
+2. `POST /v1/token` `{ "grant_type": "authorization_code", "code", "code_verifier", "redirect_uri" }`
+   answers `{ "access_token", "refresh_token", "expires_in", "account", "provider" }`.
+   `redirect_uri` must be the one the code was issued for, and `code_verifier` the one whose SHA-256
+   (base64url) was `code_challenge`.
+3. `POST /v1/token` `{ "grant_type": "refresh_token", "refresh_token" }` answers the same. Refresh
+   tokens rotate: each is good once, and using one again ends every token of its sign-in (its
+   family), as a leaked one would be.
+4. On iOS, Sign in with Apple hands the app an identity token directly:
+   `POST /v1/token` `{ "grant_type": "apple_id_token", "id_token", "nonce" }` answers the same, for
+   the `nonce` the app asked Apple with.
+5. `POST /v1/signout` (Bearer) answers 204 and ends that sign-in's family.
+
+`redirect_uri` is compared exactly against three forms: `https://app.ovis.sh/account/callback`,
+`ovis://account/callback`, and `http://127.0.0.1:<port>/callback` on any port (a loopback redirect
+for the desktop app, RFC 8252). Anything else answers 400 `invalid_redirect_uri` before any
+sign-in. Token errors are 400 `invalid_grant` (a wrong, spent or expired code, verifier, refresh
+token or identity token) and 400 `unsupported_grant_type`; an access token that expired or was
+signed out answers 401 `unauthorized` on every other request.
 
 Clients:
 
@@ -193,6 +222,7 @@ Clients:
 | `DELETE /v1/pcs/{server_id}` | | `204` |
 | `POST /v1/records` | `{ "server_ids": [...], "record" }` | `{ "queued": n }`: puts a signed record of the caller's account in that account's mailbox for each listed PC; the service checks only its shape and signature. 429 `mailbox_full` past 1000 records waiting for one PC |
 | `POST /v1/admissions` | `{ "server_id", "label" }` | `{ "id" }`: rings the account's other clients (push) that a device waits at that PC |
+| `POST /v1/signout` | | `204`: ends this sign-in's tokens |
 
 The PC, by server proof:
 

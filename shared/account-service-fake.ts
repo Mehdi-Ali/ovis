@@ -1,7 +1,7 @@
 /**
  * The account service API (docs/account.md, "Account service API") in memory, for tests of the PC
- * and the apps. Not a service: no sign-in, no push, no persistence. `issueToken` stands in for a
- * finished sign-in. It checks what the real service must check (record shape and signature, the
+ * and the apps. Not a service: no provider behind sign-in, no push, no persistence. `signInAs` says who
+ * the next sign-in is, `appleIdToken` stands in for Apple's, and `issueToken` skips sign-in altogether. It checks what the real service must check (record shape and signature, the
  * caller's directory, server proof with the `account` role), so tests fail where a PC or app relies
  * on something the service would refuse.
  */
@@ -13,6 +13,28 @@ export const MAILBOX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAILBOX_PAGE = 100;
 /** Records one account may hold for one PC at once; past it, `/v1/records` answers 429 `mailbox_full`. */
 export const MAILBOX_MAX = 1000;
+export const ACCESS_TOKEN_TTL_S = 3600;
+export const SIGNIN_CODE_TTL_MS = 60_000;
+
+export type SignInProvider = "github" | "apple";
+
+/** The only redirects sign-in returns to (docs/account.md, "Signing in"), compared exactly. */
+export function isAllowedRedirect(uri: string): boolean {
+  if (uri === "https://app.ovis.sh/account/callback" || uri === "ovis://account/callback") return true;
+  const loopback = /^http:\/\/127\.0\.0\.1:([0-9]{1,5})\/callback$/.exec(uri);
+  return loopback !== null && Number(loopback[1]) >= 1 && Number(loopback[1]) <= 65535;
+}
+
+async function s256(verifier: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+  let binary = "";
+  for (const byte of digest) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+const PKCE = /^[A-Za-z0-9._~-]{43,128}$/;
+
+interface Session { account: string; provider: SignInProvider | "test"; family: string; expires: number }
 
 export interface FakePc { server_id: string; label: string; added_at: string; last_seen_at: string | null }
 export interface FakeAdmission { id: string; server_id: string; label: string; at: string }
@@ -20,7 +42,12 @@ export interface FakeAdmission { id: string; server_id: string; label: string; a
 interface Mail { seq: number; record: AccountRecord; at: number }
 
 export class FakeAccountService {
-  private readonly tokens = new Map<string, string>();
+  private readonly tokens = new Map<string, Session>();
+  private readonly codes = new Map<string, { account: string; provider: SignInProvider; challenge: string; redirect: string; expires: number }>();
+  private readonly refreshTokens = new Map<string, { account: string; provider: SignInProvider; family: string; used: boolean }>();
+  private readonly revokedFamilies = new Set<string>();
+  private readonly appleTokens = new Map<string, { account: string; nonce: string }>();
+  private readonly signIns = new Map<SignInProvider, string>();
   private readonly directories = new Map<string, Map<string, FakePc>>();
   private readonly mailboxes = new Map<string, Mail[]>();
   private readonly challenges = new Map<string, { server_id: string; expected: string; expires: number }>();
@@ -34,11 +61,80 @@ export class FakeAccountService {
   /** A bearer token for `account`, as if its owner had just signed in. */
   issueToken(account: string): string {
     const token = randomHex(32);
-    this.tokens.set(token, account);
+    this.tokens.set(token, { account, provider: "test", family: randomHex(16), expires: Number.POSITIVE_INFINITY });
+    return token;
+  }
+
+  /** Who the next sign-in with `provider` turns out to be; unset, `acct_<provider>`. */
+  signInAs(provider: SignInProvider, account: string): void { this.signIns.set(provider, account); }
+
+  /** An identity token as Sign in with Apple hands an iOS app, for `account` and the app's `nonce`. */
+  appleIdToken(account: string, nonce: string): string {
+    const token = randomHex(32);
+    this.appleTokens.set(token, { account, nonce });
     return token;
   }
 
   revokeToken(token: string): void { this.tokens.delete(token); }
+
+  private grant(account: string, provider: SignInProvider, family = randomHex(16)) {
+    const access = randomHex(32);
+    const refresh = randomHex(32);
+    this.tokens.set(access, { account, provider, family, expires: this.now() + ACCESS_TOKEN_TTL_S * 1000 });
+    this.refreshTokens.set(refresh, { account, provider, family, used: false });
+    return json({ access_token: access, refresh_token: refresh, expires_in: ACCESS_TOKEN_TTL_S, account, provider });
+  }
+
+  private signIn(url: URL, provider: string): Response {
+    if (provider !== "github" && provider !== "apple") return problem(404, "not_found", "Unknown provider");
+    const redirect = url.searchParams.get("redirect_uri") ?? "";
+    const state = url.searchParams.get("state") ?? "";
+    const challenge = url.searchParams.get("code_challenge") ?? "";
+    if (!isAllowedRedirect(redirect)) return problem(400, "invalid_redirect_uri", "That redirect is not allowed");
+    if (url.searchParams.get("code_challenge_method") !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(challenge) || state.length === 0) {
+      return problem(400, "invalid_request", "Send state and an S256 code_challenge");
+    }
+    const code = randomHex(32);
+    this.codes.set(code, { account: this.signIns.get(provider) ?? `acct_${provider}`, provider, challenge, redirect, expires: this.now() + SIGNIN_CODE_TTL_MS });
+    const back = new URL(redirect);
+    back.searchParams.set("code", code);
+    back.searchParams.set("state", state);
+    return new Response(null, { status: 302, headers: { location: back.href } });
+  }
+
+  private async token(request: Request): Promise<Response> {
+    const body = await request.json() as Record<string, unknown>;
+    const invalid = (message: string) => problem(400, "invalid_grant", message);
+    switch (body.grant_type) {
+      case "authorization_code": {
+        const code = typeof body.code === "string" ? this.codes.get(body.code) : undefined;
+        if (typeof body.code === "string") this.codes.delete(body.code);
+        if (!code || this.now() > code.expires || body.redirect_uri !== code.redirect) return invalid("The code is wrong, spent or expired");
+        if (typeof body.code_verifier !== "string" || !PKCE.test(body.code_verifier) || await s256(body.code_verifier) !== code.challenge) return invalid("The code_verifier does not match");
+        return this.grant(code.account, code.provider);
+      }
+      case "refresh_token": {
+        const refresh = typeof body.refresh_token === "string" ? this.refreshTokens.get(body.refresh_token) : undefined;
+        if (!refresh || this.revokedFamilies.has(refresh.family)) return invalid("Sign in again");
+        // a refresh token is good once: seeing it again means it leaked, so the whole family goes
+        if (refresh.used) { this.revokeFamily(refresh.family); return invalid("Sign in again"); }
+        refresh.used = true;
+        return this.grant(refresh.account, refresh.provider, refresh.family);
+      }
+      case "apple_id_token": {
+        const apple = typeof body.id_token === "string" ? this.appleTokens.get(body.id_token) : undefined;
+        if (typeof body.id_token === "string") this.appleTokens.delete(body.id_token);
+        if (!apple || typeof body.nonce !== "string" || body.nonce !== apple.nonce) return invalid("The identity token is not valid for that nonce");
+        return this.grant(apple.account, "apple");
+      }
+      default: return problem(400, "unsupported_grant_type", "Use authorization_code, refresh_token or apple_id_token");
+    }
+  }
+
+  private revokeFamily(family: string): void {
+    this.revokedFamilies.add(family);
+    for (const [token, session] of this.tokens) if (session.family === family) this.tokens.delete(token);
+  }
 
   pcs(account: string): FakePc[] { return [...this.directories.get(account)?.values() ?? []]; }
 
@@ -63,6 +159,9 @@ export class FakeAccountService {
     this.requests.push(`${request.method} ${url.pathname}`);
     try {
       if (url.pathname.startsWith("/v1/pc/")) return await this.pc(request, url.pathname);
+      const provider = /^\/v1\/signin\/([a-z]+)$/.exec(url.pathname)?.[1];
+      if (provider !== undefined && request.method === "GET") return this.signIn(url, provider);
+      if (url.pathname === "/v1/token" && request.method === "POST") return await this.token(request);
       return await this.client(request, url.pathname);
     } catch (error) {
       if (error instanceof AccountRecordError) return problem(400, "record_invalid", error.message);
@@ -73,8 +172,13 @@ export class FakeAccountService {
 
   private async client(request: Request, path: string): Promise<Response> {
     const bearer = /^Bearer (\S+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
-    const account = bearer === undefined ? undefined : this.tokens.get(bearer);
-    if (account === undefined) return problem(401, "unauthorized", "Sign in again");
+    const session = bearer === undefined ? undefined : this.tokens.get(bearer);
+    if (session === undefined || this.now() >= session.expires || this.revokedFamilies.has(session.family)) return problem(401, "unauthorized", "Sign in again");
+    const account = session.account;
+    if (path === "/v1/signout" && request.method === "POST") {
+      this.revokeFamily(session.family);
+      return new Response(null, { status: 204 });
+    }
     const directory = this.directories.get(account) ?? new Map<string, FakePc>();
     this.directories.set(account, directory);
     if (path === "/v1/pcs" && request.method === "GET") return json({ pcs: [...directory.values()] });
