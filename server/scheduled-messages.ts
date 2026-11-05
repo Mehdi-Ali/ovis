@@ -102,6 +102,8 @@ export class ScheduledMessages {
       if (error instanceof HerdrError && error.code === "pane_not_found") throw new ScheduledError("pane_not_found", "The pane is gone", 404);
       throw error;
     }
+    // bound to nothing that could tell a later program from this one: never scheduled, as any agent started there later would get it
+    if (identity.processPid == null && identity.session == null) throw new ScheduledError("agent_not_ready", "Nothing runs in front of this pane to schedule a message for", 409);
     const message: ScheduledMessage = { id: crypto.randomUUID(), pane_id: paneId, text, send_at: sendAt, created_at: new Date(this.now()).toISOString(), state: "scheduled" };
     this.entries.set(message.id, { message, identity, device });
     // kept only once written: a refused write leaves nothing behind to go alongside a retry
@@ -111,15 +113,18 @@ export class ScheduledMessages {
   }
 
   /** A new text or time; a held message is scheduled again for it, still for the session it was scheduled for. */
-  update(body: unknown): ScheduledMessage {
+  update(body: unknown, device: string | null = null): ScheduledMessage {
     const record = object(body);
     const entry = this.entry(record["id"]);
+    // the edit is the editing device's: it goes only while that device may still drive this PC
+    if (!this.deps.mayDrive(device)) throw new ScheduledError("device_revoked", "This device can no longer drive this PC", 403);
     if (entry.message.state === "sending") throw busy();
     if (entry.message.state === "uncertain") throw uncertain();
     // every field is checked before any changes: a refused edit leaves the message as it was
     const text = record["text"] === undefined ? entry.message.text : this.text(record["text"]);
     const sendAt = record["send_at"] === undefined ? entry.message.send_at : this.sendAt(record["send_at"]);
-    const was = { message: { ...entry.message }, triedAt: entry.triedAt };
+    const was = { message: { ...entry.message }, triedAt: entry.triedAt, device: entry.device };
+    entry.device = device;
     entry.message.text = text;
     entry.message.send_at = sendAt;
     // a held message edited with its time still past stays held: Save never sends it, only Send now does
@@ -129,7 +134,7 @@ export class ScheduledMessages {
       delete entry.triedAt;
     }
     // written before it counts: a refused write leaves the message as it was
-    try { this.save(); } catch (error) { entry.message = was.message; entry.triedAt = was.triedAt; throw error; }
+    try { this.save(); } catch (error) { entry.message = was.message; entry.triedAt = was.triedAt; entry.device = was.device; throw error; }
     this.announce();
     return { ...entry.message };
   }
@@ -232,6 +237,7 @@ export class ScheduledMessages {
   private async deliver(entry: Entry, automatic: boolean, identity = entry.identity, device = entry.device): Promise<Reply> {
     const message = entry.message;
     const before = { state: message.state, error: message.error };
+    const paneAtStart = message.pane_id;
     message.state = "sending";
     entry.triedAt = this.now();
     // claimed and kept before anything is typed: a PC that stops now never sends it again on its own. A claim that cannot be
@@ -257,6 +263,8 @@ export class ScheduledMessages {
     } else {
       const fault = { code: reply.code ?? "submit_failed", message: reply.message ?? "The message was not sent" };
       if (UNCERTAIN_CODES.has(fault.code)) { message.state = "uncertain"; this.deps.uncertain?.(message.pane_id); }
+      // herdr moved the pane while this send ran: it waits for the user's OK, as every message of a moved pane does
+      else if (message.pane_id !== paneAtStart) { message.state = "held"; message.error = { ...NEEDS_OK_MOVED }; this.commit(); return reply; }
       // Send now's refusal leaves it as it was; the timer's waits stay scheduled and say why
       else if (!automatic) message.state = before.state;
       else message.state = WAIT_CODES.has(fault.code) ? "scheduled" : "held";
@@ -315,6 +323,8 @@ export class ScheduledMessages {
   private sendAt(value: unknown): string {
     const at = typeof value === "string" ? Date.parse(value) : NaN;
     if (!Number.isFinite(at)) throw new ScheduledError("invalid_send_at", "send_at must be a date and time");
+    // a minute's leeway for the device's clock against this PC's; anything older would only ever be sent at once
+    if (at < this.now() - 60_000) throw new ScheduledError("invalid_send_at", "Pick a time that has not passed yet");
     if (at > this.now() + MAX_AHEAD_MS) throw new ScheduledError("invalid_send_at", "A message can be scheduled at most 30 days ahead");
     return new Date(at).toISOString();
   }
@@ -390,13 +400,15 @@ export async function handleScheduledRequest(request: Request, pathname: string,
   if (action === null || !["", "update", "discard", "send"].includes(action)) return null;
   setRequestRoute(pathname);
   if (access.readOnly) return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
+  // Windows never shows which program is in front, so nothing could be sent to the agent alone (the feature is not offered there)
+  if (process.platform === "win32") return jsonResponse({ error: { code: "feature_unavailable", message: "Send later is not available on Windows" } }, 409);
   if (action === "" && request.method === "GET") return jsonResponse({ messages: scheduled.list() }, 200, { "cache-control": "no-store" });
   if (request.method !== "POST") return jsonResponse({ error: { code: "method_not_allowed", message: action === "" ? "Use GET or POST" : "Use POST" } }, 405);
   let body: unknown;
   try { body = await request.json(); } catch { return jsonResponse({ error: { code: "invalid_body", message: "A JSON object is required" } }, 400); }
   try {
     if (action === "") return jsonResponse({ message: await scheduled.create(body, access.device) }, 201);
-    if (action === "update") return jsonResponse({ message: scheduled.update(body) });
+    if (action === "update") return jsonResponse({ message: scheduled.update(body, access.device) });
     if (action === "discard") { scheduled.discard(body); return jsonResponse({ ok: true }); }
     const reply = await scheduled.sendNow(body, access.device);
     return reply.ok ? jsonResponse({ ok: true }) : jsonResponse({ error: { code: reply.code, message: reply.message } }, 409);

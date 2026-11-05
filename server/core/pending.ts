@@ -559,7 +559,8 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     }
     // with no client attached nothing tells the pane's width, so a wrapped prompt cannot be told from text: every password
     // prompt secretPrompt knows ends its last row with a colon, and such a screen waits for the user's OK, never guessed (#2919)
-    if (sender.promptUnknown && lastRowEndsWithColon(screen)) {
+    // only before this delivery's own paste: a message ending with a colon, pasted into the input row, is not a prompt
+    if (sender.promptUnknown && !pasted && lastRowEndsWithColon(screen)) {
       throw new HerdrError("needs_ok_prompt", "The terminal may be asking for a password, and with no device attached its lines cannot be read whole. Check it, then send this or discard it.");
     }
     const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);

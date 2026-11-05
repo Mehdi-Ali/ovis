@@ -199,3 +199,12 @@ it("keeps a connection's queued message queued, typing nothing, while a schedule
   expect(writes).toEqual([]);
   expect(delivery.pending.waiting("p")).toBe(true);
 });
+
+it("sends a message ending with a colon whose own paste is the input's last row", async () => {
+  const d = delivery("idle");
+  const identity = await d.pending.scheduledIdentity("p");
+  d.pending.pending.status("p", "idle");
+  spyOn(herdr, "paneSendText").mockImplementation(async (_pane, text) => { d.writes.push(text); d.shown.screen = "› Next steps:"; });
+  expect(await d.pending.sendScheduled("p", "Next steps:", identity, true, () => {})).toEqual({ ok: true });
+  expect(d.writes).toEqual(["\u001b[200~Next steps:\u001b[201~", "Enter"]);
+});

@@ -355,3 +355,46 @@ it("asks for the user's OK on every scheduled message of a pane herdr moved", as
   expect(sends).toEqual([]);
   expect(scheduled.list()[0]).toMatchObject({ pane_id: "p9", state: "held", error: { code: "needs_ok_moved" } });
 });
+
+it("schedules nothing for a pane with no program in front, which any agent started there later would receive", async () => {
+  const { scheduled } = store([], { identity: async () => ({ agent: "codex", terminalId: "t1", session: null, processPid: null, processBirth: null }) });
+  await expect(scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null)).rejects.toMatchObject({ code: "agent_not_ready" });
+  expect(scheduled.list()).toEqual([]);
+});
+
+it("sends an edited message only while the editing device may still drive this PC", async () => {
+  const paired = new Set(["A", "B"]);
+  const { scheduled, sends, clock } = store([], { mayDrive: (device) => device === null || paired.has(device) });
+  const message = await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T10:30:00Z" }, "A");
+  scheduled.update({ id: message.id, text: "edited by B" }, "B");
+  paired.delete("B");
+  scheduled.start();
+  clock.now = Date.parse("2026-11-05T10:31:00Z");
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(sends).toEqual([]);
+  expect(scheduled.list()[0]).toMatchObject({ state: "held", error: { code: "device_revoked" } });
+});
+
+it("refuses a time more than a minute past, which would only ever be sent at once", async () => {
+  const { scheduled } = store();
+  await expect(scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T09:00:00Z" }, null)).rejects.toMatchObject({ code: "invalid_send_at" });
+  const message = await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null);
+  expect(() => scheduled.update({ id: message.id, send_at: "2026-11-05T09:00:00Z" })).toThrow(ScheduledError);
+});
+
+it("asks for the user's OK when herdr moved the pane while a send to it was refused", async () => {
+  let release!: (reply: { ok: boolean; code?: string; message?: string }) => void;
+  const sends: Send[] = [];
+  const { scheduled } = store([], { send: async (...args) => { sends.push(args); return await new Promise((resolve) => { release = resolve; }); } });
+  await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T09:59:30Z" }, null);
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  scheduled.paneMoved("p1", "p9");
+  release({ ok: false, code: "agent_not_ready", message: "not yet" });
+  await settle();
+  scheduled.paneEvent("p9");
+  await settle();
+  expect(sends).toHaveLength(1);
+  expect(scheduled.list()[0]).toMatchObject({ pane_id: "p9", state: "held", error: { code: "needs_ok_moved" } });
+});
