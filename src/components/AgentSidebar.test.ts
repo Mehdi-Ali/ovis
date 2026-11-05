@@ -236,4 +236,21 @@ describe("AgentSidebar, Settings → Agent row title (#2014)", () => {
     const numbered = render([inTab("1", [pane("w1:p1")], { "w1:p1": "Idempotent payments" })]);
     expect(rows(numbered)).toEqual({ titles: ["Idempotent payments"], contexts: ["checkout-api"] });
   });
+
+  test("Tab name: a helper under the agent that started it keeps its own title, which has no second line to move to", () => {
+    choose("tab");
+    const html = render([inTab("api review", [pane("w1:p1"), pane("w1:p2", { parent_pane_id: "w1:p1" })], { "w1:p1": "Idempotent payments", "w1:p2": "Write the tests" })]);
+    expect(rows(html)).toEqual({ titles: ["api review", "Write the tests"], contexts: ["Idempotent payments · checkout-api"] });
+    expect(tooltips(html)[1]).toContain("Started by api review");
+    expect(html).toContain('aria-label="More for Write the tests"');
+  });
+
+  test("Tab name: an agent whose name is its tab's is not named again under it", () => {
+    choose("tab");
+    const base = inTab("api review", [pane("w1:p1")], { "w1:p1": "Idempotent payments" });
+    const named = { ...base, snapshot: { ...base.snapshot!, agents: base.snapshot!.agents.map((agent) => ({ ...agent, name: "api review" })) } };
+    const html = render([named]);
+    expect(rows(html)).toEqual({ titles: ["api review"], contexts: ["Idempotent payments · checkout-api"] });
+    expect(html).not.toContain('class="agent-name"');
+  });
 });

@@ -920,7 +920,7 @@ export function App() {
               </button>
             </div> : undefined;
             // a half with no strip to carry its close (its pane gone, or the half crashed) keeps one in a bar of its own
-            const slotBar = splitOn ? <div className="pane-slot-bar"><span className="pane-slot-title">{pane ? displayPaneTitle(pane) : t("Pane closed")}</span>{slotEnd}</div> : null;
+            const slotBar = splitOn ? <div className="pane-slot-bar"><span className="pane-slot-title">{pane ? paneTabRowTitle(settings.agentRowTitle, slotSnapshot, pane) ?? displayPaneTitle(pane) : t("Pane closed")}</span>{slotEnd}</div> : null;
             return (
               <MachineContext.Provider key={slot} value={machineId}><AppLayoutContext.Provider value={appLayoutOf(herdr)}><SlotSessions slot={slot} machineIds={machines.map((item) => item.id)}><PaneFollowContext.Provider value={sameTabs && !active}>
               <div

@@ -279,12 +279,13 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
   // herdr names a PC only beside another: the rows' line does the same
   const machineName = (machine: Machine): string | null => machines.length > 1 ? machine.name : null;
 
-  // what a row says of its agent, for the row and for its open menu
-  const describe = (row: AgentRow) => {
+  // what a row says of its agent, for the row and for its open menu. A helper keeps its own title: it reads
+  // under the agent that started it, whose row already names their tab, and it has no second line to move it to
+  const describe = (row: AgentRow, helper = false) => {
     const { machine, entry } = row;
     const { pane, workspace, tab, agent, agentLabel } = entry;
     const online = machine.state === "connected";
-    const { title, lead, tabs, byTab } = rowTitles(row, settings.agentRowTitle);
+    const { title, lead, tabs, byTab } = rowTitles(row, helper ? "agent" : settings.agentRowTitle);
     const name = agent?.name?.trim() || null;
     // the name has its own place on the line: the label beside it says the kind instead
     const kindLabel = name !== null && agentLabel === name ? entry.canonicalAgent ?? agent?.title?.trim() ?? null : agentLabel;
@@ -298,7 +299,8 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     const markKind = kind && kind !== title.trim() && kind !== lead && !contextParts.includes(kind) ? kind : null;
     // a PC that is away says nothing of its agents now, its plugins' words included
     const tokens = online ? paneTokenValues(rowTokens, entry.canonicalAgent, pane.tokens ?? agent?.tokens) : [];
-    return { online, title, lead, name, mark, context, markKind, tokens };
+    // nor is a name the same as the tab that titles the row
+    return { online, title, lead, name: byTab && name === title ? null : name, mark, context, markKind, tokens };
   };
 
   // a helper reads under the agent that started it when that row is just above it in the same list (lib/agentRoster.ts)
@@ -355,11 +357,11 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     const selected = machine.id === selectedMachineId && pane.pane_id === selectedPaneId;
     // under the filter a row it did not match is there for the selection: drawn as context, and said so
     const filterContext = filter.active && machineFilter(filter, machine.id)?.matchedPanes.has(pane.pane_id) !== true;
-    const { online, title, lead, name, mark, context, markKind, tokens } = describe(row);
+    const { online, title, lead, name, mark, context, markKind, tokens } = describe(row, depth > 0);
     // the row cuts a long value: the tooltip, and a phone's menu sheet, say each in full
     const blocked = online ? blockedNote(pane, t) : null;
     const blockedShort = online ? blockedLabel(pane, t) : null;
-    const startedBy = parentRow ? t("Started by {name}", { name: describe(parentRow).title }) : null;
+    const startedBy = parentRow ? t("Started by {name}", { name: describe(parentRow, depth > 1).title }) : null;
     const status = online ? activity.status(machine.id, pane) : undefined;
     const progress = online && pane.agent_progress !== undefined && (status === "working" || status === "blocked") ? t("Progress {percent}%", { percent: pane.agent_progress }) : null;
     const tooltip = [...new Set([pane.pane_id, title, lead, context, startedBy, blocked, progress, ...tokens, markKind, name, agent?.display_agent, pane.cwd, online ? null : stateWord(machine)].filter(Boolean))].join("\n");
@@ -397,7 +399,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
   // under the filter an empty list is the filter's doing, which the list above says once (MachineSidebar.tsx)
   const shownEmpty = useAnnouncedText(rows.length === 0 && !filter.active ? (loading ? t("Loading agents…") : t("No agents running")) : null);
   const menuPinned = menu !== null && pinned.includes(menu.key);
-  const menuShown = menuRow === undefined ? null : describe(menuRow);
+  const menuShown = menuRow === undefined ? null : describe(menuRow, (restDepths.get(menuRow) ?? 0) > 0);
   // a phone has no tooltip: its sheet says a blocked agent's whole reason, as the row's tooltip does
   const menuBlocked = menuRow !== undefined && menuShown?.online && activity.status(menuRow.machine.id, menuRow.entry.pane) === "blocked" ? blockedNote(menuRow.entry.pane, t) : null;
   const menuMuted = menuRow !== undefined && muted !== null && muted.includes(paneMuteKey(menuRow.machine.id, menuRow.entry.pane.pane_id));
