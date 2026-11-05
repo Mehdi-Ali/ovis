@@ -195,6 +195,18 @@ export type SetupAction = { action: "answer"; challenge_id: string; answer: stri
  * own; `event_id` is what a browser deduplicates by. Carries nothing a credential could be
  * made from: the label is the normalized one (at most 48 characters), the id the public one.
  */
+/**
+ * A device lost its access (docs/account.md, "On the PC"): revoked on this PC (`by` "pc", or the device that
+ * revoked it), or removed by an account record (`by` the member that signed it). Told to driving streams only.
+ */
+export interface DeviceRemovedEvent {
+  type: "device-removed";
+  event_id: string;
+  device_id: string;
+  label: string;
+  removed_at: string;
+  by?: { device_id: string; label: string } | "pc";
+}
 export interface DevicePairedEvent {
   type: "device-paired";
   event_id: string;
@@ -241,6 +253,7 @@ export type MachineEvent = { type: "machines"; machines: Machine[] } | { type: "
   /** finishes a browser of this server presented (shared/seen.ts): every record when the stream opens, then each change */
   | { type: "seen"; finishes: SeenFinish[] }
   | DevicePairedEvent
+  | DeviceRemovedEvent
   | RelayPairingsEvent
   | RemotePairingsEvent;
 /** every relay pairing waiting for approval, after each change; only to the PC's own windows that may approve one */

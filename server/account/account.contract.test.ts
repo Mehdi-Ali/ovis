@@ -651,3 +651,47 @@ test("a remove at the end of a chain of adds read in reverse in one pull still a
   await new AccountMailbox({ devices: f.app.context.services.devices, identity: () => identity, service: "https://account.test", fetch: service.fetch }).pull();
   expect(f.app.context.services.devices.hasKey(d.spki)).toBe(false);
 });
+
+/** An event stream opened (and subscribed) now; `until` reads it up to `needle`. */
+async function openEvents(l: Link) {
+  const reader = (await l.open("/api/machines/events").response).body!.getReader();
+  let text = "";
+  return {
+    async until(needle: string) {
+      while (!text.includes(needle)) {
+        const chunk = await bounded(reader.read());
+        if (chunk.done) throw new Error(`The stream ended before ${needle}`);
+        text += new TextDecoder().decode(chunk.value);
+      }
+      return text;
+    },
+    close: () => reader.cancel(),
+  };
+}
+
+test("a driving device hears of a device an account remove took, and of one revoked on the PC", async () => {
+  const f = fixture();
+  const { device, key, link } = await member(f);
+  const [gone, revoked] = [await accountKey(), await relayDevice(f)];
+  await post(link, "/api/account/records", { records: [await add(key, gone.spki)] });
+  const events = await openEvents(link);
+  await post(link, "/api/account/records", { records: [await remove(key, gone.spki)] });
+  const removed = await events.until('"type":"device-removed"');
+  expect(removed).toContain(`"device_id":"${accountDeviceId(SERVER_ID, gone.spki)}","label":"Mac app"`);
+  expect(removed).toContain(`"by":{"device_id":"${device.id}","label":"Relay test"}`);
+  f.app.context.services.devices.revoke(revoked.id);
+  expect(await events.until(`"device_id":"${revoked.id}"`)).toContain('"by":"pc"');
+  await events.close();
+});
+
+test("a watching device is not told of removals", async () => {
+  const f = fixture();
+  const watcher = await signedIn(f, await relayDevice(f, "watch"));
+  const other = await relayDevice(f);
+  const events = await openEvents(watcher);
+  f.app.context.services.devices.revoke(other.id);
+  // a pairing after it is told to every stream, in order: by then a removal would have arrived
+  await relayDevice(f);
+  expect(await events.until('"type":"device-paired"')).not.toContain("device-removed");
+  await events.close();
+});

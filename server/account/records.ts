@@ -29,7 +29,7 @@ function apply(store: DeviceStore, record: AccountRecord, serverId: string | nul
   if (account !== null && account !== record.account) return refused("account_mismatch");
   const signer = store.accountSigner(record.signer, record.account);
   if (!signer) return refused("signer_not_member");
-  if (record.kind === "remove") return { id: record.id, outcome: store.removeAccountKey(record.key, record.account, { id: record.id, issuedAt: record.issued_at }, now) ? "applied" : "unchanged" };
+  if (record.kind === "remove") return { id: record.id, outcome: store.removeAccountKey(record.key, record.account, { id: record.id, issuedAt: record.issued_at, by: { device_id: signer.id, label: signer.label } }, now) ? "applied" : "unchanged" };
   // the signature covers the signer only: a key off the curve would leave a devices.json no store can read
   if (!store.acceptsRelayKey(record.key)) return refused("record_invalid");
   if (store.isTombstoned(record.key)) return refused("tombstoned");

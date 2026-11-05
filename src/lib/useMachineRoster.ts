@@ -218,6 +218,8 @@ export function useRosterEvents({ onPaneMoved, machineSessions, locked, receiveP
       if (payload.type === "device-paired") { setPairedNotices((list) => withPairedNotice(list, payload)); return; }
       if (payload.type === "relay-pairings") { setRelayPairings(payload.pairings); return; }
       if (payload.type === "remote-pairings") { setRemotePairings(payload.pairings); return; }
+      // the device list's own refresh shows removals for now; their notice comes with the account screens
+      if (payload.type === "device-removed") return;
       // A poll started before this event can carry an older roster or pane status.
       snapshotRequests.current.invalidate();
       if (payload.type === "machines") {
