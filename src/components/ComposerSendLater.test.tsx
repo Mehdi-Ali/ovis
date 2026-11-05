@@ -99,3 +99,17 @@ it("schedules the box's text for the time picked, and empties the box once the P
   expect(composerDrafts.read(draftKey).text).toBe("");
   expect(renderer!.root.findAllByType("form")).toHaveLength(0);
 });
+
+it("asks for a time that has not passed instead of scheduling one that has", async () => {
+  const scheduled: Array<[string, string]> = [];
+  composerDrafts.set(draftKey, "continue");
+  await act(async () => { renderer = create(<Composer {...props(scheduled)} />); });
+  await act(async () => { button()!.props.onClick(); });
+  const when = renderer!.root.findAll((node) => node.type === "input" && node.props.type === "datetime-local")[0]!;
+  await act(async () => { when.props.onChange({ target: { value: "2020-01-01T09:00" } }); });
+  const submit = renderer!.root.findAll((node) => node.type === "button" && node.props.type === "submit")[0]!;
+  expect(submit.props.disabled).toBe(true);
+  await act(async () => { renderer!.root.findByType("form").props.onSubmit({ preventDefault() {} }); });
+  expect(scheduled).toEqual([]);
+  expect(renderer!.root.findAll((node) => node.props.role === "status" && node.children.includes("Pick a time that has not passed yet."))).toHaveLength(1);
+});

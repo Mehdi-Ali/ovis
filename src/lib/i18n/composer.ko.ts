@@ -278,4 +278,5 @@ export const COMPOSER_KO: Record<string, string> = {
   "When this plan limit resets ({time})": "플랜 한도가 초기화될 때 ({time})",
   "Needs your OK: a message to this pane may still be in its input line. Check the terminal first.": "확인 필요: 이 창의 입력칸에 이전 메시지가 남아 있을 수 있습니다. 먼저 터미널을 확인하세요.",
   "Needs your OK: it came due while this PC's server was not running": "확인 필요: 이 PC의 서버가 꺼져 있는 동안 예약 시각이 지났습니다",
+  "Pick a time that has not passed yet.": "아직 지나지 않은 시각을 고르세요.",
 };

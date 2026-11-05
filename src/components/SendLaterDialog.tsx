@@ -62,9 +62,11 @@ export function SendLaterDialog({ title, text: initialText, sendAt, planReset, s
     ...(planReset ? [{ label: t("When this plan limit resets ({time})", { time: sendTimeLabel(planReset.toISOString(), now) }), at: planReset }] : []),
   ];
   const empty = text.trim().length === 0;
+  // a time already past is never saved: it would go at once, and a held message would go without its Send now
+  const past = at !== null && at.getTime() <= Date.now();
 
   const submit = async (): Promise<void> => {
-    if (at === null || empty) return;
+    if (at === null || empty || past) return;
     setPending(true);
     setError(null);
     try { await onSubmit(text, at.toISOString()); done.current = true; }
@@ -93,12 +95,13 @@ export function SendLaterDialog({ title, text: initialText, sendAt, planReset, s
           <label className="send-later-label" htmlFor={`${id}-when`}>{t("Send at")}</label>
           <input id={`${id}-when`} className="input send-later-when" type="datetime-local" value={when} required disabled={pending}
             onChange={(event) => setWhen(event.target.value)} />
+          {past && <p className="confirm-error" role="status">{t("Pick a time that has not passed yet.")}</p>}
           <p className="send-later-note">{t("This PC sends it at that time, also with every device closed. It waits for the agent's turn to end, and is not sent if the pane is gone or runs another session.")}</p>
           {error && <p className="confirm-error" role="alert">{error}</p>}
         </div>
         <footer className="modal-footer">
           <button type="button" className="btn" disabled={pending} onClick={onClose}>{t("Cancel")}</button>
-          <button type="submit" className="btn btn-primary" disabled={pending || at === null || empty}>{submitLabel}</button>
+          <button type="submit" className="btn btn-primary" disabled={pending || at === null || empty || past}>{submitLabel}</button>
         </footer>
         </form>
       </div>
