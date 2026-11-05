@@ -40,7 +40,8 @@ export interface PendingSignIn {
 interface Records {
   key: AccountKey;
   session: AccountSession;
-  pending: PendingSignIn;
+  /** by `state`, so a return consumes only its own sign-in and two tabs can each have one */
+  pending: Readonly<Record<string, PendingSignIn>>;
 }
 type Name = keyof Records;
 
@@ -49,6 +50,8 @@ export interface AccountStore {
   key(): Promise<AccountKey>;
   get<N extends Exclude<Name, "key">>(name: N): Promise<Records[N] | undefined>;
   set<N extends Exclude<Name, "key">>(name: N, value: Records[N] | undefined): Promise<void>;
+  /** Reads and writes `name` in one transaction; `change` runs synchronously inside it. */
+  update<N extends Exclude<Name, "key">>(name: N, change: (current: Records[N] | undefined) => Records[N] | undefined): Promise<void>;
   /** Forgets the key and the sign-in: a new key is made on next use, which no PC knows. */
   clear(): Promise<void>;
 }
@@ -70,7 +73,29 @@ export function memoryAccountStore(): AccountStore {
     },
     async get(name) { return records.get(name) as never; },
     async set(name, value) { if (value === undefined) records.delete(name); else records.set(name, value); },
+    async update(name, change) {
+      const next = change(records.get(name) as never);
+      if (next === undefined) records.delete(name); else records.set(name, next);
+    },
     async clear() { records.clear(); },
+  };
+}
+
+/** Runs `work` alone among this origin's tabs (Web Locks), where the browser has them. */
+export type AccountLock = <T>(work: () => Promise<T>) => Promise<T>;
+
+export const accountLock: AccountLock = (work) => {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  return locks ? locks.request("ovis-account-session", work) : work();
+};
+
+/** One lock for every AccountService that shares a memory store, as tabs share the browser's. */
+export function memoryLock(): AccountLock {
+  let tail: Promise<unknown> = Promise.resolve();
+  return (work) => {
+    const run = tail.then(work, work);
+    tail = run.catch(() => undefined);
+    return run;
   };
 }
 
@@ -118,6 +143,17 @@ export const indexedAccountStore: AccountStore = {
     return transact("readwrite", (store) => {
       if (value === undefined) store.delete(name);
       else store.put(value, name);
+      return () => undefined;
+    });
+  },
+  update(name, change) {
+    return transact("readwrite", (store) => {
+      const request = store.get(name);
+      request.onsuccess = () => {
+        const next = change(request.result as never);
+        if (next === undefined) store.delete(name);
+        else store.put(next, name);
+      };
       return () => undefined;
     });
   },

@@ -422,9 +422,8 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
     arrived();
   });
 
-  // a sign-in coming back: the code leaves the address before anything else, as an offer does
+  // a sign-in coming back; boot.ts already took it off the address, as it does an offer
   const returned = accountService !== null && entry.serverId === null && entry.offer === null ? signInReturn(new URL(mount.entryUrl).hash) : null;
-  if (returned !== null) window.history.replaceState(null, "", window.location.pathname);
 
   if (arrived()) return;
   if (entry.serverId !== null) {

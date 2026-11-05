@@ -3,8 +3,8 @@
  * directory of the account's PCs, and the tokens a sign-in gives. Answers are parsed here, at the
  * edge; a token is never logged or put in an error's text.
  */
-import type { AccountProvider, AccountSession, AccountStore } from "./store.ts";
-import { ACCOUNT_PROVIDERS } from "./store.ts";
+import type { AccountLock, AccountProvider, AccountSession, AccountStore } from "./store.ts";
+import { ACCOUNT_PROVIDERS, accountLock } from "./store.ts";
 
 /**
  * The account service this page signs in with, from `<meta name="ovis-account-service">`: an https
@@ -57,18 +57,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** The service's error code only: its message is the service's text, which could echo a token, so it is never kept. */
 async function failure(response: Response): Promise<AccountServiceError> {
   let code = "http_error";
-  let message = `The account service answered ${response.status}`;
   try {
     const body: unknown = await response.json();
     const error = isRecord(body) && isRecord(body.error) ? body.error : null;
-    if (typeof error?.code === "string") code = error.code;
-    if (typeof error?.message === "string") message = error.message;
+    if (typeof error?.code === "string" && /^[a-z_]{1,40}$/.test(error.code)) code = error.code;
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error;
   }
-  return new AccountServiceError(response.status, code, message);
+  return new AccountServiceError(response.status, code, `The account service answered ${response.status} (${code})`);
 }
 
 function parsePc(value: unknown): DirectoryPc | null {
@@ -103,21 +102,28 @@ export interface AccountServiceOptions {
   readonly store: AccountStore;
   readonly fetch?: Fetch;
   readonly now?: () => number;
+  /** serializes refresh and sign-out between tabs; the browser's Web Locks by default */
+  readonly lock?: AccountLock;
 }
 
 /**
  * Calls on the signed-in account. An access token about to run out is refreshed first; a refused
  * refresh, or a 401 after one, signs this client out (the stored session goes) and throws
  * SignedOutError. PC pairings are untouched: they never depended on the sign-in.
+ *
+ * Refresh tokens rotate and a second use ends the whole sign-in, so one refresh runs at a time
+ * between tabs (the lock), and a refresh stores its answer only over the session it started from:
+ * another tab's refresh, a sign-out or a new sign-in meanwhile wins.
  */
 export class AccountService {
   private readonly fetch: Fetch;
   private readonly now: () => number;
-  private refreshing: Promise<AccountSession> | null = null;
+  private readonly lock: AccountLock;
 
   constructor(private readonly options: AccountServiceOptions) {
     this.fetch = options.fetch ?? ((input, init) => fetch(input, init));
     this.now = options.now ?? Date.now;
+    this.lock = options.lock ?? accountLock;
   }
 
   async session(): Promise<AccountSession | undefined> {
@@ -135,45 +141,77 @@ export class AccountService {
     await this.call("PUT", `/v1/pcs/${serverId}`, { label });
   }
 
-  /** Ends the sign-in on the service and here; a service that cannot be reached still forgets it here. */
+  /**
+   * Ends the sign-in on the service, then here. An expired access token is refreshed first, so the
+   * service really ends the sign-in's tokens; the session goes here whatever the service answers, and
+   * a revocation the service did not confirm throws, so the caller can say so.
+   */
   async signOut(): Promise<void> {
-    const session = await this.session();
-    if (session === undefined) return;
-    await this.options.store.set("session", undefined);
-    const response = await this.fetch(new URL("/v1/signout", session.service), { method: "POST", headers: { authorization: `Bearer ${session.access_token}` } });
-    if (!response.ok && response.status !== 401) throw await failure(response);
+    await this.lock(async () => {
+      const session = await this.session();
+      if (session === undefined) return;
+      try {
+        const live = session.expires_at - REFRESH_EARLY_MS > this.now() ? session : await this.refreshed(session);
+        const response = await this.fetch(new URL("/v1/signout", live.service), { method: "POST", headers: { authorization: `Bearer ${live.access_token}` } });
+        if (!response.ok) throw await failure(response);
+      } catch (error) {
+        // a refresh the service refused: the sign-in had already ended there
+        if (!(error instanceof SignedOutError)) throw error;
+      } finally {
+        await this.options.store.set("session", undefined);
+      }
+    });
   }
 
-  private async signedOut(): Promise<never> {
-    await this.options.store.set("session", undefined);
+  /** Forgets `from` here, unless another sign-in took its place meanwhile. */
+  private async signedOut(from?: AccountSession): Promise<never> {
+    await this.options.store.update("session", (current) => from === undefined || current?.refresh_token === from.refresh_token ? undefined : current);
     throw new SignedOutError();
   }
 
-  private async fresh(force: boolean): Promise<AccountSession> {
-    const session = await this.session();
-    if (session === undefined) return this.signedOut();
-    if (!force && session.expires_at - REFRESH_EARLY_MS > this.now()) return session;
-    this.refreshing ??= requestToken(session.service, { grant_type: "refresh_token", refresh_token: session.refresh_token }, { fetch: this.fetch, now: this.now })
-      .then(async (next) => { await this.options.store.set("session", next); return next; })
-      .finally(() => { this.refreshing = null; });
+  /** One refresh of `from`; its answer is stored only if `from` is still the stored session. */
+  private async refreshed(from: AccountSession): Promise<AccountSession> {
+    let next: AccountSession;
     try {
-      return await this.refreshing;
+      next = await requestToken(from.service, { grant_type: "refresh_token", refresh_token: from.refresh_token }, { fetch: this.fetch, now: this.now });
     } catch (error) {
-      if (error instanceof AccountServiceError && (error.status === 400 || error.status === 401)) return this.signedOut();
+      if (error instanceof AccountServiceError && (error.status === 400 || error.status === 401)) return this.signedOut(from);
       throw error;
     }
+    let kept = false;
+    await this.options.store.update("session", (current) => {
+      kept = current?.refresh_token === from.refresh_token;
+      return kept ? next : current;
+    });
+    if (!kept) throw new SignedOutError();
+    return next;
+  }
+
+  /** A session whose access token is good, refreshing once between tabs; `stale` is a token the service just refused. */
+  private async fresh(stale?: string): Promise<AccountSession> {
+    const session = await this.session();
+    if (session === undefined) return this.signedOut();
+    if (stale === undefined && session.expires_at - REFRESH_EARLY_MS > this.now()) return session;
+    return this.lock(async () => {
+      const current = await this.session();
+      if (current === undefined) return this.signedOut();
+      // another tab refreshed while this one waited: its tokens are the ones to use
+      if (current.access_token !== (stale ?? session.access_token)) return current;
+      return this.refreshed(current);
+    });
   }
 
   private async call(method: string, path: string, body?: unknown): Promise<unknown> {
-    for (const force of [false, true]) {
-      const session = await this.fresh(force);
+    let stale: string | undefined;
+    for (const retry of [false, true]) {
+      const session = await this.fresh(stale);
       const response = await this.fetch(new URL(path, session.service), {
         method,
         headers: { authorization: `Bearer ${session.access_token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-      if (response.status === 401 && !force) continue;
-      if (response.status === 401) return this.signedOut();
+      if (response.status === 401 && !retry) { stale = session.access_token; continue; }
+      if (response.status === 401) return this.signedOut(session);
       if (!response.ok) throw await failure(response);
       return response.status === 204 ? null : response.json();
     }

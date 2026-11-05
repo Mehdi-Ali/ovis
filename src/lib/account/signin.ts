@@ -6,13 +6,13 @@
  */
 import { toBase64Url } from "../../../shared/relay-pair-sas.ts";
 import { requestToken } from "./service.ts";
-import type { AccountProvider, AccountSession, AccountStore } from "./store.ts";
+import type { AccountProvider, AccountSession, AccountStore, PendingSignIn } from "./store.ts";
 
 /** A sign-in left at the provider's pages longer than this is not finished: its return is refused. */
 export const SIGN_IN_MS = 10 * 60_000;
 
 export class SignInError extends Error {
-  constructor(readonly code: "no_sign_in" | "state_mismatch" | "expired" | "denied", message: string) {
+  constructor(readonly code: "no_sign_in" | "expired" | "denied", message: string) {
     super(message);
     this.name = "SignInError";
   }
@@ -29,7 +29,13 @@ export async function beginSignIn(provider: AccountProvider, options: { store: A
   const verifier = random(32);
   const state = random(16);
   const challenge = toBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
-  await options.store.set("pending", { service: options.service, provider, state, verifier, redirect_uri: options.redirectUri, started_at: (options.now ?? Date.now)() });
+  const now = (options.now ?? Date.now)();
+  const pending = { service: options.service, provider, state, verifier, redirect_uri: options.redirectUri, started_at: now };
+  // one per state: another tab's sign-in stays, and only ones past their time are dropped
+  await options.store.update("pending", (current) => ({
+    ...Object.fromEntries(Object.entries(current ?? {}).filter(([, waiting]) => now - waiting.started_at <= SIGN_IN_MS)),
+    [state]: pending,
+  }));
   const url = new URL(`/v1/signin/${provider}`, options.service);
   url.searchParams.set("redirect_uri", options.redirectUri);
   url.searchParams.set("state", state);
@@ -52,15 +58,20 @@ export function signInReturn(params: string): SignInReturn | null {
 }
 
 /**
- * Trades the returned code for a session, once: the waiting sign-in goes whatever the outcome, so
- * a return opened twice, or one for another sign-in, does nothing.
+ * Trades the returned code for a session, once: the sign-in its `state` names is taken in one
+ * transaction, so a return opened twice does nothing, and one this client never started touches no
+ * sign-in that is still waiting.
  */
 export async function finishSignIn(returned: SignInReturn, options: { store: AccountStore; fetch?: Fetch; now?: () => number }): Promise<AccountSession> {
   const now = options.now ?? Date.now;
-  const pending = await options.store.get("pending");
-  await options.store.set("pending", undefined);
-  if (pending === undefined) throw new SignInError("no_sign_in", "No sign-in was waiting");
-  if (pending.state !== returned.state) throw new SignInError("state_mismatch", "This sign-in was not started here");
+  let pending: PendingSignIn | undefined;
+  await options.store.update("pending", (current) => {
+    pending = current?.[returned.state];
+    if (pending === undefined) return current;
+    const { [returned.state]: _taken, ...rest } = current ?? {};
+    return rest;
+  });
+  if (pending === undefined) throw new SignInError("no_sign_in", "This sign-in was not started here, or has finished");
   if (now() - pending.started_at > SIGN_IN_MS) throw new SignInError("expired", "The sign-in took too long");
   if ("error" in returned) throw new SignInError("denied", "The sign-in was cancelled or refused");
   const session = await requestToken(pending.service, {

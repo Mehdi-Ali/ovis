@@ -44,7 +44,7 @@ export function myPcs(directory: readonly DirectoryPc[], paired: readonly RelayD
     const entry = listed.get(device.server_id);
     listed.delete(device.server_id);
     const lastSeen = entry?.last_seen_at ?? null;
-    rows.push({ server_id: device.server_id, name: device.name ?? entry?.label ?? device.server_id.slice(0, 8), state: stateOf(device.server_id, true, lastSeen), last_seen_at: lastSeen, listed: entry !== undefined, paired: true });
+    rows.push({ server_id: device.server_id, name: device.name ?? device.server_id.slice(0, 8), state: stateOf(device.server_id, true, lastSeen), last_seen_at: lastSeen, listed: entry !== undefined, paired: true });
   }
   for (const pc of listed.values()) {
     rows.push({ server_id: pc.server_id, name: pc.label, state: stateOf(pc.server_id, false, pc.last_seen_at), last_seen_at: pc.last_seen_at, listed: true, paired: false });

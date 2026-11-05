@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { FakeAccountService, WEB_REDIRECT } from "../../../shared/account-service-fake.ts";
 import type { RelayDevice } from "../relay/device.ts";
 import { myPcs, OFFLINE_AFTER_MS } from "./myPcs.ts";
-import { AccountService, accountServiceOf, SignedOutError } from "./service.ts";
+import { AccountService, AccountServiceError, accountServiceOf, SignedOutError } from "./service.ts";
 import { beginSignIn, finishSignIn, SignInError, signInReturn } from "./signin.ts";
-import { memoryAccountStore } from "./store.ts";
+import { memoryAccountStore, memoryLock } from "./store.ts";
 
 const SERVICE = "https://account.example";
 const REDIRECT = WEB_REDIRECT;
@@ -42,16 +42,26 @@ describe("signing in", () => {
     expect((await client.listPcs()).map((pc) => pc.label)).toEqual(["p620"]);
   });
 
-  it("refuses a return this client did not start, and a return opened twice", async () => {
+  it("refuses a return opened twice, and one it never started without touching a sign-in still waiting", async () => {
     const service = serviceWithSignIn();
     const { store, returned } = await signIn(service);
     await expect(finishSignIn(returned, { store, fetch: service.fetch })).rejects.toMatchObject({ code: "no_sign_in" });
-    await beginSignIn("github", { store, service: SERVICE, redirectUri: REDIRECT });
+    const start = await beginSignIn("github", { store, service: SERVICE, redirectUri: REDIRECT });
     const forged = await finishSignIn({ code: "x", state: "someone-else" }, { store, fetch: service.fetch }).catch((error: unknown) => error);
     expect(forged).toBeInstanceOf(SignInError);
-    expect((forged as SignInError).code).toBe("state_mismatch");
-    // the waiting sign-in went with the forged return: the real one cannot follow it in
-    expect(await store.get("pending")).toBeUndefined();
+    // the real return still finishes after the forged one
+    const real = signInReturn(new URL((await service.fetch(start)).headers.get("location") ?? "").hash);
+    expect((await finishSignIn(real ?? { error: "x", state: "" }, { store, fetch: service.fetch })).account).toBe("acct_1");
+  });
+
+  it("lets two tabs sign in at once, each finishing its own", async () => {
+    const service = serviceWithSignIn();
+    const store = memoryAccountStore();
+    const [first, second] = await Promise.all([1, 2].map(() => beginSignIn("github", { store, service: SERVICE, redirectUri: REDIRECT })));
+    const back = async (start: string) => signInReturn(new URL((await service.fetch(start)).headers.get("location") ?? "").hash) ?? { error: "x", state: "" };
+    const [b1, b2] = [await back(first ?? ""), await back(second ?? "")];
+    await finishSignIn(b1, { store, fetch: service.fetch });
+    expect((await finishSignIn(b2, { store, fetch: service.fetch })).account).toBe("acct_1");
   });
 
   it("refuses a sign-in that came back after its time ran out", async () => {
@@ -78,6 +88,63 @@ describe("signing in", () => {
     await store.set("session", { ...refreshed, refresh_token: session.refresh_token, expires_at: 0 });
     await expect(client.listPcs()).rejects.toBeInstanceOf(SignedOutError);
     expect(await store.get("session")).toBeUndefined();
+  });
+});
+
+describe("a sign-in shared by tabs", () => {
+  it("refreshes once when two tabs find the access token run out together, and stays signed in", async () => {
+    const service = serviceWithSignIn();
+    let now = Date.now();
+    const { store, session } = await signIn(service, memoryAccountStore(), () => now);
+    const lock = memoryLock();
+    const tabs = [1, 2].map(() => new AccountService({ store, fetch: service.fetch, now: () => now, lock }));
+    now = session.expires_at;
+    await Promise.all(tabs.map((tab) => tab.listPcs()));
+    expect(service.fake.requests.filter((request) => request === "POST /v1/token")).toHaveLength(2);
+    expect(await store.get("session")).toBeDefined();
+  });
+
+  it("ends the sign-in on the service even when its access token has run out", async () => {
+    const service = serviceWithSignIn();
+    let now = Date.now();
+    const { store, session } = await signIn(service, memoryAccountStore(), () => now);
+    now = session.expires_at;
+    await new AccountService({ store, fetch: service.fetch, now: () => now }).signOut();
+    expect(await store.get("session")).toBeUndefined();
+    // a copy of the refresh token kept elsewhere no longer works
+    const reuse = await service.fetch(new URL("/v1/token", SERVICE), { method: "POST", body: JSON.stringify({ grant_type: "refresh_token", refresh_token: session.refresh_token }) });
+    expect(reuse.status).toBe(400);
+  });
+
+  it("never brings a session back once signed out, whatever a refresh in flight answers", async () => {
+    const service = serviceWithSignIn();
+    let now = Date.now();
+    const { store, session } = await signIn(service, memoryAccountStore(), () => now);
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const slow = async (input: Request | string | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      if (new URL(request.url).pathname === "/v1/token") await held;
+      return service.fetch(request);
+    };
+    const lock = memoryLock();
+    const tab = new AccountService({ store, fetch: slow, now: () => now, lock });
+    now = session.expires_at;
+    const listing = tab.listPcs().catch((error: unknown) => error);
+    const leaving = new AccountService({ store, fetch: service.fetch, now: () => now, lock }).signOut();
+    release();
+    await Promise.all([listing, leaving]);
+    expect(await store.get("session")).toBeUndefined();
+  });
+
+  it("keeps the service's own words out of its errors, which could echo a token", async () => {
+    const store = memoryAccountStore();
+    await store.set("session", { service: SERVICE, account: "acct_1", provider: "github", access_token: "secret-token", refresh_token: "r", expires_at: Date.now() + 3600_000 });
+    const echo = async () => Response.json({ error: { code: "bad_request", message: "Bearer secret-token" } }, { status: 400 });
+    const error = await new AccountService({ store, fetch: echo }).listPcs().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AccountServiceError);
+    expect((error as Error).message).not.toContain("secret-token");
+    expect((error as AccountServiceError).code).toBe("bad_request");
   });
 });
 
@@ -137,8 +204,10 @@ describe("My PCs", () => {
     expect(rows[0]?.state).toBe("needs-update");
   });
 
-  it("names a paired PC by its own name, not the directory's label", () => {
+  it("names a paired PC by its own name, never the directory's label, even when it has none", () => {
     const rows = myPcs([{ server_id: PC_A, label: "renamed by anyone", added_at: recent, last_seen_at: recent }], [paired(PC_A, "p620")], { now });
     expect(rows[0]?.name).toBe("p620");
+    const { name: _unnamed, ...nameless } = paired(PC_A, "p620");
+    expect(myPcs([{ server_id: PC_A, label: "renamed by anyone", added_at: recent, last_seen_at: recent }], [nameless], { now })[0]?.name).toBe(PC_A.slice(0, 8));
   });
 });
