@@ -486,8 +486,8 @@ function ChatPage() {
         <SettingsRow label={t("Paste and send button")} description={t("A button in the empty message box sends the text copied on this device as a message.")}>
           <Toggle label={t("Paste and send button")} checked={settings.composerPasteSend} onChange={(composerPasteSend) => update({ composerPasteSend })} />
         </SettingsRow>
-        <SettingsRow label={t("Send later button")} description={t("A button in the message box schedules the message for a set time. This PC sends it then, also with every device closed.")}>
-          <Toggle label={t("Send later button")} checked={settings.composerSendLater} onChange={(composerSendLater) => update({ composerSendLater })} />
+        <SettingsRow label={t("Send later button (experimental)")} description={t("A button in the message box schedules the message for a set time. This PC sends it then, also with every device closed.")}>
+          <Toggle label={t("Send later button (experimental)")} checked={settings.composerSendLater} onChange={(composerSendLater) => update({ composerSendLater })} />
         </SettingsRow>
         {touch && (
           <SettingsRow label={t("Suggestion chip")} description={t("A chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.")}>

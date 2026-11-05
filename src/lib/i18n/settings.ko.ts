@@ -384,6 +384,6 @@ export const SETTINGS_KO: Record<string, string> = {
   "Test sent. Check the destination.": "테스트를 보냈습니다. 받는 곳을 확인하세요.",
   "This PC also posts its alerts to a chat app or any URL. A message names the PC, the pane and what happened, with a link to the pane. The pane goes by its terminal title, which an agent may take from your task.": "이 PC가 알림을 채팅 앱이나 원하는 URL에도 보냅니다. 메시지에는 PC, 창, 무슨 일이 있었는지와 창을 여는 링크가 담깁니다. 창 이름은 터미널 제목이며, 에이전트가 작업 내용으로 정할 수도 있습니다.",
   "Webhook URL": "웹훅 URL",
-  "Send later button": "나중에 보내기 버튼",
+  "Send later button (experimental)": "나중에 보내기 버튼 (실험적)",
   "A button in the message box schedules the message for a set time. This PC sends it then, also with every device closed.": "메시지 입력칸의 버튼으로 메시지를 정한 시각에 보내도록 예약합니다. 모든 기기를 닫아도 이 PC가 그때 보냅니다.",
 };

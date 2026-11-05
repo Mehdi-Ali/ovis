@@ -384,6 +384,6 @@ export const SETTINGS_JA: Record<string, string> = {
   "Test sent. Check the destination.": "テストを送りました。送り先を確認してください。",
   "This PC also posts its alerts to a chat app or any URL. A message names the PC, the pane and what happened, with a link to the pane. The pane goes by its terminal title, which an agent may take from your task.": "この PC は通知をチャットアプリや任意の URL にも送ります。メッセージには PC、ペイン、起きたこととペインへのリンクが入ります。ペイン名はターミナルのタイトルで、エージェントが作業内容から付けることもあります。",
   "Webhook URL": "Webhook の URL",
-  "Send later button": "あとで送信ボタン",
+  "Send later button (experimental)": "あとで送信ボタン (試験的)",
   "A button in the message box schedules the message for a set time. This PC sends it then, also with every device closed.": "メッセージ欄のボタンで、メッセージを指定した時刻に送るよう予約します。すべてのデバイスを閉じていても、この PC がその時刻に送信します。",
 };

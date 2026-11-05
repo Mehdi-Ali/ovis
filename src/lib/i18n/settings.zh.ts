@@ -384,6 +384,6 @@ export const SETTINGS_ZH: Record<string, string> = {
   "Test sent. Check the destination.": "已发送测试，请查看发送目标。",
   "This PC also posts its alerts to a chat app or any URL. A message names the PC, the pane and what happened, with a link to the pane. The pane goes by its terminal title, which an agent may take from your task.": "这台电脑也会把提醒发送到聊天应用或任意 URL。消息包含电脑、窗格、发生了什么以及打开窗格的链接。窗格名称是终端标题，代理可能会根据你的任务来设置它。",
   "Webhook URL": "Webhook 地址",
-  "Send later button": "稍后发送按钮",
+  "Send later button (experimental)": "稍后发送按钮（实验性）",
   "A button in the message box schedules the message for a set time. This PC sends it then, also with every device closed.": "消息框中的按钮可将消息预约在指定时间发送。即使关闭所有设备，这台电脑也会在那时发送。",
 };
