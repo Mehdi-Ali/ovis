@@ -1,8 +1,10 @@
 /**
  * A copy made in tmux reaches the browser's clipboard (#1517): herdr's attach stream drops the OSC 52
- * tmux sends, so the tmux hook docs/guide.md shows tells the server, which reads tmux's buffer and
- * tells the browser showing the pane. A herdr pane on the isolated test herdr runs a tmux client on
- * its own socket; an app's OSC 52 inside tmux and a copy-mode copy each land on the clipboard.
+ * tmux sends, so with the shared "Copies in tmux" setting on, the server sets a hook on the tmux a shown
+ * pane runs (server/tmux-clipboard.ts), reads tmux's buffer when it fires and tells the browser showing
+ * the pane. A herdr pane on the isolated test herdr runs a tmux client on its own socket and config
+ * (a fixture, with set-clipboard on so an app's OSC 52 is taken); with the setting off no hook is set,
+ * and once on, an app's OSC 52 inside tmux and a copy-mode copy each land on the clipboard.
  * Run by ui-contexts-checks.ts; skipped where tmux is not installed.
  */
 import assert from "node:assert/strict";
@@ -35,11 +37,18 @@ export async function checkTmuxCopy(browser: Browser): Promise<void> {
   try {
     server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, usage: new UsageService(undefined, []) });
     const origin = `http://127.0.0.1:${server.port}`;
-    // the hook as docs/guide.md gives it, on this server's port
     const conf = join(root, "tmux.conf");
-    writeFileSync(conf, `set -g set-clipboard on
-set-hook -g pane-set-clipboard 'run-shell -b "curl -fsS -m 2 -o /dev/null -H x-ovis-tmux-hook:1 --data-urlencode socket=#{q:socket_path} --data-urlencode pane=#{pane_id} ${origin}/api/tmux/copied || true"'
-`);
+    writeFileSync(conf, "set -g set-clipboard on\n");
+    const ourHook = async (): Promise<boolean> => (await run("show-hooks", "-g", "pane-set-clipboard").catch(() => "")).includes(`[${server!.port}]`);
+    const hookIs = async (want: boolean): Promise<void> => {
+      const deadline = Date.now() + 10_000;
+      while (await ourHook() !== want) {
+        if (Date.now() > deadline) throw new Error(`the tmux hook was never ${want ? "set" : "removed"}`);
+        await Bun.sleep(50);
+      }
+    };
+    const share = (tmuxCopy: boolean) => page.evaluate((on) => fetch("/api/preferences", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ settings: { tmuxCopy: on } }) }).then((answer) => answer.ok), tmuxCopy);
+    let page!: import("playwright-core").Page;
     const created = await workspaceCreate({ cwd: root, label: "ovis-test-tmux-copy" });
     workspace = created.workspace.workspace_id;
     const pane = created.root_pane.pane_id;
@@ -54,7 +63,7 @@ set-hook -g pane-set-clipboard 'run-shell -b "curl -fsS -m 2 -o /dev/null -H x-o
         navigator.clipboard.writeText = (text: string) => writeText(text).then(() => { written.push(text); });
       }, pane);
       await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
-      const page = await context.newPage();
+      page = await context.newPage();
       page.setDefaultTimeout(10_000);
       await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
       await page.locator(".pane-terminal .xterm-rows").waitFor();
@@ -63,6 +72,13 @@ set-hook -g pane-set-clipboard 'run-shell -b "curl -fsS -m 2 -o /dev/null -H x-o
       const clipboard = (): Promise<string> => page.evaluate(() => navigator.clipboard.readText());
       const copied = (text: string) => page.waitForFunction((want) => ((window as any).clipboardWritten as string[]).includes(want), text);
       await page.evaluate(() => navigator.clipboard.writeText("UNCHANGED"));
+
+      // off by default: the server sets nothing on the user's tmux; a sweep that saw the pane has run by
+      // the time the setting turns on, which sweeps again at once
+      assert.equal(await ourHook(), false, "with the setting off no hook is set");
+      assert.ok(await share(true), "the setting is shared");
+      await hookIs(true);
+      console.log("PASS the setting, off by default, sets the hook on the tmux the shown pane runs");
 
       // an app's copy inside tmux (vim's "+y, Claude Code's copy): OSC 52 to tmux, which herdr does not pass on
       await run("send-keys", "-t", "copy", "printf '\\033]52;c;%s\\a' \"$(printf TMUXCOPY-from-an-app | base64)\"; echo TMUXCOPY-sent", "Enter");
@@ -81,6 +97,10 @@ set-hook -g pane-set-clipboard 'run-shell -b "curl -fsS -m 2 -o /dev/null -H x-o
       await copied("TMUXCOPY-the-line");
       assert.equal(await clipboard(), "TMUXCOPY-the-line", "a copy-mode copy is the clipboard");
       console.log("PASS a tmux copy-mode copy reaches the browser's clipboard");
+
+      assert.ok(await share(false), "the setting is shared");
+      await hookIs(false);
+      console.log("PASS turning the setting off removes the hook");
     } finally {
       await context.close();
     }
