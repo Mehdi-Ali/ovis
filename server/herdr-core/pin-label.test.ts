@@ -530,6 +530,46 @@ describe("bridgePins", () => {
     });
   }
 
+  for (const order of ["hangs", "fails and its retry hangs", "hangs while Ovis pins it again and unpins it once more"] as const) {
+    it(`keeps an unpin made in Ovis whose write ${order}, failing only after the agent quit, once an agent runs there again (#2787)`, async () => {
+      const dir = stateDir();
+      const preferences = store(dir, ["local:t1"]);
+      const terminals: Held[] = [{ address: "t1", state: "live", labels: { "herdr.pinned": "1" } }];
+      const core = fakeCore(terminals);
+      const gate = Promise.withResolvers<void>();
+      const reached = Promise.withResolvers<void>();
+      const hc = core.hc as unknown as { call: (method: string, params: unknown) => Promise<unknown> };
+      const call = hc.call;
+      const mode = { now: "pass" as "pass" | "fail" | "hang" };
+      hc.call = async (method, params) => {
+        if (mode.now === "pass") return call(method, params);
+        if (mode.now === "hang") { reached.resolve(); await gate.promise; }
+        else mode.now = "hang";
+        throw new Error("hc is not answering");
+      };
+      const pins = bridge(core, preferences, dir);
+      await core.opened();
+      await pins.idle();
+      mode.now = order === "fails and its retry hangs" ? "fail" : "hang";
+      preferences.set({ settings: {}, pins: [] });
+      await reached.promise;
+      if (order === "hangs while Ovis pins it again and unpins it once more") {
+        preferences.set({ settings: {}, pins: ["local:t1"] });
+        preferences.set({ settings: {}, pins: [] });
+      }
+      // t1's agent quits while the write waits, then the write fails
+      core.tell({ type: "status", terminal: "t1", data: { status: null } });
+      gate.resolve();
+      await pins.idle();
+      mode.now = "pass";
+      core.tell({ type: "status", terminal: "t1", data: { status: AGENT } });
+      await pins.idle();
+      expect(preferences.get().pins).toEqual([]);
+      expect(terminals[0]!.labels).toEqual({});
+      expect(core.written).toEqual([{ terminal: "t1", labels: { "herdr.pinned": "" } }]);
+    });
+  }
+
   it("saves the pending mark of a failed Ovis unpin on a later failed write when the first save failed", async () => {
     const dir = stateDir();
     const preferences = store(dir, ["local:t1"]);
