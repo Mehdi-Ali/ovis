@@ -251,6 +251,15 @@ refuses it.
   it cannot use shows as the mailbox's error in `/api/account/status`.
 - `/api/account/*` is refused to Portal visitors and open LAN windows (`owner_only`), and a `link`
   must start from the key its own session signed in with.
+- Only a session that signed in with `AUTH` holds a proven key: one admitted with a code or by
+  comparing digits sent its key but never signed with it, so it may not link, introduce or read an
+  introduction until it signs in again. A member acts (approving, introducing, enrolling, starting a
+  code) only from a session signed in with its row's current key.
+- A code started through the relay records its starter as the new device's `added_by`, so the device
+  counts as that starter's addition, not a pairing made on this PC.
+- `GET /api/devices` adds `account`, `account_key` (the member's `relay_public_key`, which is public)
+  and `added_by` to account members' rows, for a caller with drive access only; a watching device
+  sees none of them.
 
 ## Account service API
 

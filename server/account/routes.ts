@@ -40,8 +40,7 @@ export async function handleAccountRequest(request: Request, pathname: string, c
   switch (pathname) {
     case "/api/account/introduce": {
       setRequestRoute(pathname);
-      const caller = peer.kind === "relay" ? peer.device.id : access.device?.id;
-      if (caller === undefined || !devices.isAccountApprover(caller)) return fail("account_required", "Introduce devices from a device linked to the account", 403);
+      if (peer.kind !== "relay" || !devices.isAccountApproverSession(peer.device.id, peer.key)) return fail("account_required", "Introduce devices from a device linked to the account", 403);
       if (typeof body.key !== "string" || !devices.wasAddedByMember(body.key)) return fail("introduction_unknown_key", "No account member added that device here", 404);
       const pcs = parseIntroducedPcs(body.pcs);
       if (!pcs) return fail("introduction_invalid", "List at most 32 PCs, each with a server_id its key derives", 400);
@@ -62,9 +61,9 @@ export async function handleAccountRequest(request: Request, pathname: string, c
       const records = body.records;
       if (!Array.isArray(records) || records.length > ACCOUNT_RECORDS_MAX) return fail("record_invalid", `Send at most ${ACCOUNT_RECORDS_MAX} records`, 400);
       if (pathname === "/api/account/enroll") {
-        const caller = peer.kind === "relay" ? peer.device.id : access.device?.id;
         // what a member hands a PC it just paired: the caller is a member of that account here already
-        if (typeof body.account !== "string" || caller === undefined || !devices.isAccountApprover(caller) || devices.account() !== body.account) {
+        const member = peer.kind === "relay" ? devices.isAccountApproverSession(peer.device.id, peer.key) : access.device !== undefined && devices.isAccountApprover(access.device.id);
+        if (typeof body.account !== "string" || !member || devices.account() !== body.account) {
           return fail("account_required", "Link this device to the account on this PC first", 403);
         }
         if (!records.every((record) => typeof record === "object" && record !== null && (record as { kind?: unknown }).kind === "add")) {

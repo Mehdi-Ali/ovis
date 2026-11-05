@@ -83,6 +83,8 @@ export class RelaySession {
   private device: DeviceMatch | undefined;
   /** The key this session's device signed in or paired with: a `link` must start from it (docs/account.md). */
   private key = "";
+  /** Whether the device signed in with AUTH, the only admission that proves it holds its key. */
+  private keyProven = false;
   private unwatch: (() => void) | undefined;
   private sourceBytes = 0;
   private readonly clock: MuxClock;
@@ -223,6 +225,7 @@ export class RelaySession {
         this.state = "verifying";
         const devices = this.options.services.devices;
         if (this.options.services.serveOnly) { this.close("auth_failed"); return; }
+        this.keyProven = frame.type === FrameType.AUTH;
         const device = frame.type === FrameType.AUTH
           ? await devices.matchRelay(frame.payload.device_id, this.nonce, frame.payload.signature, this.options.serverId)
           : devices.pairRelay(frame.payload.code, frame.payload.label, frame.payload.public_key)?.device;
@@ -324,7 +327,8 @@ export class RelaySession {
       return;
     }
     this.device = Object.freeze(device);
-    this.key = devices.relayKeyOf(device.id) ?? "";
+    // a key sent with a code or a comparison was never signed with: nothing account-side may rest on it
+    this.key = this.keyProven ? devices.relayKeyOf(device.id) ?? "" : "";
     // The commit callback runs before the sink: synchronous carriers can immediately OPEN.
     // Until then OPEN is still unauthenticated, even while AUTH_OK waits behind receipt credit.
     this.mux.enqueueControl({

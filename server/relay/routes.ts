@@ -13,7 +13,7 @@ export async function handleRelayRequest(request: Request, pathname: string, con
   }
   const peer = context.peer;
   // one admission rule (docs/account.md): this PC itself, or a drive account member through the relay
-  const remoteApprover = peer.kind === "relay" && context.services.devices.isAccountApprover(peer.device.id) ? peer.device : null;
+  const remoteApprover = peer.kind === "relay" && context.services.devices.isAccountApproverSession(peer.device.id, peer.key) ? peer.device : null;
   if (pathname === "/api/relay/pairings" && request.method === "GET") {
     setRequestRoute("/api/relay/pairings");
     if (peer.kind === "relay") return remoteApprover ? reply({ pairings: service.approvals.remoteList() }) : fail("account_required", "Approve pairings on this PC, or from a device linked to your account.", 403);

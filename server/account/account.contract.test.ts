@@ -73,9 +73,11 @@ async function status(link: Link) {
 async function member(f: Fixture): Promise<{ device: Device; key: AccountKey; link: Link }> {
   const legacy = await relayDevice(f);
   const key = await accountKey();
-  const link = await signedIn(f, legacy);
-  expect((await post(link, "/api/account/link", { record: await linkRecord(legacy, key) })).status).toBe(200);
-  return { device: { keys: key.keys, publicKey: key.spki, id: legacy.id }, key, link };
+  const before = await signedIn(f, legacy);
+  expect((await post(before, "/api/account/link", { record: await linkRecord(legacy, key) })).status).toBe(200);
+  const device = { keys: key.keys, publicKey: key.spki, id: legacy.id };
+  // a member acts from a session signed in with its account key
+  return { device, key, link: await signedIn(f, device) };
 }
 
 function registryRow(f: Fixture, id: string) {
@@ -476,4 +478,66 @@ test("an introduction lasts ten minutes", () => {
   expect(introductions.get("k")).not.toBeNull();
   now = INTRODUCTION_TTL_MS;
   expect(introductions.get("k")).toBeNull();
+});
+
+test("the device list shows account members' account, key and adder to a driving device, and to a watching one nothing of it", async () => {
+  const f = fixture();
+  const { device, key, link } = await member(f);
+  const joining = await accountKey();
+  await post(link, "/api/account/records", { records: [await add(key, joining.spki)] });
+  const plain = await relayDevice(f);
+  const list = async (l: Link) => (await (await l.open("/api/devices").response).json() as { devices: Record<string, unknown>[] }).devices;
+  const seen = await list(link);
+  expect(seen.find((d) => d.id === device.id)).toMatchObject({ account: ACCOUNT, account_key: key.spki });
+  expect(seen.find((d) => d.id === accountDeviceId(SERVER_ID, joining.spki))).toMatchObject({ account: ACCOUNT, account_key: joining.spki, added_by: device.id });
+  expect(seen.find((d) => d.id === plain.id)).not.toHaveProperty("account");
+  const watcher = await signedIn(f, await relayDevice(f, "watch"));
+  for (const row of await list(watcher)) for (const field of ["account", "account_key", "added_by"]) expect(row).not.toHaveProperty(field);
+});
+
+test("a session signed in with a row's key before it was linked acts as no member", async () => {
+  const f = fixture();
+  const legacy = await relayDevice(f);
+  const [first, second] = [await signedIn(f, legacy), await signedIn(f, legacy)];
+  const key = await accountKey();
+  expect((await post(first, "/api/account/link", { record: await linkRecord(legacy, key) })).status).toBe(200);
+  const joining = await accountKey();
+  const fresh = await signedIn(f, { keys: key.keys, publicKey: key.spki, id: legacy.id });
+  await post(fresh, "/api/account/records", { records: [await add(key, joining.spki)] });
+  expect((await post(second, "/api/account/introduce", { key: joining.spki, pcs: [introducedPc()] })).body.error?.code).toBe("account_required");
+});
+
+test("a device paired with a code, which sent its key but never signed with it, can neither read nor link as that key", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const victim = await accountKey();
+  await post(link, "/api/account/records", { records: [await add(key, victim.spki)] });
+  const introduced = link.open("/api/account/introduce", { method: "POST", headers: guard, body: "stream" });
+  void introduced.stream.sendBody(new Response(JSON.stringify({ key: victim.spki, pcs: [introducedPc()] })).body!).catch(() => {});
+  expect((await introduced.response).status).toBe(204);
+  const code = (await post(link, "/api/devices/pair/start", {})).body as unknown as { code: string };
+  const impostor = await relayConnection(f);
+  const paired = await impostor.pair(code.code, victim.spki);
+  expect((await impostor.open("/api/account/introduction").response).status).toBe(404);
+  const own = await accountKey();
+  expect((await post(impostor, "/api/account/link", { record: await linkRecord({ id: paired.device_id, keys: victim.keys, publicKey: victim.spki }, own) })).body.error?.code).toBe("link_not_owner");
+});
+
+test("a device paired with a code a relay device started on a PC in no account is that device's addition, so an older remove takes it", async () => {
+  const f = fixture();
+  const starterDevice = await relayDevice(f);
+  const legacy = await relayDevice(f);
+  const starter = await signedIn(f, starterDevice);
+  const code = (await post(starter, "/api/devices/pair/start", {})).body as unknown as { code: string };
+  // the PC joins an account after the code was started, by a row linking itself; a member signed the removal before the pairing
+  const key = await accountKey();
+  expect((await post(await signedIn(f, legacy), "/api/account/link", { record: await linkRecord(legacy, key) })).status).toBe(200);
+  const link = await signedIn(f, { keys: key.keys, publicKey: key.spki, id: legacy.id });
+  const target = await accountKey();
+  const removal = await sign({ v: 1, kind: "remove", account: ACCOUNT, key: target.spki, issued_at: new Date(Date.now() - 60_000).toISOString(), id: newRecordId(), signer: key.spki }, key);
+  expect((await (await relayConnection(f)).pair(code.code, target.spki)).role).toBe("drive");
+  const row = f.app.context.services.devices.list(null).find((d) => d.label === "New phone")!;
+  expect(registryRow(f, row.id)?.added_by).toBe(starterDevice.id);
+  expect((await post(link, "/api/account/records", { records: [removal] })).body.results?.[0]?.outcome).toBe("applied");
+  expect(f.app.context.services.devices.hasKey(target.spki)).toBe(false);
 });

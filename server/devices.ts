@@ -214,7 +214,7 @@ export class DeviceStore {
    * `remote`: started through the relay, so it never lets a removed key back in; `startedBy`: the account
    * member that started it there, whose addition the new device then is
    */
-  private pending: { code: string; expires: number; attempts: number; remote: boolean; startedBy: string | null } | null = null;
+  private pending: { code: string; expires: number; attempts: number; remote: boolean; startedBy: string | null; memberRequired: boolean } | null = null;
   private codeIssues: number[] = [];
   private readonly relayFailures: Record<PairingPath, { at: number[]; blockedUntil: number }> = {
     code: { at: [], blockedUntil: 0 }, account: { at: [], blockedUntil: 0 },
@@ -358,8 +358,14 @@ export class DeviceStore {
     if (this.error !== null) throw new Error(this.error);
   }
 
-  list(currentId: string | null): PairedDevice[] {
-    return this.devices.map((d) => ({ id: d.id, label: d.label, role: d.role, created_at: d.created_at, last_seen_at: d.last_seen_at, current: d.id === currentId, ...(d.relay_public_key === undefined ? {} : { via_relay: true as const }) }));
+  /** `withAccounts`: add the account fields of member rows, for a caller that may drive (GET /api/devices). */
+  list(currentId: string | null, withAccounts = false): PairedDevice[] {
+    return this.devices.map((d) => ({
+      id: d.id, label: d.label, role: d.role, created_at: d.created_at, last_seen_at: d.last_seen_at, current: d.id === currentId,
+      ...(d.relay_public_key === undefined ? {} : { via_relay: true as const }),
+      ...(withAccounts && d.account !== undefined && d.relay_public_key !== undefined
+        ? { account: d.account, account_key: d.relay_public_key, ...(d.added_by === undefined ? {} : { added_by: d.added_by }) } : {}),
+    }));
   }
 
   /** The current code when it can still be used, without changing its attempts or expiry. */
@@ -370,7 +376,7 @@ export class DeviceStore {
   }
 
   /** A fresh six-digit code, replacing any code still pending. */
-  startPairing(now = Date.now(), from: { remote: boolean; startedBy: string | null } = { remote: false, startedBy: null }): PairingCode {
+  startPairing(now = Date.now(), from: { remote: boolean; startedBy: string | null; memberRequired: boolean } = { remote: false, startedBy: null, memberRequired: false }): PairingCode {
     this.assertWritable();
     this.pruneUnconfirmedFirstPairs(now);
     this.codeIssues = this.codeIssues.filter((at) => now - at < PAIRING_WINDOW_MS);
@@ -388,7 +394,7 @@ export class DeviceStore {
     if (!this.checkPairingCode(code, now)) return null;
     // a member's code goes with the member here too (pairRelay)
     const startedBy = this.pending?.startedBy ?? null;
-    if (startedBy !== null && !this.isAccountApprover(startedBy)) return null;
+    if (this.pending?.memberRequired && (startedBy === null || !this.isAccountApprover(startedBy))) return null;
     const token = randomBytes(32).toString("hex");
     const device: StoredDevice = { id: randomBytes(8).toString("hex"), label, role, token_hash: hash(token), created_at: new Date(now).toISOString(), last_seen_at: null };
     if (!this.gated) {
@@ -437,11 +443,11 @@ export class DeviceStore {
     const remote = this.pending?.remote ?? false;
     const startedBy = this.pending?.startedBy ?? null;
     // a code started through the relay is not a pairing made on this PC; a member's code goes with the member
-    if ((remote && (this.accountError !== null || this.isTombstoned(publicKey))) || (startedBy !== null && !this.isAccountApprover(startedBy))) {
+    if ((remote && (this.accountError !== null || this.isTombstoned(publicKey))) || (this.pending?.memberRequired && (startedBy === null || !this.isAccountApprover(startedBy)))) {
       this.noteRelayFailure("code", now);
       return null;
     }
-    // a device let in by a member's code is that member's addition, not a pairing made on this PC (removeAccountKey)
+    // a device let in by a code started through the relay is its starter's addition, not a pairing made on this PC (removeAccountKey)
     const paired = this.enrollRelay(label, publicKey, now, true, startedBy ?? undefined);
     if (!remote) this.clearTombstone(publicKey);
     return paired;
@@ -483,6 +489,11 @@ export class DeviceStore {
   /** The account of this PC's members (docs/account.md: a PC belongs to at most one), or null. */
   account(): string | null {
     return this.devices.find((d) => d.account !== undefined)?.account ?? null;
+  }
+
+  /** A drive account member whose session signed in with the row's current key: a session left from an older key acts as no member. */
+  isAccountApproverSession(id: string, sessionKey: string): boolean {
+    return sessionKey !== "" && this.relayKeyOf(id) === sessionKey && this.isAccountApprover(id);
   }
 
   /** A drive account member: the only device that may approve a pairing or start a code through the relay (docs/account.md). */
@@ -779,7 +790,8 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
   if (pathname === "/api/devices") {
     setRequestRoute(pathname);
     if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
-    return jsonResponse({ devices: store.list(access.level === "full" ? access.device?.id ?? null : null) }, 200, { "cache-control": "no-store" });
+    const drive = access.level === "full" && access.role === "drive";
+    return jsonResponse({ devices: store.list(access.level === "full" ? access.device?.id ?? null : null, drive) }, 200, { "cache-control": "no-store" });
   }
   if (!sameOrigin(request) || request.headers.get("x-herdr-machine") !== "1") return jsonResponse({ error: { code: "invalid_origin", message: "Manage devices from this app" } }, 403);
   if (access.level === "full" && access.role === "watch") return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
@@ -793,8 +805,9 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
     }
     try {
       const remote = access.level === "full" && access.via === "relay";
-      const member = remote && access.device && store.isAccountApprover(access.device.id) ? access.device.id : null;
-      return jsonResponse(store.startPairing(Date.now(), { remote, startedBy: member }), 200, { "cache-control": "no-store" });
+      // its starter is recorded as the new device's adder; on a PC in an account that starter must stay a member
+      const startedBy = remote ? access.device?.id ?? null : null;
+      return jsonResponse(store.startPairing(Date.now(), { remote, startedBy, memberRequired: remote && store.account() !== null }), 200, { "cache-control": "no-store" });
     } catch (error) {
       if (error instanceof PairingRateLimitedError) return jsonResponse({ error: { code: error.code, message: error.message } }, 429, { "retry-after": String(error.retryAfter), "cache-control": "no-store" });
       throw error;
