@@ -10,7 +10,7 @@ import { PairingRateLimitedError, readDeviceRegistry } from "../devices.ts";
 import { machineEventsClock, machineEventsQueuedBytes } from "../machine-api.ts";
 import { PortalService } from "../portal.ts";
 import { relayHeaders, RELAY_ORIGIN } from "./session.ts";
-import { bounded, deferred, relayAccountFixture, relayConnection, relayDevice, relayFixture, TestClock } from "./test-helpers.ts";
+import { bounded, deferred, relayConnection, relayDevice, relayFixture, TestClock } from "./test-helpers.ts";
 
 const fixtures: ReturnType<typeof relayFixture>[] = [];
 function fixture(serveOnly = false) {
@@ -354,11 +354,11 @@ it("reports pairing rate limits during PAIR instead of an internal error", async
 });
 
 it("keeps the native pairing rate-limit status and retry header over relay HTTP", async () => {
-  // through the relay only an account member may start a code (docs/account.md)
-  const { fixture: f, member: device } = await relayAccountFixture();
-  fixtures.push(f);
+  const f = fixture();
+  const device = await relayDevice(f);
   const store = f.app.context.services.devices;
-  for (let issue = 0; issue < 10; issue++) store.startPairing();
+  // Enrollment already spent the first of ten code issues.
+  for (let issue = 1; issue < 10; issue++) store.startPairing();
   const link = await relayConnection(f);
   await link.auth(device);
   const response = await link.open("/api/devices/pair/start", { method: "POST", headers: guard }).response;

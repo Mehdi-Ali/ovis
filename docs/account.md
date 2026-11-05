@@ -115,9 +115,10 @@ One rule for every way in: a pairing code, comparing digits, and joining through
   account member. It must **pick the new device's digits out of three** (two decoys the PC chose at
   random) before it can approve. A tap without looking picks right one time in three, and a wrong
   pick ends the request, so the person has to look again at a new comparison.
-- A pairing code can be started only by the same people: directly on the PC (any window there with
-  drive access, as before), or by a drive account member through the relay (`403 account_required`
-  for any other relay device, `read_only` for a watch device).
+- On a PC that belongs to an account, a pairing code can be started only by the same people:
+  directly on the PC (any window there with drive access, as before), or by a drive account member
+  through the relay (`403 account_required` for any other relay device, `read_only` for a watch
+  device). A PC in no account keeps letting any driving relay device start one, as before.
 - **Every admission is announced** on every device connected to the PC: the new device's name and who
   approved it.
 

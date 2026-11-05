@@ -369,6 +369,11 @@ export class DeviceStore {
     return this.enrollRelay(label, publicKey, now, false, approval.addedBy);
   }
 
+  /** The account of this PC's members (docs/account.md: a PC belongs to at most one), or null. */
+  account(): string | null {
+    return this.devices.find((d) => d.account !== undefined)?.account ?? null;
+  }
+
   /** A drive account member: the only device that may approve a pairing or start a code through the relay (docs/account.md). */
   isAccountApprover(id: string): boolean {
     const device = this.devices.find((d) => d.id === id);
@@ -559,8 +564,9 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
   if (pathname === "/api/devices/pair/start") {
     setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-    // a code admits whoever holds it, so through the relay only those who may approve a pairing may start one
-    if (access.level === "full" && access.via === "relay" && !(access.device && store.isAccountApprover(access.device.id))) {
+    // a code admits whoever holds it, so through the relay to a PC in an account only those who may approve a pairing
+    // may start one; a PC in no account keeps letting any driving relay device start one, as before
+    if (access.level === "full" && access.via === "relay" && store.account() !== null && !(access.device && store.isAccountApprover(access.device.id))) {
       return jsonResponse({ error: { code: "account_required", message: "Start a pairing on this PC, or from a device linked to your account" } }, 403);
     }
     try {

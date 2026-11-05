@@ -188,9 +188,10 @@ the relay saw is therefore no use later, or with another PC.
 headers ([below](#requests-through-the-mux)), never `Cookie`, `Authorization`, `Host`, `Origin` or
 forwarding headers, and signing in with the token answers 403 `device_key_required`. A phone on the
 relay can't start or stop the relay, show its QR code or reset its identity (403 `local_required`). A pairing
-code admits whoever holds it, so through the relay only a phone linked to the owner's account, with
-drive access, may start one under Devices; any other gets 403 `account_required` (`read_only`
-for a watch device).
+code admits whoever holds it. On a PC linked to an account, only a phone linked to that account
+with drive access may start one through the relay; any other gets 403 `account_required`
+(`read_only` for a watch device). On a PC in no account, any paired relay device that can type
+may still start one under Devices, as before.
 
 **Who controls the relay.** Start, stop, pairing offers and identity reset require drive access
 and a direct connection to the PC. A Portal visitor may read the state but cannot change it:

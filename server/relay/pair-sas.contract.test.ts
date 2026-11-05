@@ -604,12 +604,17 @@ test("account pairing failures do not pause pairing with a code", async () => {
   expect(admitted.role).toBe("drive");
 });
 
-test("through the relay only a drive account member may start a pairing code", async () => {
+test("through the relay to a PC in an account only a drive account member may start a pairing code", async () => {
   const { f, member } = await accountFixture();
   const outsider = await signedIn(f, await relayDevice(f));
   expect((await post(outsider, "/api/devices/pair/start", {})).body.error?.code).toBe("account_required");
   const started = await post(await signedIn(f, member), "/api/devices/pair/start", {});
   expect(started.status).toBe(200);
+});
+
+test("a PC in no account still lets a driving relay device start a pairing code", async () => {
+  const f = fixture();
+  expect((await post(await signedIn(f, await relayDevice(f)), "/api/devices/pair/start", {})).status).toBe(200);
 });
 
 test("an approver revoked before the phone confirms admits nothing", async () => {
