@@ -30,6 +30,8 @@ function apply(store: DeviceStore, record: AccountRecord, now: number): RecordOu
   const signer = store.accountSigner(record.signer, record.account);
   if (!signer) return refused("signer_not_member");
   if (record.kind === "remove") return { id: record.id, outcome: store.removeAccountKey(record.key, record.account, { id: record.id, issuedAt: record.issued_at }, now) ? "applied" : "unchanged" };
+  // the signature covers the signer only: a key off the curve would leave a devices.json no store can read
+  if (!store.acceptsRelayKey(record.key)) return refused("record_invalid");
   if (store.isTombstoned(record.key)) return refused("tombstoned");
   if (store.hasKey(record.key)) return { id: record.id, outcome: "unchanged" };
   store.addAccountDevice({ key: record.key, label: record.label, role: record.role, account: record.account, addedBy: signer.id }, now);

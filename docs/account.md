@@ -224,7 +224,13 @@ refuses it.
   user only). A tombstone file that will not parse is not an empty one: account records are then
   refused (`account_unavailable`) until it is restored, and so are a code started through the relay
   and a remote approval; the mailbox collects nothing meanwhile, so no removal is acknowledged
-  unapplied. Pairing on the PC itself and signing in are unchanged.
+  unapplied. Pairing on the PC itself and signing in are unchanged. A **Revoke** meanwhile writes its
+  tombstone to `account-tombstones.pending.json`, which the PC reads too and folds back in once the
+  main file can be read again.
+- An `add` whose key is not a P-256 point is refused (`record_invalid`): the signature covers only
+  the signer, and devices.json accepts no such key.
+- A code an account member started through the relay makes that member the new row's `added_by`,
+  and lets nobody in once the member is revoked or demoted.
 - A `remove` writes its tombstone before it revokes the device; the device's relay connections
   close at once (`auth_revoked`). A `remove` signed before this PC itself paired the key again leaves
   that pairing be (`unchanged`), so a late or replayed one cannot undo it. A row an `add` or a remote

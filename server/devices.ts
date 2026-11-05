@@ -11,7 +11,7 @@
  * its write succeeded, so every other session can hear of a device it did not pair.
  */
 import { createHash, createPublicKey, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type DevicePairedEvent, type DeviceRole, type DevicesRevokedAll, type PairedDevice, STREAM_COOKIE_PREFIX } from "../shared/protocol.ts";
 import type { Access } from "./access.ts";
@@ -221,6 +221,7 @@ export class DeviceStore {
   private readonly revokeAllListeners = new Set<() => void>();
   private readonly pairings = new Set<(event: DevicePairedEvent, origin: readonly string[]) => void>();
   private readonly tombstonePath: string;
+  private readonly pendingTombstonePath: string;
   /** Keys removed through the account (docs/account.md, rule 5); only a pairing on this PC clears one. */
   private tombstones: AccountTombstone[] = [];
   /** Why account records cannot be applied: a tombstone file that will not parse is not an empty one. */
@@ -235,9 +236,14 @@ export class DeviceStore {
   constructor(stateDir: string, blocked: string | null = null) {
     this.path = join(stateDir, "devices.json");
     this.tombstonePath = join(stateDir, "account-tombstones.json");
+    this.pendingTombstonePath = join(stateDir, "account-tombstones.pending.json");
     const tombstones = readTombstones(this.tombstonePath);
-    if (tombstones === null) this.accountError = `Cannot read ${this.tombstonePath}: account records are refused until it is restored or fixed.`;
-    else this.tombstones = tombstones;
+    // revokes made while the main file could not be read (tombstone()): kept apart, folded back in below
+    const pending = readTombstones(this.pendingTombstonePath) ?? [];
+    if (tombstones === null) {
+      this.accountError = `Cannot read ${this.tombstonePath}: account records are refused until it is restored or fixed.`;
+      this.tombstones = pending;
+    } else this.tombstones = [...tombstones, ...pending.filter((t) => !tombstones.some((own) => own.key === t.key))];
     const read = readDeviceRegistry(this.path);
     if (read.kind === "ok") {
       this.gateClosedAt = read.gateClosedAt;
@@ -252,7 +258,13 @@ export class DeviceStore {
       this.error = blocked;
       console.error(this.error);
     }
-    if (this.error === null && this.accountError === null) this.finishInterruptedWrites();
+    if (this.error === null && this.accountError === null) {
+      if (pending.length) {
+        this.writeTombstones(this.tombstones);
+        rmSync(this.pendingTombstonePath, { force: true });
+      }
+      this.finishInterruptedWrites();
+    }
   }
 
   /**
@@ -415,7 +427,8 @@ export class DeviceStore {
     }
     // a code started through the relay is not a pairing made on this PC (docs/account.md, rule 5)
     const startedBy = this.pending?.startedBy ?? null;
-    if (startedBy !== null && (this.accountError !== null || this.isTombstoned(publicKey))) { this.noteRelayFailure("code", now); return null; }
+    // a member's code goes with the member: one revoked or demoted since lets nobody in
+    if (startedBy !== null && (this.accountError !== null || this.isTombstoned(publicKey) || !this.isAccountApprover(startedBy))) { this.noteRelayFailure("code", now); return null; }
     // a device let in by a member's code is that member's addition, not a pairing made on this PC (removeAccountKey)
     const paired = this.enrollRelay(label, publicKey, now, true, startedBy ?? undefined);
     if (startedBy === null) this.clearTombstone(publicKey);
@@ -634,6 +647,9 @@ export class DeviceStore {
 
   hasKey(key: string): boolean { return this.devices.some((d) => d.relay_public_key === key && !this.stale(d)); }
 
+  /** Whether `key` is a P-256 key devices.json accepts (readDeviceRegistry checks every row's). */
+  acceptsRelayKey(key: string): boolean { return isRelayPublicKey(key); }
+
   /** Whether a row other than `id` holds `key`. */
   keyHeldByOther(key: string, id: string): boolean { return this.devices.some((d) => d.relay_public_key === key && d.id !== id); }
 
@@ -694,12 +710,16 @@ export class DeviceStore {
 
   /** Tombstones for the relay keys of rows this PC revokes, written before the revoke itself. */
   private tombstone(rows: readonly StoredDevice[], now: number): void {
-    if (this.accountError !== null) return;
     const keys = [...new Set(rows.flatMap((d) => d.relay_public_key === undefined || this.isTombstoned(d.relay_public_key) ? [] : [d.relay_public_key]))];
     const removedAt = new Date(now).toISOString();
     const next = [...this.tombstones,
       ...keys.map((key) => ({ key, account: rows.find((d) => d.relay_public_key === key)?.account ?? "", record_id: "local", removed_at: removedAt }))];
-    if (keys.length) this.writeTombstones(next);
+    if (!keys.length) return;
+    // with the main file unreadable the revoke still wins: its tombstone waits beside it
+    if (this.accountError !== null) {
+      writePrivateState(this.pendingTombstonePath, { v: 1, tombstones: next });
+      this.tombstones = next;
+    } else this.writeTombstones(next);
   }
 
   private writeTombstones(next: AccountTombstone[]): void {

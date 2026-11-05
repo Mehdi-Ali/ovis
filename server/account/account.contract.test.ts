@@ -6,6 +6,7 @@ import { exportAccountKey, newRecordId, signAccountRecord, type AccountRecord, t
 import { FakeAccountService } from "../../shared/account-service-fake.ts";
 import { ACCOUNT_FEATURE, FrameType } from "../../shared/relay-mux.ts";
 import { DeviceStore, mergeAccountTombstones, readDeviceRegistry } from "../devices.ts";
+import { mergeRegistries } from "../state-merge.ts";
 import { rotateRelayIdentity } from "../relay/identity.ts";
 import { bounded, relayConnection, relayDevice, relayFixture } from "../relay/test-helpers.ts";
 import { AccountMailbox } from "./mailbox.ts";
@@ -369,4 +370,45 @@ test("a pairing by a code started through the relay does not outlast an older re
   expect(registryRow(f, row.id)?.added_by).toBe(device.id);
   expect((await post(link, "/api/account/records", { records: [removal] })).body.results?.[0]?.outcome).toBe("applied");
   expect(f.app.context.services.devices.hasKey(target.spki)).toBe(false);
+});
+
+test("an add for a key off the curve is refused and leaves devices.json readable", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const offCurve = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE" + "A".repeat(86);
+  expect((await post(link, "/api/account/records", { records: [await add(key, offCurve)] })).body.results?.[0]).toMatchObject({ outcome: "refused", code: "record_invalid" });
+  expect(readDeviceRegistry(join(f.stateDir, "devices.json")).kind).toBe("ok");
+});
+
+test("a revoke while the tombstone file cannot be read still keeps the key out once it is fixed", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const extra = await accountKey();
+  const record = await add(key, extra.spki);
+  await post(link, "/api/account/records", { records: [record] });
+  const saved = await Bun.file(join(f.stateDir, "account-tombstones.json")).exists() ? await Bun.file(join(f.stateDir, "account-tombstones.json")).text() : JSON.stringify({ v: 1, tombstones: [] });
+  writeFileSync(join(f.stateDir, "account-tombstones.json"), "{broken", { mode: 0o600 });
+  const broken = new DeviceStore(f.stateDir);
+  expect(broken.revoke(broken.list(null).find((row) => row.label === "Mac app")!.id)).toBe(true);
+  writeFileSync(join(f.stateDir, "account-tombstones.json"), saved, { mode: 0o600 });
+  const fixed = new DeviceStore(f.stateDir);
+  expect(fixed.accountError).toBeNull();
+  expect(fixed.isTombstoned(extra.spki)).toBe(true);
+  expect((await applyAccountRecords(fixed, [record]))[0]).toMatchObject({ outcome: "refused", code: "tombstoned" });
+});
+
+test("merging two state dirs keeps a link done in either", () => {
+  const linked = { id: "00112233445566aa", label: "Phone", role: "drive" as const, token_hash: "0".repeat(64), relay_public_key: "NEW", account: ACCOUNT, created_at: "2026-11-01T00:00:00.000Z", last_seen_at: null };
+  const old = { ...linked, relay_public_key: "OLD", account: undefined };
+  const ids = new Set([linked.id]);
+  const merged = mergeRegistries({ gate_closed_at: null, devices: [old] }, { gate_closed_at: null, devices: [linked] }, { own: ids, other: ids });
+  expect(merged.devices[0]).toMatchObject({ relay_public_key: "NEW", account: ACCOUNT });
+});
+
+test("a member's relay code lets nobody in once the member is revoked", async () => {
+  const f = fixture();
+  const starter = await member(f);
+  const code = (await post(starter.link, "/api/devices/pair/start", {})).body as unknown as { code: string };
+  f.app.context.services.devices.revoke(starter.device.id);
+  await expect((await relayConnection(f)).pair(code.code, (await accountKey()).spki)).rejects.toThrow();
 });
