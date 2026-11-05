@@ -160,6 +160,15 @@ describe("signing in to the fake account service", () => {
     expect((await token(service, { grant_type: "authorization_code", code: again.code, code_verifier: again.verifier, redirect_uri: again.redirect })).status).toBe(400);
   });
 
+  test("a code is spent at sixty seconds, and an Apple identity token needs a real nonce", async () => {
+    let now = 0;
+    const service = new FakeAccountService(() => now);
+    const flow = await signIn(service);
+    now = 60_000;
+    expect((await token(service, { grant_type: "authorization_code", code: flow.code, code_verifier: flow.verifier, redirect_uri: flow.redirect })).status).toBe(400);
+    expect((await token(service, { grant_type: "apple_id_token", id_token: service.appleIdToken("acct_apple", ""), nonce: "" })).status).toBe(400);
+  });
+
   test("only the listed redirects are allowed, exactly", () => {
     for (const ok of ["https://app.ovis.sh/", "ovis://account/callback", "http://127.0.0.1:53117/callback"]) expect(isAllowedRedirect(ok)).toBe(true);
     for (const bad of ["https://app.ovis.sh/account/callback", "https://app.ovis.sh", "https://app.ovis.sh/s/x/", "https://evil.example/account/callback", "http://localhost:53117/callback",
@@ -193,10 +202,10 @@ describe("signing in to the fake account service", () => {
 
   test("an iOS app signs in with Apple's identity token only for the nonce it asked with", async () => {
     const service = new FakeAccountService();
-    const idToken = service.appleIdToken("acct_apple", "n-1");
-    expect((await token(service, { grant_type: "apple_id_token", id_token: idToken, nonce: "n-2" })).status).toBe(400);
-    const other = service.appleIdToken("acct_apple", "n-1");
-    expect(await (await token(service, { grant_type: "apple_id_token", id_token: other, nonce: "n-1" })).json()).toMatchObject({ account: "acct_apple", provider: "apple" });
+    const idToken = service.appleIdToken("acct_apple", "nonce-0123456789ab");
+    expect((await token(service, { grant_type: "apple_id_token", id_token: idToken, nonce: "nonce-ba9876543210" })).status).toBe(400);
+    const other = service.appleIdToken("acct_apple", "nonce-0123456789ab");
+    expect(await (await token(service, { grant_type: "apple_id_token", id_token: other, nonce: "nonce-0123456789ab" })).json()).toMatchObject({ account: "acct_apple", provider: "apple" });
   });
 
   test("the loopback redirect takes the code in its query, and the app's own scheme may ask for the fragment", async () => {

@@ -119,7 +119,7 @@ export class FakeAccountService {
       case "authorization_code": {
         const code = typeof body.code === "string" ? this.codes.get(body.code) : undefined;
         if (typeof body.code === "string") this.codes.delete(body.code);
-        if (!code || this.now() > code.expires || body.redirect_uri !== code.redirect) return invalid("The code is wrong, spent or expired");
+        if (!code || this.now() >= code.expires || body.redirect_uri !== code.redirect) return invalid("The code is wrong, spent or expired");
         if (typeof body.code_verifier !== "string" || !PKCE.test(body.code_verifier) || await s256(body.code_verifier) !== code.challenge) return invalid("The code_verifier does not match");
         return this.grant(code.account, code.provider);
       }
@@ -134,7 +134,7 @@ export class FakeAccountService {
       case "apple_id_token": {
         const apple = typeof body.id_token === "string" ? this.appleTokens.get(body.id_token) : undefined;
         if (typeof body.id_token === "string") this.appleTokens.delete(body.id_token);
-        if (!apple || typeof body.nonce !== "string" || body.nonce !== apple.nonce) return invalid("The identity token is not valid for that nonce");
+        if (!apple || typeof body.nonce !== "string" || body.nonce.length < 16 || body.nonce !== apple.nonce) return invalid("The identity token is not valid for that nonce");
         return this.grant(apple.account, "apple");
       }
       default: return problem(400, "unsupported_grant_type", "Use authorization_code, refresh_token or apple_id_token");

@@ -52,7 +52,8 @@ The row an `add` makes has a known id, so the new device can sign in without ask
 the first 16 hex digits of `SHA-256("ovis-account-device/1" || server_id || key)`, with `server_id`
 as its 32 hex characters and `key` as the record's base64url text (`accountDeviceId` in
 [`shared/account-records.ts`](../shared/account-records.ts)). `AUTH` is unchanged and signs with that
-id. Rows made any other way keep random ids.
+id. Rows made any other way keep random ids, and a device already on a PC keeps the id it has there
+(an `add` for a key already present changes nothing): it knows that id from its pairing.
 
 A PC belongs to at most one account: the account of its first member. A record for another account
 is refused (`account_mismatch`). **Revoke all** clears the PC's account with its members; tombstones
@@ -197,8 +198,9 @@ most 32: `server_id` must derive from `server_public_key`, `relay` is a `wss:` o
 most 48 characters (`introduction_invalid` otherwise). X keeps it in memory only, for 10 minutes;
 a later one for the same key replaces it. Answers 204.
 
-`GET /api/account/introduction`: over the new device's own signed-in session; answers `{ "pcs" }`
-for its own key, or 404 `introduction_none`.
+`GET /api/account/introduction`: over the new device's own signed-in session, watch access included
+(the one account route that needs no drive access, since it reads only the caller's own
+introduction); answers `{ "pcs" }` for its own key, or 404 `introduction_none`.
 
 Known risk (T10 in the design): a compromised X can show the new device other PCs' keys than the
 member sent. It already holds X's sessions; what it gains is the new device trying those keys. Each
@@ -233,9 +235,16 @@ OAuth's authorization code flow with PKCE, `S256` only:
    tokens rotate: each is good once, and using one again ends every token of its sign-in (its
    family), as a leaked one would be.
 4. On iOS, Sign in with Apple hands the app an identity token directly:
-   `POST /v1/token` `{ "grant_type": "apple_id_token", "id_token", "nonce" }` answers the same, for
-   the `nonce` the app asked Apple with.
+   `POST /v1/token` `{ "grant_type": "apple_id_token", "id_token", "nonce" }` answers the same. The
+   app makes a fresh random `nonce` (at least 128 bits) for each sign-in and gives Apple its
+   SHA-256; the service accepts the token only when Apple's signature holds (Apple's published keys),
+   `iss` is `https://appleid.apple.com`, `aud` is the app's id, it has not expired, and its
+   `nonce` claim is the SHA-256 of the `nonce` sent. Each identity token is accepted once.
 5. `POST /v1/signout` (Bearer) answers 204 and ends that sign-in's family.
+
+The client makes `state` (at least 128 bits) and `code_verifier` (32 random bytes, base64url) fresh
+for each sign-in, keeps them with that sign-in only, and drops a callback whose `state` is missing or
+not the one it sent.
 
 `redirect_uri` is compared exactly against three forms: `https://app.ovis.sh/`,
 `ovis://account/callback`, and `http://127.0.0.1:<port>/callback` on any port (a loopback redirect
