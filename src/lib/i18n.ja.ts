@@ -30,6 +30,13 @@ const BASE: Record<string, string> = {
 
   "Only for {pc}": "{pc} のみ",
   "Could not verify this device. It was declined: approve only a device you are signing in yourself.": "このデバイスを確認できなかったため拒否しました。自分でサインインしているデバイスだけを承認してください。",
+  "Account": "アカウント",
+  "Finish signing in in your browser.": "ブラウザーでサインインを完了してください。",
+  "Signed in with {provider}": "{provider} でサインイン中",
+  "Signing in…": "サインイン中…",
+  "The sign-in did not finish. Try again.": "サインインが完了しませんでした。もう一度お試しください。",
+  "Your sign-in ended. Sign in again to see every PC of your account.": "サインインが終了しました。アカウントのすべての PC を表示するには、もう一度サインインしてください。",
+  "The account service could not be reached. The PCs this device is paired with still work.": "アカウントサービスに接続できません。このデバイスとペアリング済みの PC はそのまま使えます。",
   "Add {device}?": "{device} を追加しますか？",
   "Through {pc} · joins your {n} PCs": "{pc} 経由 · {n} 台の PC に参加します",
   "Pick the number on {device}": "{device} に表示されている数字を選んでください",
