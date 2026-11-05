@@ -151,3 +151,52 @@ describe("AgentSidebar, what herdr-core reports", () => {
     expect(lines).toEqual([["t1", false, false], ["t2", true, false], ["t5", false, true], ["t3", false, false], ["t4", false, false]]);
   });
 });
+
+describe("AgentSidebar, Settings → Agent row title (#2014)", () => {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const savedLanguages = Object.getOwnPropertyDescriptor(navigator, "languages");
+  let stored: Record<string, string>;
+  beforeEach(() => {
+    stored = {};
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { matchMedia: () => ({ matches: false }), localStorage: { getItem: (key: string) => stored[key] ?? null } } });
+    Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
+  });
+  afterEach(() => {
+    if (saved) Object.defineProperty(globalThis, "window", saved);
+    else Reflect.deleteProperty(globalThis, "window");
+    if (savedLanguages) Object.defineProperty(navigator, "languages", savedLanguages);
+    else Reflect.deleteProperty(navigator, "languages");
+  });
+
+  /** checkout-api's one tab, labelled `tabLabel`, with the agents' own titles herdr reports */
+  const inTab = (tabLabel: string, panes: HerdrPane[], titles: Record<string, string>): Machine => {
+    const base = machine(panes);
+    const snap = base.snapshot!;
+    return { ...base, snapshot: { ...snap, tabs: snap.tabs.map((tab) => ({ ...tab, label: tabLabel })), agents: snap.agents.map((agent) => ({ ...agent, title: titles[agent.pane_id] ?? null })) } };
+  };
+  const rows = (html: string) => ({ titles: texts(html, "agent-title"), contexts: texts(html, "agent-context") });
+  const choose = (agentRowTitle: string) => { stored["ovis:settings"] = JSON.stringify({ agentRowTitle }); };
+
+  test("Agent, the default: the agent's title names the row and a renamed tab stays on the line under it, as before", () => {
+    const html = render([inTab("api review", [pane("w1:p1")], { "w1:p1": "Idempotent payments" })]);
+    expect(rows(html)).toEqual({ titles: ["Idempotent payments"], contexts: ["checkout-api · api review"] });
+  });
+
+  test("Tab name: a renamed tab names the row, the agent's title leads the line under it, and the tab is not said again", () => {
+    choose("tab");
+    const html = render([inTab("api review", [pane("w1:p1")], { "w1:p1": "Idempotent payments" })]);
+    expect(rows(html)).toEqual({ titles: ["api review"], contexts: ["Idempotent payments · checkout-api"] });
+    expect(tooltips(html)[0]).toEqual(["w1:p1", "api review", "Idempotent payments", "checkout-api", "claude"]);
+    expect(html).toContain('aria-label="More for api review"');
+  });
+
+  test("Tab name: a pane's name takes the agent's title's place, a title the same as the tab is not said twice, and a tab herdr names by its place keeps the row", () => {
+    choose("tab");
+    const labelled = render([inTab("api review", [pane("w1:p1", { label: "mine" })], { "w1:p1": "Idempotent payments" })]);
+    expect(rows(labelled)).toEqual({ titles: ["api review"], contexts: ["mine · checkout-api"] });
+    const same = render([inTab("api review", [pane("w1:p1")], { "w1:p1": "api review" })]);
+    expect(rows(same)).toEqual({ titles: ["api review"], contexts: ["checkout-api"] });
+    const numbered = render([inTab("1", [pane("w1:p1")], { "w1:p1": "Idempotent payments" })]);
+    expect(rows(numbered)).toEqual({ titles: ["Idempotent payments"], contexts: ["checkout-api"] });
+  });
+});
