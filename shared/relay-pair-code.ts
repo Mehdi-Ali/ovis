@@ -39,6 +39,27 @@ export const PAIR_CODE_TRIES = 3;
 /** The largest frame either end sends or takes on the rendezvous. */
 export const PAIR_CODE_MAX_FRAME = 4096;
 
+/** the relay's attempt id that scopes each frame on the rendezvous (relay/pair-room.ts) */
+export const PAIR_ATTEMPT_BYTES = 16;
+
+/** the rendezvous's close codes (relay/pair-room.ts) */
+export const PAIR_CLOSE = {
+  /** no PC shows this code */
+  NO_HOST: 4404,
+  /** another PC holds this nameplate */
+  TAKEN: 4409,
+  /** another guest is trying, the room took its fill of guests, or they came too fast */
+  BUSY: 1013,
+  /** the host ended this attempt */
+  DROPPED: 1000,
+  /** the host is gone */
+  HOST_GONE: 1001,
+  /** the guest's or host's time ran out, or it was idle */
+  EXPIRED: 1001,
+  POLICY: 1008,
+  TOO_BIG: 1009,
+} as const;
+
 const SUITE_DSI = utf8ToBytes("CPaceRistretto255");
 const ISK_DSI = utf8ToBytes("CPaceRistretto255_ISK");
 /** SHA-512's input block size (draft section 8.1, s_in_bytes) */

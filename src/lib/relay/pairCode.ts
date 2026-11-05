@@ -8,7 +8,7 @@
  */
 import { GLOBAL_RELAY } from "../../../shared/relay-regions.ts";
 import { validateOffer, type RelayOffer } from "../../../shared/relay-offer.ts";
-import { normalizePairCode, PairCodeExpiredError, PairCodeGuest, splitPairCode } from "../../../shared/relay-pair-code.ts";
+import { normalizePairCode, PAIR_CLOSE, PairCodeExpiredError, PairCodeGuest, splitPairCode } from "../../../shared/relay-pair-code.ts";
 import { forgedOffer } from "./shellState.ts";
 
 /** Why a typed code gave no offer; each is a sentence on the code screen. */
@@ -18,9 +18,7 @@ export class TypedCodeError extends Error {
   constructor(readonly failure: TypedCodeFailure) { super(failure); }
 }
 
-/** the relay's closes on the rendezvous (relay/pair-room.ts PAIR_CLOSE), as the device reads them */
-const NO_HOST = 4404;
-const BUSY = 1013;
+const { NO_HOST, BUSY } = PAIR_CLOSE;
 /** an exchange that does not finish in this long is given up */
 const EXCHANGE_MS = 30_000;
 

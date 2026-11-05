@@ -12,11 +12,9 @@
  * code. A host socket that drops reopens on the same nameplate with the same tries left. M1 for the
  * next device is worked out ahead of time, so the relay cannot time it against a device's arrival.
  */
-import { PairCodeHost, PairCodeProtocolError, PAIR_CODE_TRIES, formatPairCode, randomPairCode, splitPairCode } from "../../shared/relay-pair-code.ts";
+import { PairCodeHost, PairCodeProtocolError, PAIR_ATTEMPT_BYTES as ATTEMPT_BYTES, PAIR_CLOSE, PAIR_CODE_TRIES, formatPairCode, randomPairCode, splitPairCode } from "../../shared/relay-pair-code.ts";
 import type { RelayOffer } from "../../shared/relay-offer.ts";
 import type { DeviceStore } from "../devices.ts";
-import { ATTEMPT_BYTES, PAIR_CLOSE } from "../../relay/pair-room.ts";
-import { KEEPALIVE_PING } from "../../relay/core.ts";
 
 /** how long one device has, from M1, to answer */
 export const PAIR_CODE_ATTEMPT_MS = 20_000;
@@ -27,6 +25,8 @@ const REOPEN_MS = 1000;
 const KEEPALIVE_MS = 30_000;
 /** how long a nameplate may wait for the relay before its six-digit code is started */
 const PAIR_CODE_HOLD_MS = 60_000;
+/** the relay's keepalive (relay/core.ts KEEPALIVE_PING), as server/relay/link.ts sends it */
+const KEEPALIVE_PING = '{"type":"ping"}';
 
 export class PairCodeUnavailableError extends Error {}
 

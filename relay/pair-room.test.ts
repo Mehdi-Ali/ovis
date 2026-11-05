@@ -3,6 +3,7 @@ import { startBunRelay, type BunRelay } from "./bun.ts";
 import { KEEPALIVE_PING, KEEPALIVE_PONG } from "./core.ts";
 import { PAIR_CLOSE, PAIR_GUESTS_PER_ROOM, PAIR_MAX_FRAME, ATTEMPT_BYTES } from "./pair-room.ts";
 import { Peer } from "./relay-test-client.ts";
+import { PAIR_ATTEMPT_BYTES, PAIR_CLOSE as SHARED_PAIR_CLOSE } from "../shared/relay-pair-code.ts";
 
 let relay: BunRelay;
 let base: string;
@@ -30,6 +31,11 @@ async function hostAndGuest() {
 }
 
 describe("pairing rendezvous", () => {
+  test("speaks the attempt ids and close codes the PC and the app read from shared/", () => {
+    expect(ATTEMPT_BYTES).toBe(PAIR_ATTEMPT_BYTES);
+    expect(PAIR_CLOSE).toEqual(SHARED_PAIR_CLOSE);
+  });
+
   test("refuses a bad nameplate or role before upgrading", async () => {
     const http = base.replace("ws://", "http://");
     for (const query of ["nameplate=ab1&role=host&v=1", "nameplate=AB&role=host&v=1", "nameplate=ABU&role=host&v=1", "nameplate=AB1&role=both&v=1", "nameplate=AB1&v=1"]) {

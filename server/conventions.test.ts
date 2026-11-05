@@ -227,20 +227,21 @@ describe("herdr socket", () => {
 });
 
 describe("remote PC bundle boundary", () => {
-  // scripts/build-remote-bundle.ts ships server/, shared/ and integrations/ but not src/: code there that
-  // imports src/ loads from a checkout, where every check runs, and not on a remote PC (#2220)
-  const SRC_IMPORT = /(?:\bfrom\s*|\bimport\s*\(?\s*)["'](?:\.\.\/)+src\//;
+  // scripts/build-remote-bundle.ts ships server/, shared/ and integrations/ but not src/ or relay/: code
+  // there that imports either loads from a checkout, where every check runs, and not on a remote PC (#2220)
+  const SRC_IMPORT = /(?:\bfrom\s*|\bimport\s*\(?\s*)["'](?:\.\.\/)+(?:src|relay)\//;
 
-  it("never imports src/ from code the remote bundle carries", () => {
+  it("never imports src/ or relay/ from code the remote bundle carries", () => {
     const shipped = [...serverCode(), ...files("{shared,integrations}/**/*.{ts,mjs,js}").filter((file) => !file.endsWith(".test.ts"))];
     fail(matches(shipped, SRC_IMPORT).map((found) => found.at),
-      "The remote PC bundle (scripts/build-remote-bundle.ts) carries server/, shared/ and integrations/, not src/: move what this code needs from src/ into shared/, as shared/markdown.ts was.");
+      "The remote PC bundle (scripts/build-remote-bundle.ts) carries server/, shared/ and integrations/, not src/ or relay/: move what this code needs into shared/, as shared/markdown.ts was.");
   });
 
   it("knows an import of src/ from a mention", () => {
     expect(SRC_IMPORT.test("import { parseInline } from \"../src/lib/markdown.ts\";")).toBe(true);
     expect(SRC_IMPORT.test("const m = await import('../../src/lib/x.ts')")).toBe(true);
     expect(SRC_IMPORT.test("import \"../src/styles.css\";")).toBe(true);
+    expect(SRC_IMPORT.test("import { PAIR_CLOSE } from \"../../relay/pair-room.ts\";")).toBe(true);
     expect(SRC_IMPORT.test("import { a } from \"../shared/markdown.ts\";")).toBe(false);
     expect(SRC_IMPORT.test("import { a } from \"./src-files.ts\";")).toBe(false);
   });

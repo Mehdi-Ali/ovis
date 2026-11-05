@@ -14,19 +14,10 @@
  */
 import { IDLE_MS, KEEPALIVE_PING, KEEPALIVE_PONG, WIRE_VERSION, type Frame } from "./core.ts";
 
-/** the public part of a typed code: three Crockford base32 characters */
-export const NAMEPLATE_PATTERN = /^[0-9A-HJKMNP-TV-Z]{3}$/;
+// The PC's side and the app read these from shared/relay-pair-code.ts (the remote PC bundle carries
+// shared/, not relay/); they are copied here so the Worker imports none of the pairing cryptography,
+// and relay/pair-room.test.ts holds the two copies equal.
 export const ATTEMPT_BYTES = 16;
-/** the largest frame either side may send */
-export const PAIR_MAX_FRAME = 4096;
-/** a host's room lasts at most this long: a code lives 10 minutes */
-export const PAIR_HOST_MS = 11 * 60_000;
-/** a guest has this long to finish its exchange */
-export const PAIR_GUEST_MS = 30_000;
-/** guests a room takes in its life: the PC's three tries and some that drop before trying */
-export const PAIR_GUESTS_PER_ROOM = 12;
-/** the shortest gap between two guests of one room */
-export const PAIR_GUEST_GAP_MS = 2000;
 
 export const PAIR_CLOSE = {
   /** no PC shows this code */
@@ -44,6 +35,21 @@ export const PAIR_CLOSE = {
   POLICY: 1008,
   TOO_BIG: 1009,
 } as const;
+
+/** the public part of a typed code: three Crockford base32 characters */
+export const NAMEPLATE_PATTERN = /^[0-9A-HJKMNP-TV-Z]{3}$/;
+/** the largest frame either side may send */
+export const PAIR_MAX_FRAME = 4096;
+/** a host's room lasts at most this long: a code lives 10 minutes */
+export const PAIR_HOST_MS = 11 * 60_000;
+/** a guest has this long to finish its exchange */
+export const PAIR_GUEST_MS = 30_000;
+/** guests a room takes in its life: the PC's three tries and some that drop before trying */
+export const PAIR_GUESTS_PER_ROOM = 12;
+/** the shortest gap between two guests of one room */
+export const PAIR_GUEST_GAP_MS = 2000;
+
+
 
 export interface PairSocketRequest { kind: "pair"; nameplate: string; role: "host" | "guest"; version: string | null }
 
