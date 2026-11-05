@@ -202,6 +202,8 @@ export function useRosterEvents({ locked, receivePreferencesRef, snapshotRequest
       // a device paired with this server: told once per enrollment, kept until read, the oldest giving way
       if (payload.type === "device-paired") { setPairedNotices((list) => withPairedNotice(list, payload)); return; }
       if (payload.type === "relay-pairings") { setRelayPairings(payload.pairings); return; }
+      // approving from this device as an account member has no screen yet
+      if (payload.type === "remote-pairings") return;
       // A poll started before this event can carry an older roster or pane status.
       snapshotRequests.current.invalidate();
       if (payload.type === "machines") {

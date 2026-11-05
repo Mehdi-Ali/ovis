@@ -164,7 +164,11 @@ export interface DevicePairedEvent {
   device_id: string;
   label: string;
   enrolled_at: string;
+  /** the account member that approved it from another device (docs/account.md, "Who may admit a device"); absent when approved on this PC or by a code */
+  approved_by?: { device_id: string; label: string };
 }
+/** What a comparison asks for (docs/account.md, "Negotiation"): pairing this PC only, or joining the account. */
+export type PairingIntent = "pc" | "account";
 /** `preferences`: what every browser of this server shares changed (shared/preferences.ts) */
 /**
  * A phone asking to pair through the relay by comparing digits (docs/relay.md): the six digits its
@@ -175,6 +179,20 @@ export interface RelayPairingRequest {
   label: string;
   digits: string;
   expires_at: string;
+  /** absent from an older server: `pc` */
+  intent?: PairingIntent;
+}
+/**
+ * The same request as an account member connected through the relay sees it: three candidates
+ * instead of the digits, one of them the new device's, which the approver must pick
+ * (`POST /api/relay/pairing` with `digits`).
+ */
+export interface RemotePairingRequest {
+  id: string;
+  label: string;
+  intent: PairingIntent;
+  choices: [string, string, string];
+  expires_at: string;
 }
 
 export type MachineEvent = { type: "machines"; machines: Machine[] } | { type: "machine-message"; machine_id: string; message: ServerMessage }
@@ -184,9 +202,12 @@ export type MachineEvent = { type: "machines"; machines: Machine[] } | { type: "
   /** finishes a browser of this server presented (shared/seen.ts): every record when the stream opens, then each change */
   | { type: "seen"; finishes: SeenFinish[] }
   | DevicePairedEvent
-  | RelayPairingsEvent;
+  | RelayPairingsEvent
+  | RemotePairingsEvent;
 /** every relay pairing waiting for approval, after each change; only to the PC's own windows that may approve one */
 export interface RelayPairingsEvent { type: "relay-pairings"; pairings: RelayPairingRequest[] }
+/** every relay pairing waiting for approval, after each change; only to drive account members connected through the relay */
+export interface RemotePairingsEvent { type: "remote-pairings"; pairings: RemotePairingRequest[] }
 /** `security`: authenticated requests only, absent from an older server (shared/protocol.ts SecuritySummary) */
 export interface BridgeHealth { ok: true; auth: HealthAuth; bridge_protocol: number; security?: SecuritySummary }
 export interface BridgeIdentity {

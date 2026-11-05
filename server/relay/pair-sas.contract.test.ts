@@ -1,15 +1,17 @@
+import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 import {
   channelBinding, exportPublicKey, generateKeyPair, openClientSecureChannel, openDaemonSecureChannel,
 } from "../../shared/relay-e2ee.ts";
 import type { KeyPair, SecureChannel, Transport } from "../../shared/relay-e2ee.ts";
-import { decodeFrame, encodeFrame, FrameType, PAIR_SAS_FEATURE } from "../../shared/relay-mux.ts";
+import { decodeFrame, encodeFrame, FrameType, PAIR_INTENT_ACCOUNT, PAIR_INTENT_PC, PAIR_SAS_FEATURE } from "../../shared/relay-mux.ts";
 import type { MuxFrame } from "../../shared/relay-mux.ts";
 import type { MuxClock } from "../../shared/relay-mux-engine.ts";
 import { fromBase64Url, PAIR_APPROVAL_MS, pairCommitment, pairDigits, randomPairNonce, toBase64Url } from "../../shared/relay-pair-sas.ts";
-import type { RelayPairingRequest } from "../../shared/machines.ts";
+import type { RelayPairingRequest, RemotePairingRequest } from "../../shared/machines.ts";
+import { readDeviceRegistry } from "../devices.ts";
 import { RelaySession } from "./session.ts";
-import { bounded, deferred, relayFixture, TestClock } from "./test-helpers.ts";
+import { bounded, deferred, relayAccountFixture, relayConnection, relayDevice, relayFixture, TestClock } from "./test-helpers.ts";
 
 type Fixture = ReturnType<typeof relayFixture>;
 const fixtures: Fixture[] = [];
@@ -458,4 +460,180 @@ test("a relay in the middle that runs its own comparison with the PC shows the o
   const [request] = await waiting;
   // one in a million tries would match; the owner sees two different numbers and declines
   expect(request?.digits).not.toBe(phoneDigits);
+});
+
+// One admission rule (docs/account.md, "Who may admit a device"): this PC itself, or a drive account
+// member connected through the relay who picks the new device's digits out of three.
+
+const guard = [["content-type", "application/json"], ["x-herdr-machine", "1"]] as const;
+
+async function accountFixture(role: "drive" | "watch" = "drive") {
+  const made = await relayAccountFixture(role);
+  fixtures.push(made.fixture);
+  return { f: made.fixture, member: made.member };
+}
+
+type Link = Awaited<ReturnType<typeof relayConnection>>;
+
+async function signedIn(f: Fixture, device: Awaited<ReturnType<typeof relayDevice>>): Promise<Link> {
+  const link = await relayConnection(f);
+  await link.auth(device);
+  return link;
+}
+
+async function post(link: Link, target: string, body: unknown) {
+  const request = link.open(target, { method: "POST", headers: guard, body: "stream" });
+  void request.stream.sendBody(new Response(JSON.stringify(body)).body ?? new ReadableStream()).catch(() => {});
+  const response = await request.response;
+  return { status: response.status, body: await response.json() as { error?: { code: string } } };
+}
+
+async function remoteList(link: Link) {
+  const response = await link.open("/api/relay/pairings").response;
+  return { status: response.status, body: await response.json() as { pairings?: RemotePairingRequest[]; error?: { code: string } } };
+}
+
+async function accountComparison(f: Fixture) {
+  const { p } = await direct(f);
+  await p.hello([PAIR_SAS_FEATURE, PAIR_INTENT_ACCOUNT]);
+  const waiting = prompts(f, (list) => list.length === 1);
+  const digits = await compare(p);
+  const [request] = await waiting;
+  return { p, digits, request: request! };
+}
+
+test("a phone may ask to join the account with its comparison, with one intent and only alongside pair-sas", async () => {
+  const f = fixture();
+  expect((await (await direct(f)).p.hello([PAIR_SAS_FEATURE, PAIR_INTENT_ACCOUNT])).features).toEqual([PAIR_SAS_FEATURE, PAIR_INTENT_ACCOUNT]);
+  expect((await (await direct(f)).p.hello([PAIR_SAS_FEATURE, PAIR_INTENT_PC])).features).toEqual([PAIR_SAS_FEATURE, PAIR_INTENT_PC]);
+  expect((await (await direct(f)).p.hello([PAIR_INTENT_ACCOUNT])).features).toEqual([]);
+  const { p } = await direct(f);
+  await p.send({ type: FrameType.HELLO, flags: 0, stream_id: 0,
+    payload: { protocol: "ovis-mux", versions: [1], features: [PAIR_SAS_FEATURE, PAIR_INTENT_PC, PAIR_INTENT_ACCOUNT], required_features: [] } });
+  expect(await sessionError(p)).toBe("protocol_error");
+});
+
+test("a drive account member through the relay admits a device by picking its digits, and the PC records who approved it", async () => {
+  const { f, member } = await accountFixture();
+  const link = await signedIn(f, member);
+  const { p, digits, request } = await accountComparison(f);
+  expect(request.intent).toBe("account");
+  const remote = (await remoteList(link)).body.pairings?.[0];
+  expect(remote).toMatchObject({ id: request.id, label: "New phone", intent: "account" });
+  expect(remote).not.toHaveProperty("digits");
+  expect(new Set(remote?.choices)).toEqual(new Set([digits, ...remote!.choices.filter((choice) => choice !== digits)]));
+  expect(new Set(remote?.choices).size).toBe(3);
+
+  expect((await post(link, "/api/relay/pairing", { id: request.id, decision: "approve", digits })).status).toBe(200);
+  await confirm(p);
+  expect((await p.inbox.next()).type).toBe(FrameType.AUTH_OK);
+  const registry = readDeviceRegistry(join(f.stateDir, "devices.json"));
+  expect(registry.kind === "ok" && registry.devices.find((device) => device.label === "New phone")?.added_by).toBe(member.id);
+});
+
+test("every connected device hears of the admission and of the member that approved it", async () => {
+  const { f, member } = await accountFixture();
+  const approver = await signedIn(f, member);
+  const bystander = await signedIn(f, await relayDevice(f));
+  const streams = await Promise.all([approver, bystander].map(async (link) => (await link.open("/api/machines/events").response).body!.getReader()));
+  const texts = ["", ""];
+  const until = async (index: number, needle: string) => {
+    while (!texts[index]!.includes(needle)) {
+      const chunk = await bounded(streams[index]!.read());
+      if (chunk.done) throw new Error(`The event stream ended before ${needle}`);
+      texts[index] += new TextDecoder().decode(chunk.value);
+    }
+  };
+  const { p, digits, request } = await accountComparison(f);
+  // the member is told of the waiting device, with candidates and no digits
+  await until(0, `"type":"remote-pairings","pairings":[{"id":"${request.id}"`);
+  await post(approver, "/api/relay/pairing", { id: request.id, decision: "approve", digits });
+  await confirm(p);
+  expect((await p.inbox.next()).type).toBe(FrameType.AUTH_OK);
+  for (const index of [0, 1]) {
+    await until(index, '"type":"device-paired"');
+    expect(texts[index]).toContain(`"approved_by":{"device_id":"${member.id}","label":"Account phone"}`);
+    expect(texts[index]).not.toContain(`"digits":"${digits}"`);
+    await streams[index]!.cancel();
+  }
+  expect(texts[1]).not.toContain('"type":"remote-pairings"');
+});
+
+test("a relay device that is not a drive account member can neither see nor decide a pairing, and the request keeps waiting", async () => {
+  const { f } = await accountFixture();
+  const outsider = await signedIn(f, await relayDevice(f));
+  const { request } = await accountComparison(f);
+  expect((await remoteList(outsider)).body.error?.code).toBe("account_required");
+  expect((await post(outsider, "/api/relay/pairing", { id: request.id, decision: "approve", digits: request.digits })).body.error?.code).toBe("account_required");
+  const watching = await accountFixture("watch");
+  const watcher = await signedIn(watching.f, watching.member);
+  const other = await accountComparison(watching.f);
+  expect((await post(watcher, "/api/relay/pairing", { id: other.request.id, decision: "approve", digits: other.request.digits })).body.error?.code).toBe("read_only");
+  expect(f.app.context.services.relay.approvals.list().map(({ id }) => id)).toEqual([request.id]);
+  expect(watching.f.app.context.services.relay.approvals.list().map(({ id }) => id)).toEqual([other.request.id]);
+});
+
+test("a wrong pick refuses the device and counts against account pairings only", async () => {
+  const { f, member } = await accountFixture();
+  const link = await signedIn(f, member);
+  for (let failure = 0; failure < 19; failure++) f.app.context.services.devices.noteRelayFailure("account");
+  const { p, digits, request } = await accountComparison(f);
+  const decoy = (await remoteList(link)).body.pairings![0]!.choices.find((choice) => choice !== digits)!;
+  expect((await post(link, "/api/relay/pairing", { id: request.id, decision: "approve", digits: decoy })).body.error?.code).toBe("wrong_digits");
+  expect(await sessionError(p)).toBe("auth_failed");
+  expect(f.app.context.services.devices.list(null).some((device) => device.label === "New phone")).toBe(false);
+  // the twentieth failure paused account pairings, and nothing else
+  const next = await direct(f);
+  await next.p.hello([PAIR_SAS_FEATURE, PAIR_INTENT_ACCOUNT]);
+  await next.p.send({ type: FrameType.PAIR_REQUEST, flags: 0, stream_id: 0, payload: { label: "Again", public_key: next.p.publicKey, commitment: toBase64Url(randomPairNonce()) } });
+  expect(await sessionError(next.p)).toBe("auth_failed");
+  const local = await direct(f);
+  await local.p.hello([PAIR_SAS_FEATURE, PAIR_INTENT_PC]);
+  const waiting = prompts(f, (list) => list.length === 1);
+  await compare(local.p);
+  expect((await waiting)[0]?.intent).toBe("pc");
+});
+
+test("account pairing failures do not pause pairing with a code", async () => {
+  const f = fixture();
+  for (let failure = 0; failure < 20; failure++) f.app.context.services.devices.noteRelayFailure("account");
+  const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
+  const publicKey = Buffer.from(await crypto.subtle.exportKey("spki", keys.publicKey)).toString("base64url");
+  const link = await relayConnection(f);
+  const admitted = await link.pair(f.app.context.services.devices.startPairing().code, publicKey);
+  expect(admitted.role).toBe("drive");
+});
+
+test("through the relay only a drive account member may start a pairing code", async () => {
+  const { f, member } = await accountFixture();
+  const outsider = await signedIn(f, await relayDevice(f));
+  expect((await post(outsider, "/api/devices/pair/start", {})).body.error?.code).toBe("account_required");
+  const started = await post(await signedIn(f, member), "/api/devices/pair/start", {});
+  expect(started.status).toBe(200);
+});
+
+test("an approver revoked before the phone confirms admits nothing", async () => {
+  const { f, member } = await accountFixture();
+  const link = await signedIn(f, member);
+  const { p, digits, request } = await accountComparison(f);
+  expect((await post(link, "/api/relay/pairing", { id: request.id, decision: "approve", digits })).status).toBe(200);
+  f.app.context.services.devices.revoke(member.id);
+  await confirm(p);
+  expect(await sessionError(p)).toBe("auth_failed");
+  expect(f.app.context.services.devices.list(null)).toEqual([]);
+});
+
+test("a comparison asking to join the account waits in the same three places as any other", async () => {
+  const f = fixture();
+  for (let index = 0; index < 3; index++) {
+    const { p } = await direct(f);
+    await p.hello([PAIR_SAS_FEATURE, PAIR_INTENT_PC]);
+    const waiting = prompts(f, (list) => list.length === index + 1);
+    await compare(p);
+    await waiting;
+  }
+  const { p } = await direct(f);
+  await p.hello([PAIR_SAS_FEATURE, PAIR_INTENT_ACCOUNT]);
+  await compare(p);
+  expect(await sessionError(p)).toBe("auth_failed");
 });

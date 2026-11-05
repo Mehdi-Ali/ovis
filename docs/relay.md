@@ -139,6 +139,13 @@ two screens instead, as in Bluetooth's numeric comparison:
 7. **Confirm and approve.** The phone sends `PAIR_CONFIRM` once its person taps **The numbers
    match**, and the PC's owner approves (`POST /api/relay/pairing`). Only both together make the
    device, the same record and key a pairing with a code makes, and `AUTH_OK` follows as usual.
+   On a PC without a screen, `bun scripts/plugin.ts pair --approve` in its terminal shows each
+   waiting phone with its digits and asks y/n: the PC's terminal is the PC itself.
+
+The approval may also come from a phone already linked to the owner's account, connected through
+the relay: it is shown three sets of digits and must pick the new device's
+([Who may admit a device](account.md#who-may-admit-a-device)). Every device connected to the PC
+hears of each admission, and of the account device that approved it.
    Neither the phone nor the PC can finish alone.
 
 Why it holds: the phone is bound to `Np` before it sees `Nc`, and the PC chooses `Nc` before it sees
@@ -155,8 +162,11 @@ commitment is what stops that.
 Limits: both people have 90 seconds from `PAIR_REQUEST` (under the relay's 120-second idle close),
 after which the session ends with `timeout` and the prompt goes. At most three phones wait for
 approval at once; a fourth gets `auth_failed`. Every comparison that ends without a device
-(declined, abandoned, timed out, a broken commitment) counts toward the same 20 failed relay
-pairings in 10 minutes as a wrong code, after which the PC takes no relay pairing for 10 minutes.
+(declined, abandoned, timed out, a broken commitment, a wrong pick) counts as a failed relay
+pairing. A comparison that pairs this PC only counts toward the same 20 failures in 10 minutes as
+a wrong code, after which the PC takes no such pairing for 10 minutes. One that asks to join the
+account (`pair-intent-account`) counts toward 20 of its own, so a flood of those cannot pause
+pairing with a QR code or a code.
 **Revoke all** ends every comparison under way, an approved one included, and withdraws its prompt. The prompt lives in memory only. The relay learns nothing new: the comparison travels inside the
 encrypted channel, so it sees only a few more frames and their sizes and timing.
 
@@ -176,8 +186,9 @@ the relay saw is therefore no use later, or with another PC.
 "this computer": only the phone's key does. A request through the relay keeps only a short list of
 headers ([below](#requests-through-the-mux)), never `Cookie`, `Authorization`, `Host`, `Origin` or
 forwarding headers, and signing in with the token answers 403 `device_key_required`. A phone on the
-relay can't start or stop the relay, show its QR code or reset its identity (403 `local_required`); like any paired
-device that can type, it can still start a pairing code under Devices.
+relay can't start or stop the relay, show its QR code or reset its identity (403 `local_required`). A pairing
+code admits whoever holds it, so through the relay only a phone linked to the owner's account, with
+drive access, may start one under Devices; any other gets 403 `account_required`.
 
 **Who controls the relay.** Start, stop, pairing offers and identity reset require drive access
 and a direct connection to the PC. A Portal visitor may read the state but cannot change it:

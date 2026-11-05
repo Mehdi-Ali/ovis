@@ -134,6 +134,7 @@ describe("demo transport", () => {
     "/api/event": "OpenCode v2's own service's event stream, read by this server (opencode-service.ts), never by the browser",
     "/api/info": "OpenCode v2's own service's identity, checked by this server (opencode-service.ts), never by the browser",
     "/api/devices/pair": "pairing a device: the demo is never locked, so the pairing form does not run",
+    "/api/relay/pairings": "the waiting relay pairings, read by `plugin.ts pair --approve` in the PC's terminal; the browser hears of them on its event stream",
     "/api/pane/conversation/image": "an image in a chat turn: the demo's transcripts carry none (listed when this guard was added)",
     "/api/pane/conversation/tool-output": "a tool call's full output: not part of the demo (listed when this guard was added)",
     "/api/pane/image": "pasting an image: the demo stores no files (listed when this guard was added)",

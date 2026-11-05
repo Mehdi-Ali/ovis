@@ -4,8 +4,9 @@ import type { SecureChannel } from "../../shared/relay-e2ee.ts";
 import { commitmentHolds, fromBase64Url, PAIR_APPROVAL_MS, pairDigits, randomPairNonce, toBase64Url } from "../../shared/relay-pair-sas.ts";
 import { MuxEngine, MuxStreamError } from "../../shared/relay-mux-engine.ts";
 import type { HttpStream, MuxClock, SessionFrame, WsStream } from "../../shared/relay-mux-engine.ts";
-import { FrameType, LIMITS_V1, PAIR_SAS_FEATURE, RELAY_PROTOCOL, REQUEST_HEADERS, RESPONSE_HEADERS, WS_CONTINUATION_CAPACITY } from "../../shared/relay-mux.ts";
+import { FrameType, LIMITS_V1, PAIR_INTENT_ACCOUNT, PAIR_INTENT_PC, PAIR_SAS_FEATURE, RELAY_PROTOCOL, REQUEST_HEADERS, RESPONSE_HEADERS, WS_CONTINUATION_CAPACITY } from "../../shared/relay-mux.ts";
 import type { HeaderList, SessionError } from "../../shared/relay-mux.ts";
+import type { PairingIntent } from "../../shared/machines.ts";
 import { PairingRateLimitedError, type DeviceMatch } from "../devices.ts";
 import { handleRequest } from "../dispatch.ts";
 import type { RequestServices, ServerContext } from "../dispatch.ts";
@@ -72,10 +73,12 @@ export class RelaySession {
   private readonly nonce = randomBytes(32);
   /** This session's channel binding, when the phone offered pairing by comparing digits and this PC selected it. */
   private sasBinding: Uint8Array | undefined;
+  /** What a comparison on this session asks for, as selected in WELCOME; `pc` unless the phone offered `pair-intent-account`. */
+  private intent: PairingIntent = "pc";
   /** A pairing by comparing digits under way; `ended` once it made a device or counted as a failure. */
   private sas: {
     label: string; publicKey: string; commitment: Uint8Array; pcNonce: Uint8Array; expiresAt: number;
-    phoneConfirmed: boolean; approved: boolean; ended: boolean; withdraw?: () => void; cancelDeadline?: () => void; stopRevokeAll?: () => void;
+    phoneConfirmed: boolean; approved: boolean; approvedBy?: string; ended: boolean; withdraw?: () => void; cancelDeadline?: () => void; stopRevokeAll?: () => void;
   } | undefined;
   private device: DeviceMatch | undefined;
   private unwatch: (() => void) | undefined;
@@ -199,10 +202,15 @@ export class RelaySession {
         this.state = "auth";
         // selected only where it can finish: a protected channel to bind the digits to, and the owner's approvals
         if (frame.payload.features.includes(PAIR_SAS_FEATURE)) this.sasBinding = channelBinding(this.options.channel);
+        // an intent is selected only with pair-sas, and only the one offered (docs/account.md, "Negotiation")
+        const intents = frame.payload.features.filter((f) => f === PAIR_INTENT_PC || f === PAIR_INTENT_ACCOUNT);
+        if (intents.length > 1) { this.close("protocol_error"); return; }
+        if (this.sasBinding && intents[0] === PAIR_INTENT_ACCOUNT) this.intent = "account";
+        const selected = this.sasBinding ? [PAIR_SAS_FEATURE, ...intents] : [];
         this.mux.sendSession({
           type: FrameType.WELCOME, flags: 0, stream_id: 0,
           payload: {
-            protocol: "ovis-mux", version: 1, features: this.sasBinding ? [PAIR_SAS_FEATURE] : [], limits: LIMITS_V1,
+            protocol: "ovis-mux", version: 1, features: selected, limits: LIMITS_V1,
             nonce: this.nonce.toString("base64url"), server_version: this.options.serverVersion,
             relay_protocol: RELAY_PROTOCOL, min_supported_client: this.options.minSupportedClient,
           },
@@ -222,7 +230,7 @@ export class RelaySession {
       case FrameType.PAIR_REQUEST: {
         if (this.state !== "auth" || !this.sasBinding) { this.close("protocol_error"); return; }
         if (this.options.services.serveOnly) { this.close("auth_failed"); return; }
-        this.options.services.devices.assertRelayPairing();
+        this.options.services.devices.assertRelayPairing(this.path);
         this.state = "pair-commit";
         this.sas = {
           label: frame.payload.label, publicKey: frame.payload.public_key, commitment: fromBase64Url(frame.payload.commitment),
@@ -243,16 +251,17 @@ export class RelaySession {
         const phoneNonce = fromBase64Url(frame.payload.nonce);
         if (!commitmentHolds(sas.commitment, this.sasBinding, sas.publicKey, phoneNonce)) { this.close("auth_failed"); return; }
         // a pause that began while this phone held its reveal still keeps its prompt off the owner's screen
-        this.options.services.devices.assertRelayPairing();
+        this.options.services.devices.assertRelayPairing(this.path);
         const asked = this.options.services.relay.approvals.ask(sas.label,
-          pairDigits(this.sasBinding, sas.publicKey, phoneNonce, sas.pcNonce), sas.expiresAt);
+          pairDigits(this.sasBinding, sas.publicKey, phoneNonce, sas.pcNonce), sas.expiresAt, this.intent);
         if (!asked) { this.close("auth_failed"); return; }
         this.state = "pair-wait";
         sas.withdraw = asked.withdraw;
-        void asked.decision.then((approved) => {
+        void asked.decision.then((decision) => {
           if (this.sas !== sas || this.state !== "pair-wait") return;
-          if (!approved) { this.close("auth_failed"); return; }
+          if (!decision.approved) { this.close("auth_failed"); return; }
           sas.approved = true;
+          sas.approvedBy = decision.by?.id;
           this.finishPairing();
         }).catch(() => this.close("internal_error"));
         return;
@@ -274,7 +283,7 @@ export class RelaySession {
     if (!sas || !sas.phoneConfirmed || !sas.approved || this.state !== "pair-wait") return;
     this.state = "verifying";
     let device: DeviceMatch | undefined;
-    try { device = this.options.services.devices.pairRelayApproved(sas.label, sas.publicKey)?.device; }
+    try { device = this.options.services.devices.pairRelayApproved(sas.label, sas.publicKey, { path: this.path, ...(sas.approvedBy === undefined ? {} : { addedBy: sas.approvedBy }) })?.device; }
     catch (error) {
       if (error instanceof PairingRateLimitedError) { this.close("auth_failed"); return; }
       throw error;
@@ -292,8 +301,11 @@ export class RelaySession {
     sas.cancelDeadline?.();
     sas.stopRevokeAll?.();
     sas.withdraw?.();
-    if (!counted) this.options.services.devices.noteRelayFailure();
+    if (!counted) this.options.services.devices.noteRelayFailure(this.path);
   }
+
+  /** Which failure count this session's comparison spends (server/devices.ts PairingPath). */
+  private get path(): "code" | "account" { return this.intent === "account" ? "account" : "code"; }
 
   /** A verified AUTH, PAIR or approved comparison becomes this session's one principal. */
   private enter(device: DeviceMatch | null | undefined): void {

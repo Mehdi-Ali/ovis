@@ -57,7 +57,18 @@ export interface StoredDevice {
   relay_public_key?: string;
   created_at: string;
   last_seen_at: string | null;
+  /** the account this row is a member of (docs/account.md, "Account members"); absent for a device outside any account */
+  account?: string;
+  /** the account member on this PC that approved it from another device; absent when this PC or a code admitted it */
+  added_by?: string;
 }
+
+/**
+ * The two ways relay pairing failures are counted (docs/account.md, "Who may admit a device"): codes
+ * and comparisons for this PC alone, and comparisons asking to join the account, so a flood of the
+ * second kind cannot pause the first.
+ */
+export type PairingPath = "code" | "account";
 
 interface UnconfirmedFirstPair {
   device: StoredDevice;
@@ -150,7 +161,9 @@ export function readDeviceRegistry(path: string): DeviceRegistry {
       && typeof d.token_hash === "string" && isDeviceRole(d.role)
       && (d.relay_public_key === undefined || isRelayPublicKey(d.relay_public_key))
       && typeof d.label === "string" && typeof d.created_at === "string"
-      && (d.last_seen_at === null || typeof d.last_seen_at === "string"))) return { kind: "bad" };
+      && (d.last_seen_at === null || typeof d.last_seen_at === "string")
+      && (d.account === undefined || typeof d.account === "string")
+      && (d.added_by === undefined || typeof d.added_by === "string"))) return { kind: "bad" };
   return { kind: "ok", gateClosedAt: parsed.gate_closed_at, devices: parsed.devices as StoredDevice[], placeholder: parsed.placeholder === true && parsed.devices.length === 0 };
 }
 
@@ -160,8 +173,9 @@ export class DeviceStore {
   private gateClosedAt: string | null = null;
   private pending: { code: string; expires: number; attempts: number } | null = null;
   private codeIssues: number[] = [];
-  private relayFailures: number[] = [];
-  private relayBlockedUntil = 0;
+  private readonly relayFailures: Record<PairingPath, { at: number[]; blockedUntil: number }> = {
+    code: { at: [], blockedUntil: 0 }, account: { at: [], blockedUntil: 0 },
+  };
   /** First-pair cookies are not devices, and do not close the gate, until one returns. */
   private unconfirmedFirstPairs: UnconfirmedFirstPair[] = [];
   private readonly path: string;
@@ -240,7 +254,11 @@ export class DeviceStore {
    * `origin` holds the stream keys of the browser that asked for the pairing (`streamKeys`), empty if it had none.
    */
   private announce(device: StoredDevice, enrolledAt: number, origin: readonly string[]): void {
-    const event: DevicePairedEvent = { type: "device-paired", event_id: randomBytes(8).toString("hex"), device_id: device.id, label: device.label, enrolled_at: new Date(enrolledAt).toISOString() };
+    const approver = device.added_by === undefined ? undefined : this.devices.find((d) => d.id === device.added_by);
+    const event: DevicePairedEvent = {
+      type: "device-paired", event_id: randomBytes(8).toString("hex"), device_id: device.id, label: device.label, enrolled_at: new Date(enrolledAt).toISOString(),
+      ...(approver ? { approved_by: { device_id: approver.id, label: approver.label } } : {}),
+    };
     for (const listener of this.pairings) listener(event, origin);
   }
 
@@ -315,40 +333,54 @@ export class DeviceStore {
 
   /** No cookie is issued: even the first relay pairing is durable and closes the gate at once. */
   pairRelay(code: string, label: string, publicKey: string, now = Date.now()): { device: DeviceMatch } | null {
-    this.assertRelayPairing(now);
+    this.assertRelayPairing("code", now);
     if (!this.checkPairingCode(code, now) || !isRelayPublicKey(publicKey)) {
-      this.noteRelayFailure(now);
+      this.noteRelayFailure("code", now);
       return null;
     }
     return this.enrollRelay(label, publicKey, now, true);
   }
 
-  /** Throws while relay pairing is paused after too many failures; both pairing ways share the count. */
-  assertRelayPairing(now = Date.now()): void {
+  /** Throws while relay pairing on `path` is paused after too many failures there. */
+  assertRelayPairing(path: PairingPath = "code", now = Date.now()): void {
     this.assertWritable();
-    if (now < this.relayBlockedUntil) throw new PairingRateLimitedError(Math.ceil((this.relayBlockedUntil - now) / 1000));
+    const { blockedUntil } = this.relayFailures[path];
+    if (now < blockedUntil) throw new PairingRateLimitedError(Math.ceil((blockedUntil - now) / 1000));
   }
 
-  /** A relay pairing that did not end in a device: a wrong code, or a comparison declined, abandoned or timed out. */
-  noteRelayFailure(now = Date.now()): void {
-    this.relayFailures = this.relayFailures.filter((at) => now - at < PAIRING_WINDOW_MS);
-    this.relayFailures.push(now);
-    if (this.relayFailures.length >= 20) this.relayBlockedUntil = now + PAIRING_WINDOW_MS;
+  /** A relay pairing that did not end in a device: a wrong code, or a comparison declined, abandoned, mispicked or timed out. */
+  noteRelayFailure(path: PairingPath = "code", now = Date.now()): void {
+    const count = this.relayFailures[path];
+    count.at = count.at.filter((at) => now - at < PAIRING_WINDOW_MS);
+    count.at.push(now);
+    if (count.at.length >= 20) count.blockedUntil = now + PAIRING_WINDOW_MS;
   }
 
-  /** A pairing by comparing digits the owner approved on this PC (server/relay/session.ts): no code is spent. */
-  pairRelayApproved(label: string, publicKey: string, now = Date.now()): { device: DeviceMatch } | null {
-    this.assertRelayPairing(now);
-    if (!isRelayPublicKey(publicKey)) { this.noteRelayFailure(now); return null; }
+  /**
+   * A pairing by comparing digits that was approved (server/relay/session.ts): on this PC, or by the
+   * account member `addedBy` through the relay. No code is spent.
+   */
+  pairRelayApproved(label: string, publicKey: string, approval: { path: PairingPath; addedBy?: string }, now = Date.now()): { device: DeviceMatch } | null {
+    this.assertRelayPairing(approval.path, now);
+    if (!isRelayPublicKey(publicKey)) { this.noteRelayFailure(approval.path, now); return null; }
+    // an approver revoked or demoted while the device waited approves nothing
+    if (approval.addedBy !== undefined && !this.isAccountApprover(approval.addedBy)) { this.noteRelayFailure(approval.path, now); return null; }
     // no code was used, so one still showing on the PC keeps working
-    return this.enrollRelay(label, publicKey, now, false);
+    return this.enrollRelay(label, publicKey, now, false, approval.addedBy);
   }
 
-  private enrollRelay(label: string, publicKey: string, now: number, codeSpent: boolean): { device: DeviceMatch } {
+  /** A drive account member: the only device that may approve a pairing or start a code through the relay (docs/account.md). */
+  isAccountApprover(id: string): boolean {
+    const device = this.devices.find((d) => d.id === id);
+    return device !== undefined && device.role === "drive" && device.account !== undefined && device.relay_public_key !== undefined;
+  }
+
+  private enrollRelay(label: string, publicKey: string, now: number, codeSpent: boolean, addedBy?: string): { device: DeviceMatch } {
     const device: StoredDevice = {
       id: randomBytes(8).toString("hex"), label: normalizeLabel(label, "Device"), role: "drive",
       token_hash: hash(randomBytes(32).toString("hex")), relay_public_key: publicKey,
       created_at: new Date(now).toISOString(), last_seen_at: null,
+      ...(addedBy === undefined ? {} : { added_by: addedBy }),
     };
     this.enroll(device, now, [], codeSpent);
     return { device: { id: device.id, label: device.label, role: device.role } };
@@ -527,6 +559,10 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
   if (pathname === "/api/devices/pair/start") {
     setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+    // a code admits whoever holds it, so through the relay only those who may approve a pairing may start one
+    if (access.level === "full" && access.via === "relay" && !(access.device && store.isAccountApprover(access.device.id))) {
+      return jsonResponse({ error: { code: "account_required", message: "Start a pairing on this PC, or from a device linked to your account" } }, 403);
+    }
     try {
       return jsonResponse(store.startPairing(), 200, { "cache-control": "no-store" });
     } catch (error) {

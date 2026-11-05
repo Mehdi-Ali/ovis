@@ -11,7 +11,29 @@ export async function handleRelayRequest(request: Request, pathname: string, con
     setRequestRoute("/api/relay");
     return reply(service.status());
   }
+  const peer = context.peer;
+  // one admission rule (docs/account.md): this PC itself, or a drive account member through the relay
+  const remoteApprover = peer.kind === "relay" && context.services.devices.isAccountApprover(peer.device.id) ? peer.device : null;
+  if (pathname === "/api/relay/pairings" && request.method === "GET") {
+    setRequestRoute("/api/relay/pairings");
+    if (peer.kind === "relay") return remoteApprover ? reply({ pairings: service.approvals.remoteList() }) : fail("account_required", "Approve pairings on this PC, or from a device linked to your account.", 403);
+    return reply({ pairings: service.approvals.list() });
+  }
   if (request.method !== "POST") return fail("method_not_allowed", "Use GET for status and POST for relay actions.", 405);
+  if (pathname === "/api/relay/pairing" && peer.kind === "relay") {
+    setRequestRoute("/api/relay/pairing");
+    if (!remoteApprover) return fail("account_required", "Approve pairings on this PC, or from a device linked to your account.", 403);
+    const body = await readJsonObject(request);
+    if (body instanceof Response) return body;
+    if (typeof body.id !== "string" || (body.decision !== "approve" && body.decision !== "decline")
+      || (body.decision === "approve" && (typeof body.digits !== "string" || !/^[0-9]{6}$/.test(body.digits)))) {
+      return fail("invalid_relay_pairing", "Send the pairing's id, a decision of approve or decline, and the digits the new device shows.", 400);
+    }
+    const outcome = service.approvals.decideRemote(body.id, body.decision === "approve", typeof body.digits === "string" ? body.digits : "", remoteApprover);
+    if (outcome === "gone") return fail("relay_pairing_gone", "That device is no longer waiting: it left, was decided, or its time ran out.", 404);
+    if (outcome === "wrong_digits") return fail("wrong_digits", "Those are not the digits the new device shows; it was not let in.", 409);
+    return reply({ ok: true });
+  }
   if (!updateRequestAllowed(request)) return fail("invalid_relay_request", "Use the relay controls from this app.", 403);
   // A relayed session would hold the relay it runs on; Portal visitors are refused in dispatch.ts (owner_only).
   if (context.peer.kind === "relay") return fail("local_required", "Control the relay from a direct connection to this PC.", 403);

@@ -109,8 +109,8 @@ use on another. `issued_at` is only shown; nothing expires on it.
 One rule for every way in: a pairing code, comparing digits, and joining through the account.
 
 - **Approval on the PC itself:** a driving window opened directly on the PC (not a Portal visitor,
-  not an open LAN window), or `ovis pair --approve` in the PC's terminal, which shows the digits and
-  asks y/n.
+  not an open LAN window), or `bun scripts/plugin.ts pair --approve` in the PC's terminal, which
+  shows the digits and asks y/n.
 - **Remote approval:** a client connected through the relay with drive access whose row is an
   account member. It must **pick the new device's digits out of three** (two decoys the PC chose at
   random) before it can approve. A tap without looking picks right one time in three, and a wrong
@@ -119,6 +119,12 @@ One rule for every way in: a pairing code, comparing digits, and joining through
   member through the relay (`403 account_required` for any other relay device).
 - **Every admission is announced** on every device connected to the PC: the new device's name and who
   approved it.
+
+`GET /api/relay/pairings` lists the waiting requests: with their `digits` on the PC itself, and with
+`choices` (three sets of digits, no `digits`) for an account member through the relay, which also
+hears of every change as `remote-pairings` on its event stream. That member answers with
+`POST /api/relay/pairing` `{ "id", "decision", "digits" }`; `digits` is required to approve, and a
+wrong pick answers 409 `wrong_digits` and ends the request.
 
 At most three requests wait for approval at once on a PC. A wrong pick ends that request and counts
 as a failed pairing.

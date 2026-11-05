@@ -5,7 +5,7 @@ import type { RequestLog } from "./request-log.ts";
 import { handlePaneRequest } from "./pane-routes.ts";
 import { handleIntegrationsRequest } from "./integrations-routes.ts";
 import type { OrderSequence } from "./order-sequence.ts";
-import type { DevicePairedEvent, HealthAuth, RelayPairingsEvent, SecuritySummary, SessionSnapshot } from "../shared/protocol.ts";
+import type { DevicePairedEvent, HealthAuth, RelayPairingsEvent, RemotePairingsEvent, SecuritySummary, SessionSnapshot } from "../shared/protocol.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { authClient, deviceCookieValue, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { bindScope, cameThroughProxy, decideAccess, forwardingHeaders, isLoopbackAddress, isServeOwnerRequest, lanExposed, observedIngress } from "./access.ts";
@@ -240,6 +240,11 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
   );
   // pairing without a code ends in an approval only a window that hears of it can give (relay-pairings below):
   // an ungated LAN window never does, so it neither makes such a link nor answers one
+  // the list of waiting pairings shows their digits, so it goes only where the approval may come from
+  if (access.level === "full" && (access.via === "open" || access.via === "portal") && pathname === "/api/relay/pairings") {
+    setRequestRoute("owner-refusal");
+    return jsonResponse({ error: { code: "owner_only", message: "Approve pairings on this PC itself, or from a paired device." } }, 403);
+  }
   if (access.level === "full" && access.via === "open" && request.method === "POST"
     && (pathname === "/api/relay/link" || pathname === "/api/relay/pairing")) {
     setRequestRoute("open-refusal");
@@ -292,9 +297,12 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
       // a relay pairing waiting for approval reaches only a window that may approve it (server/relay/routes.ts):
       // driving, direct to this PC, and not a Portal visitor
       const approver = access.level === "full" && access.role === "drive" && access.via !== "open" && access.via !== "relay" && access.via !== "portal";
-      const pairings = { subscribe: (listener: (event: DevicePairedEvent | RelayPairingsEvent) => void) => {
+      // and through the relay to a drive account member, with three candidates instead of the digits (docs/account.md)
+      const remoteApprover = access.level === "full" && access.via === "relay" && deviceId !== undefined && devices.isAccountApprover(deviceId);
+      const pairings = { subscribe: (listener: (event: DevicePairedEvent | RelayPairingsEvent | RemotePairingsEvent) => void) => {
         const stopPaired = devices.onPaired((event, origin) => { if (!openAccess && event.device_id !== deviceId && !sameBrowser(origin, keys)) listener(event); });
-        const stopRelay = approver ? ctx.services.relay.approvals.subscribe((list) => listener({ type: "relay-pairings", pairings: list })) : undefined;
+        const stopRelay = approver ? ctx.services.relay.approvals.subscribe((list) => listener({ type: "relay-pairings", pairings: list }))
+          : remoteApprover ? ctx.services.relay.approvals.subscribeRemote((list) => listener({ type: "remote-pairings", pairings: list })) : undefined;
         return () => { stopPaired(); stopRelay?.(); };
       } };
       const response = await handleMachineRequest(request, machines, deviceId ? (close) => devices.onRevoke(deviceId, close) : portalRecheckMs !== undefined ? (close) => { const timer = setTimeout(close, portalRecheckMs); return () => clearTimeout(timer); } : undefined, preferences, readOnly, herdrSidebar, seen, pairings, ctx.relayBodyBudget);
