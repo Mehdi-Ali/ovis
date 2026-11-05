@@ -224,7 +224,8 @@ describe("AgentSidebar, Settings → Agent row title (#2014)", () => {
     const html = render([inTab("api review", [pane("w1:p1")], { "w1:p1": "Idempotent payments" })]);
     expect(rows(html)).toEqual({ titles: ["api review"], contexts: ["Idempotent payments · checkout-api"] });
     expect(tooltips(html)[0]).toEqual(["w1:p1", "api review", "Idempotent payments", "checkout-api", "claude"]);
-    expect(html).toContain('aria-label="More for api review"');
+    // two agents in one renamed tab: each ⋯ says whose it is
+    expect(html).toContain('aria-label="More for api review · Idempotent payments"');
   });
 
   test("Tab name: a pane's name takes the agent's title's place, a title the same as the tab is not said twice, and a tab herdr names by its place keeps the row", () => {
@@ -245,12 +246,14 @@ describe("AgentSidebar, Settings → Agent row title (#2014)", () => {
     expect(html).toContain('aria-label="More for Write the tests"');
   });
 
-  test("Tab name: an agent whose name is its tab's is not named again under it", () => {
+  test("Tab name: an agent whose name is its tab's, or its own title's, is not named again under it", () => {
     choose("tab");
     const base = inTab("api review", [pane("w1:p1")], { "w1:p1": "Idempotent payments" });
-    const named = { ...base, snapshot: { ...base.snapshot!, agents: base.snapshot!.agents.map((agent) => ({ ...agent, name: "api review" })) } };
-    const html = render([named]);
-    expect(rows(html)).toEqual({ titles: ["api review"], contexts: ["Idempotent payments · checkout-api"] });
-    expect(html).not.toContain('class="agent-name"');
+    for (const name of ["api review", "Idempotent payments"]) {
+      const named = { ...base, snapshot: { ...base.snapshot!, agents: base.snapshot!.agents.map((agent) => ({ ...agent, name })) } };
+      const html = render([named]);
+      expect(rows(html)).toEqual({ titles: ["api review"], contexts: ["Idempotent payments · checkout-api"] });
+      expect(html).not.toContain('class="agent-name"');
+    }
   });
 });

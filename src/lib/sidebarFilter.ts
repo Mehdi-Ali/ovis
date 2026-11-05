@@ -28,7 +28,7 @@ import type { Translate } from "./i18n.ts";
 import { matchesQuery } from "./paletteSearch.ts";
 import { shortPathTitle, stripPaneChrome } from "./paneName.ts";
 import type { AgentRowTitle } from "./settings.ts";
-import { agentTabName, sidebarAgents, tabRowTitle, type SidebarAgent } from "./sidebarAgents.ts";
+import { agentTabName, paneTabRowTitle, sidebarAgents, type SidebarAgent } from "./sidebarAgents.ts";
 import type { WorkspaceGroup } from "./sidebarPins.ts";
 import { worktreeGroups } from "./workspaceOrder.ts";
 
@@ -211,7 +211,7 @@ export function filterSuggestions(machines: readonly FilterMachine[], branches: 
     if (!unnamed.has(machine.id)) labels.add(machine.name);
     for (const workspace of machine.snapshot?.workspaces ?? []) for (const label of workspaceLabels(workspace, branches.get(machine.id)?.get(workspace.workspace_id))) labels.add(label);
     for (const entry of sidebarAgents(machine.snapshot)) {
-      const tabTitle = tabRowTitle(agentRowTitle, entry.tab, machine.snapshot?.tabs.filter((tab) => tab.workspace_id === entry.workspace.workspace_id) ?? []);
+      const tabTitle = paneTabRowTitle(agentRowTitle, machine.snapshot ?? null, entry.pane);
       if (tabTitle !== null) labels.add(tabTitle);
       const title = shownPaneTitle(entry.pane, entry.agent?.title);
       if (title !== null) labels.add(title);

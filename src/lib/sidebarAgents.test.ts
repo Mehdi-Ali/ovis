@@ -189,4 +189,17 @@ describe("paneTabRowTitle", () => {
     expect(paneTabRowTitle("tab", { ...named, tabs: [{ ...tab("w1:t1", "w1"), label: "1" }] }, claude)).toBeNull();
     expect(paneTabRowTitle("tab", null, claude)).toBeNull();
   });
+
+  it("keeps a helper's own title, row and header alike: the agent that started it already names the tab", () => {
+    const lead = pane("lead", { agent: "claude" });
+    const helper = pane("helper", { agent: "claude", parent_pane_id: "lead" });
+    const shell = pane("shell");
+    const fromShell = pane("from-shell", { agent: "codex", parent_pane_id: "shell" });
+    const named: SessionSnapshot = { ...snapshot([lead, helper, shell, fromShell]), tabs: [{ ...tab("w1:t1", "w1"), label: "api review" }] };
+    expect(paneTabRowTitle("tab", named, lead)).toBe("api review");
+    expect(paneTabRowTitle("tab", named, helper)).toBeNull();
+    // started from a shell, or by a pane no longer shown: no agent row names the tab for it
+    expect(paneTabRowTitle("tab", named, fromShell)).toBe("api review");
+    expect(paneTabRowTitle("tab", named, { ...helper, parent_pane_id: "gone" })).toBe("api review");
+  });
 });

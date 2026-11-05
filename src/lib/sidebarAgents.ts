@@ -107,10 +107,20 @@ export function tabRowTitle(setting: AgentRowTitle, tab: TabInfo | null | undefi
   return setting === "tab" && tab ? customTabLabel(tab, tabPlace(tab, workspaceTabs)) : null;
 }
 
-/** The same for the pane a header shows: only an agent's pane has a row to match (sidebarAgents), never a shell's. */
-export function paneTabRowTitle(setting: AgentRowTitle, snapshot: SessionSnapshot | null, pane: PaneInfo): string | null {
-  if (setting !== "tab" || !snapshot) return null;
-  if (!nonblank(pane.agent) && !snapshot.agents.some((agent) => agent.pane_id === pane.pane_id)) return null;
+/** whether herdr reports an agent in this pane: only such a pane has a row (sidebarAgents), never a shell */
+function hasAgent(snapshot: SessionSnapshot, pane: PaneInfo): boolean {
+  return nonblank(pane.agent) !== null || snapshot.agents.some((agent) => agent.pane_id === pane.pane_id);
+}
+
+/**
+ * The same for an agent's pane, its row and its header alike. A helper (an agent another agent started)
+ * keeps its own title: its agent's row already names their tab, and a helper drawn under it has no
+ * second line to move its own title to.
+ */
+export function paneTabRowTitle(setting: AgentRowTitle, snapshot: SessionSnapshot | null, pane: PaneInfo & Pick<HerdrPane, "parent_pane_id">): string | null {
+  if (setting !== "tab" || !snapshot || !hasAgent(snapshot, pane)) return null;
+  const parent = pane.parent_pane_id === undefined ? undefined : snapshot.panes.find((candidate) => candidate.pane_id === pane.parent_pane_id);
+  if (parent !== undefined && parent.pane_id !== pane.pane_id && hasAgent(snapshot, parent)) return null;
   const tabs = snapshot.tabs.filter((tab) => tab.workspace_id === pane.workspace_id);
   return tabRowTitle(setting, tabs.find((tab) => tab.tab_id === pane.tab_id), tabs);
 }

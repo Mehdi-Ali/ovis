@@ -1307,8 +1307,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   `[ui.sidebar.agents]` rows put `tab` on the first line), so sessions of one agent read apart by
   the names their tabs were given. The row's own title (the pane's name, else the agent's) then
   leads its second line before the place, which no longer repeats the tab; a title the same as the
-  tab is not said twice, nor is an agent's name the same as the tab. A helper drawn under the agent
-  that started it keeps its own title: its agent's row already names the tab, and a helper has no
+  tab is not said twice, nor is an agent's name the same as the tab or the row's own title, and each
+  row's ⋯ says both titles. A helper (an agent another agent started) keeps its own title, in its row
+  and its header alike: its agent's row already names the tab, and a helper drawn under it has no
   second line. The header of an agent's pane takes the tab's name too, as its row does, and the
   Filter field suggests it; the frames of a tab's panes keep their own titles under the tab strip
   that names it. A tab herdr still names by its place keeps the row and the header as they are. The
