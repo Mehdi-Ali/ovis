@@ -167,7 +167,8 @@ function parentRow(row: ParentRow): (Told & { child: string })[] {
  * scan's own copy): first whether the rows that log read are still the session's, and those of them written since;
  * then the rows after it, a page a step; once all are in, each child's newest call or notice (`scan.told`). Only rows
  * that may name a subagent are looked into. A foreground call the parent's run is no longer in (an `idle` row of the
- * parent's after it: a crash, a turn stopped) or last written before the service now running started waits on nothing, and a call a staged `/undo` hides tells nothing: the
+ * parent's after it: a crash, a turn stopped) waits on nothing, as does any call not ended yet that was last written
+ * before the service now running started, and a call a staged `/undo` hides tells nothing: the
  * child's own rows tell.
  */
 function parentStep(db: Database, scan: Scan): void {
@@ -224,8 +225,9 @@ function parentStep(db: Database, scan: Scan): void {
     const boundary = record(parse(db.query<{ revert: string | null }, [string]>("SELECT revert FROM session_v2 WHERE id = ?").get(sid)?.revert ?? "null")).messageID;
     if (typeof boundary === "string") end = db.query<{ seq: number }, [string, string]>("SELECT seq FROM session_message WHERE session_id = ? AND id = ?").get(sid, boundary)?.seq ?? end;
   }
-  // a call still waiting that was last written before the service now running started: that service took its run along
-  const orphan = (said: Told) => said.waiting && scan.serviceStart !== null && said.updated < scan.serviceStart - START_SLACK_MS;
+  // a call not yet ended (one waited on, or a background one with no notice yet) last written before the service now
+  // running started: that service took its run along, and the child's own rows tell, as with a child no call names
+  const orphan = (said: Told) => said.end === null && scan.serviceStart !== null && said.updated < scan.serviceStart - START_SLACK_MS;
   scan.told = new Map([...told].filter(([, said]) => said.seq < end && !(said.waiting && said.seq < scan.idle) && !orphan(said)));
 }
 
