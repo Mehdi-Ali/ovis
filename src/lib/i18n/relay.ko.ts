@@ -79,4 +79,6 @@ export const RELAY_KO: Record<string, string> = {
   "Ready · not in the account yet": "연결됨 · 아직 계정에 없음",
   "{name} is not taking new phones right now": "{name}이(가) 지금은 새 휴대폰을 받지 않습니다",
   "Its link may have run out (it works for 10 minutes), or it may be paused after too many tries or busy with other phones. Copy a new link on the PC, or wait a few minutes.": "링크가 만료됐거나(10분 동안 쓸 수 있음), 시도가 너무 많아 잠시 멈췄거나, 다른 휴대폰을 처리하는 중일 수 있습니다. PC에서 새 링크를 복사하거나 몇 분 기다리세요.",
+  "{name} has not added this device yet": "{name}에 아직 이 기기가 추가되지 않았습니다",
+  "It adds the devices of your account a few minutes after they join. Try again in a moment.": "계정에 새 기기가 들어오면 몇 분 안에 추가됩니다. 잠시 뒤 다시 시도하세요.",
 };

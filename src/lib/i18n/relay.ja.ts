@@ -79,4 +79,6 @@ export const RELAY_JA: Record<string, string> = {
   "Ready · not in the account yet": "接続可能 · まだアカウント外",
   "{name} is not taking new phones right now": "{name} は今は新しいスマートフォンを受け付けていません",
   "Its link may have run out (it works for 10 minutes), or it may be paused after too many tries or busy with other phones. Copy a new link on the PC, or wait a few minutes.": "リンクの有効期限が切れた(10 分間有効)か、試行が多すぎて一時停止しているか、ほかのスマートフォンの対応中かもしれません。PC で新しいリンクをコピーするか、数分待ってください。",
+  "{name} has not added this device yet": "{name} にはまだこのデバイスが追加されていません",
+  "It adds the devices of your account a few minutes after they join. Try again in a moment.": "アカウントに参加したデバイスは数分以内に追加されます。少ししてからもう一度お試しください。",
 };

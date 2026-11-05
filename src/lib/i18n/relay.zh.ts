@@ -79,4 +79,6 @@ export const RELAY_ZH: Record<string, string> = {
   "Ready · not in the account yet": "可连接 · 尚未加入账户",
   "{name} is not taking new phones right now": "{name} 现在不接受新手机",
   "Its link may have run out (it works for 10 minutes), or it may be paused after too many tries or busy with other phones. Copy a new link on the PC, or wait a few minutes.": "链接可能已过期（有效 10 分钟），或因尝试次数过多而暂停，或正在处理其他手机。请在电脑上复制新链接，或等几分钟。",
+  "{name} has not added this device yet": "{name} 尚未添加此设备",
+  "It adds the devices of your account a few minutes after they join. Try again in a moment.": "账户中的新设备会在几分钟内被添加。请稍后重试。",
 };
