@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { FakeAccountService, WEB_REDIRECT } from "../../../shared/account-service-fake.ts";
 import type { RelayDevice } from "../relay/device.ts";
 import { myPcs, OFFLINE_AFTER_MS } from "./myPcs.ts";
-import { AccountService, AccountServiceError, accountServiceOf, SignedOutError } from "./service.ts";
+import { accountProvidersOf, AccountService, AccountServiceError, accountServiceOf, SignedOutError } from "./service.ts";
 import { beginSignIn, finishSignIn, SignInError, signInReturn } from "./signin.ts";
 import { memoryAccountStore, memoryLock } from "./store.ts";
 
@@ -165,6 +165,14 @@ describe("which account service a page signs in with", () => {
     expect(accountServiceOf(page("https://account.example/v1/"))).toBe("https://account.example");
     expect(accountServiceOf(page("http://127.0.0.1:8787"))).toBe("http://127.0.0.1:8787");
   });
+  it("offers GitHub alone unless the page names Apple too", () => {
+    const named = (content: string | null) => ({ querySelector: () => (content === null ? null : { getAttribute: () => content }) });
+    expect(accountProvidersOf(named(null))).toEqual(["github"]);
+    expect(accountProvidersOf(named("apple"))).toEqual(["apple"]);
+    expect(accountProvidersOf(named("apple, github"))).toEqual(["github", "apple"]);
+    expect(accountProvidersOf(named("gitlab"))).toEqual(["github"]);
+  });
+
 });
 
 describe("the account key", () => {
