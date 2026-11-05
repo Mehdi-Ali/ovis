@@ -287,6 +287,11 @@ is what authenticates the PC.
   code) only from a session signed in with its row's current key.
 - A code started through the relay records its starter as the new device's `added_by`, so the device
   counts as that starter's addition, not a pairing made on this PC.
+- Every device that loses its access is announced on the machines event stream as
+  `{ "type": "device-removed", "event_id", "device_id", "label", "removed_at", "by" }`, to streams with
+  drive access only: `by` is `"pc"` for a revoke on the PC itself (Revoke all, a reset relay
+  identity), the device that revoked it through the app, or the member that signed an account
+  `remove`.
 - `GET /api/devices` adds `account`, `account_key` (the member's `relay_public_key`, which is public)
   and `added_by` to account members' rows, for a caller with drive access only; a watching device
   sees none of them.

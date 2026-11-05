@@ -13,7 +13,7 @@
 import { createHash, createPublicKey, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { type DevicePairedEvent, type DevicePairToken, type DeviceRole, type DevicesRevokedAll, type PairedDevice, STREAM_COOKIE_PREFIX } from "../shared/protocol.ts";
+import { type DevicePairedEvent, type DeviceRemovedEvent, type DevicePairToken, type DeviceRole, type DevicesRevokedAll, type PairedDevice, STREAM_COOKIE_PREFIX } from "../shared/protocol.ts";
 import type { Access } from "./access.ts";
 import { CLEAR_LEGACY_DEVICE_COOKIE, COOKIE_MAX_AGE_SECONDS, DEVICE_COOKIE_CLEARED, deviceCookie, isSecureRequest, noContent, parseCookies } from "./auth.ts";
 import { badRequest, isJsonObject, jsonResponse, setRequestRoute } from "./http.ts";
@@ -236,6 +236,7 @@ export class DeviceStore {
   private readonly revocations = new Map<string, Set<() => void>>();
   private readonly revokeAllListeners = new Set<() => void>();
   private readonly pairings = new Set<(event: DevicePairedEvent, origin: readonly string[]) => void>();
+  private readonly removals = new Set<(event: DeviceRemovedEvent) => void>();
   private readonly tombstonePath: string;
   private readonly pendingTombstonePath: string;
   /** Keys removed through the account (docs/account.md, rule 5); only a pairing on this PC clears one. */
@@ -614,10 +615,22 @@ export class DeviceStore {
     return { id: updated.id, label: updated.label, role: updated.role, created_at: updated.created_at, last_seen_at: updated.last_seen_at, current: false, ...(updated.relay_public_key === undefined ? {} : { via_relay: true as const }) };
   }
 
-  revoke(id: string): boolean {
+  /** Hears of every device that lost its access, after the write that took it (DeviceRemovedEvent). */
+  onRemoved(listener: (event: DeviceRemovedEvent) => void): () => void {
+    this.removals.add(listener);
+    return () => { this.removals.delete(listener); };
+  }
+
+  private announceRemoval(device: StoredDevice, by: DeviceRemovedEvent["by"]): void {
+    const event: DeviceRemovedEvent = { type: "device-removed", event_id: randomBytes(8).toString("hex"), device_id: device.id, label: device.label, removed_at: new Date().toISOString(), ...(by === undefined ? {} : { by }) };
+    for (const listener of [...this.removals]) listener(event);
+  }
+
+  revoke(id: string, by: DeviceRemovedEvent["by"] = "pc"): boolean {
     this.assertWritable();
     const next = this.devices.filter((d) => d.id !== id);
     if (next.length === this.devices.length) return false;
+    const gone = this.devices.find((d) => d.id === id);
     // a revoke on this PC wins over the account: its key cannot come back by a record (docs/account.md, rule 1)
     this.tombstone(this.devices.filter((d) => d.id === id), Date.now());
     // A valid older/manual registry can have devices without a gate timestamp. Removing its
@@ -629,6 +642,7 @@ export class DeviceStore {
     const listeners = this.revocations.get(id);
     this.revocations.delete(id);
     for (const close of listeners ?? []) close();
+    if (gone) this.announceRemoval(gone, by);
     return true;
   }
 
@@ -656,6 +670,7 @@ export class DeviceStore {
     this.tombstone(this.devices, Date.now());
     const gate = this.gateClosedAt ?? this.devices[0]?.created_at ?? new Date().toISOString();
     this.save([], gate);
+    const gone = this.devices;
     const revoked = this.devices.map((device) => device.id);
     this.devices = [];
     this.gateClosedAt = gate;
@@ -665,6 +680,7 @@ export class DeviceStore {
     this.revocations.clear();
     for (const closes of listeners) for (const close of closes) close();
     for (const listener of [...this.revokeAllListeners]) listener();
+    for (const device of gone) this.announceRemoval(device, "pc");
     return revoked;
   }
 
@@ -728,7 +744,7 @@ export class DeviceStore {
    * leaves the key refused; then every row holding the key is revoked, closing its sessions.
    * Returns whether anything changed.
    */
-  removeAccountKey(key: string, account: string, record: { id: string; issuedAt: string }, now = Date.now()): boolean {
+  removeAccountKey(key: string, account: string, record: { id: string; issuedAt: string; by?: { device_id: string; label: string } }, now = Date.now()): boolean {
     this.assertAccountWritable();
     // a pairing made on this PC (no `added_by`) after the removal was signed wins: a replayed or late remove
     // leaves it be. A row an account record or a remote approval made goes, however late the remove arrives.
@@ -737,7 +753,7 @@ export class DeviceStore {
     const fresh = !this.isTombstoned(key);
     if (fresh) this.writeTombstones([...this.tombstones, { key, account, record_id: recordId, removed_at: new Date(now).toISOString() }]);
     const ids = this.devices.filter((d) => d.relay_public_key === key).map((d) => d.id);
-    for (const id of ids) this.revoke(id);
+    for (const id of ids) this.revoke(id, record.by);
     return fresh || ids.length > 0;
   }
 
@@ -865,7 +881,7 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
   setRequestRoute("/api/devices/:device_id");
   if (!/^[0-9a-f]{16}$/.test(id)) return badRequest("invalid_device", "no such device");
   if (request.method === "DELETE") {
-    if (!store.revoke(id)) return jsonResponse({ error: { code: "not_found", message: "no such device" } }, 404);
+    if (!store.revoke(id, access.level === "full" && access.device ? { device_id: access.device.id, label: access.device.label } : "pc")) return jsonResponse({ error: { code: "not_found", message: "no such device" } }, 404);
     onRevoked?.([id]);
     return noContent();
   }
