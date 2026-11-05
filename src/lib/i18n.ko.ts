@@ -24,7 +24,7 @@ import { RELAY_KO } from "./i18n/relay.ko.ts";
  * braces keep their English names.
  */
 const BASE: Record<string, string> = {
-  "Add {device}?": "{device}을(를) 추가할까요?",
+  "Add {device}?": "{device} 추가할까요?",
   "Through {pc} · joins your {n} PCs": "{pc}에서 온 요청 · PC {n}대에 추가됩니다",
   "Pick the number on {device}": "{device} 화면의 숫자를 고르세요",
   "Didn't ask for this? Deny it.": "요청한 적이 없다면 거절하세요.",

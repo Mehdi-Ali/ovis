@@ -16,12 +16,6 @@ import { serverIdOfPath } from "../lib/shellMode.ts";
 import { getTransport } from "../lib/transport.ts";
 import { AccountApprovalPrompt } from "./AccountApprovalPrompt.tsx";
 
-/** The new device's key, once the PC names it (docs/account.md, "Who may admit a device"). */
-function joiningKey(request: RemotePairingRequest): string | null {
-  const key = (request as RemotePairingRequest & { key?: unknown }).key;
-  return typeof key === "string" ? key : null;
-}
-
 export function AccountApprovals({ pairings }: { pairings: readonly RemotePairingRequest[] }) {
   const request = pairings[0];
   const serverId = serverIdOfPath(window.location.pathname);
@@ -48,15 +42,14 @@ export function AccountApprovals({ pairings }: { pairings: readonly RemotePairin
 
   const decide = async (decision: "approve" | "decline", digits?: string): Promise<void> => {
     await decideRelayPairing(request.id, decision, digits);
-    const key = joiningKey(request);
-    if (decision !== "approve" || key === null) return;
+    if (decision !== "approve") return;
     const service = new AccountService({ store: indexedAccountStore });
     const session = await service.session();
     if (session === undefined) return;
     const transport = getTransport();
     await admitToAccount({
       fetch: (path, init) => transport.fetch(path, init), service, key: await indexedAccountStore.key(), account: session.account,
-      joining: { key, label: request.label }, through: serverId, paired: await indexedDeviceStore.list(),
+      joining: { key: request.key, label: request.label }, through: serverId, paired: await indexedDeviceStore.list(),
       directory: (await service.listPcs()).map((pc) => pc.server_id),
     });
   };

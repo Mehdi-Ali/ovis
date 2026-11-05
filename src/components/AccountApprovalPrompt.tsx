@@ -13,6 +13,8 @@ import "./AccountApprovalPrompt.css";
 
 import type { RemotePairingRequest } from "../../shared/protocol.ts";
 import { useT } from "../lib/i18n.ts";
+import { objectParticle } from "../lib/koreanParticle.ts";
+import { useSettings } from "../lib/settings.ts";
 import { useFocusTrap } from "../lib/useFocusTrap.ts";
 
 export interface AccountApprovalPromptProps {
@@ -28,6 +30,9 @@ const grouped = (digits: string): string => `${digits.slice(0, 3)} ${digits.slic
 
 export function AccountApprovalPrompt({ request, pcName, pcCount, onDecide }: AccountApprovalPromptProps) {
   const t = useT();
+  const { resolvedLanguage } = useSettings();
+  // Korean takes 을 or 를 by how the name ends, so the name carries it there
+  const asObject = resolvedLanguage === "ko" ? `${request.label}${objectParticle(request.label)}` : request.label;
   const id = useId();
   const deny = useRef<HTMLButtonElement>(null);
   const surface = useFocusTrap<HTMLDivElement>(true, { initialFocus: deny });
@@ -56,7 +61,7 @@ export function AccountApprovalPrompt({ request, pcName, pcCount, onDecide }: Ac
     <div className="modal-scrim">
       <div ref={surface} className="modal account-approval" role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} tabIndex={-1} data-testid="account-approval">
         <div className="account-approval-mark" aria-hidden="true"><MonitorSmartphone /></div>
-        <h2 className="account-approval-title" id={`${id}-title`}>{t("Add {device}?", { device: request.label })}</h2>
+        <h2 className="account-approval-title" id={`${id}-title`}>{t("Add {device}?", { device: asObject })}</h2>
         <p className="account-approval-via">{t("Through {pc} · joins your {n} PCs", { pc: pcName, n: pcCount })}</p>
         <p className="account-approval-ask" id={`${id}-ask`}>{t("Pick the number on {device}", { device: request.label })}</p>
         <div className="account-approval-choices" role="radiogroup" aria-labelledby={`${id}-ask`}>
