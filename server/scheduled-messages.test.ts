@@ -1,5 +1,5 @@
-import { afterEach, expect, it } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { afterEach, expect, it, spyOn } from "bun:test";
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HerdrError } from "./herdr/client.ts";
@@ -253,4 +253,38 @@ it("keeps a message the server stopped before typing for its next start", async 
   scheduled.paneEvent("p1");
   await settle();
   expect(scheduled.list()[0]!.state).toBe("scheduled");
+});
+
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("keeps nothing of a message whose write was refused", async () => {
+  const { scheduled, stateDir } = store();
+  chmodSync(stateDir, 0o500);
+  try {
+    await expect(scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null)).rejects.toThrow();
+    expect(scheduled.list()).toEqual([]);
+  } finally { chmodSync(stateDir, 0o700); }
+});
+
+it("holds the pane's queued messages behind a send it may have left in the input", async () => {
+  const held: string[] = [];
+  const { scheduled } = store([{ ok: false, code: "pasted_not_sent", message: "pasted" }], { uncertain: (paneId) => { held.push(paneId); } });
+  await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T09:59:00Z" }, null);
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(scheduled.list()[0]!.state).toBe("uncertain");
+  expect(held).toEqual(["p1"]);
+});
+
+it("sets no timer for a message waiting behind its pane's message on its way", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-scheduled-"));
+  dirs.push(stateDir);
+  const entry = (id: string, state: string) => ({ identity: IDENTITY, device: null,
+    message: { id, pane_id: "p1", text: id, send_at: "2026-11-05T09:00:00Z", created_at: "2026-11-05T08:00:00Z", state } });
+  writeFileSync(join(stateDir, "scheduled-messages.json"), JSON.stringify([entry("a", "uncertain"), entry("b", "scheduled")]));
+  const timers = spyOn(globalThis, "setTimeout");
+  const { scheduled } = store([], { stateDir });
+  scheduled.start();
+  await settle();
+  expect(timers.mock.calls.filter(([, ms]) => typeof ms === "number" && ms < 1000)).toHaveLength(0);
+  timers.mockRestore();
 });

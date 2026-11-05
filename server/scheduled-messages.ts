@@ -54,6 +54,8 @@ export interface ScheduledDeps {
   mayDrive: (device: string | null) => boolean;
   /** the list changed: every connection reads it again */
   changed: () => void;
+  /** a send left this pane's input uncertain: the pane's queued messages are held behind it, as behind their own */
+  uncertain?: (paneId: string) => void;
   now?: () => number;
   retryMs?: number;
 }
@@ -94,6 +96,8 @@ export class ScheduledMessages {
     }
     const message: ScheduledMessage = { id: crypto.randomUUID(), pane_id: paneId, text, send_at: sendAt, created_at: new Date(this.now()).toISOString(), state: "scheduled" };
     this.entries.set(message.id, { message, identity, device });
+    // kept only once written: a refused write leaves nothing behind to go alongside a retry
+    try { this.save(); } catch (error) { this.entries.delete(message.id); throw error; }
     this.commit();
     return { ...message };
   }
@@ -170,8 +174,12 @@ export class ScheduledMessages {
 
   /** due, and not behind another of its pane's that is on its way or may sit typed in its input */
   private due(entry: Entry): boolean {
-    if (this.stopped || entry.message.state !== "scheduled" || Date.parse(entry.message.send_at) > this.now()) return false;
-    return ![...this.entries.values()].some((other) => other.message.pane_id === entry.message.pane_id && (other.message.state === "sending" || other.message.state === "uncertain"));
+    return !this.stopped && entry.message.state === "scheduled" && Date.parse(entry.message.send_at) <= this.now() && !this.blocked(entry);
+  }
+
+  private blocked(entry: Entry): boolean {
+    return [...this.entries.values()].some((other) => other !== entry && other.message.pane_id === entry.message.pane_id
+      && (other.message.state === "sending" || other.message.state === "uncertain"));
   }
 
   private async deliver(entry: Entry, automatic: boolean, identity = entry.identity, device = entry.device): Promise<Reply> {
@@ -179,8 +187,13 @@ export class ScheduledMessages {
     const before = { state: message.state, error: message.error };
     message.state = "sending";
     entry.triedAt = this.now();
-    // claimed and kept before anything is typed: a PC that stops now never sends it again on its own
-    this.save();
+    // claimed and kept before anything is typed: a PC that stops now never sends it again on its own. A claim that cannot be
+    // written types nothing, and the message stays as it was
+    try { this.save(); } catch (error) {
+      message.state = before.state;
+      this.arm();
+      return { ok: false, ...faultOf(error) };
+    }
     const authorize = (): void => {
       if (this.closed) throw new HerdrError("cancelled", "This PC's server is stopping");
       if (!this.deps.mayDrive(device)) throw new HerdrError("device_revoked", "The device that scheduled this message can no longer drive this PC");
@@ -196,7 +209,7 @@ export class ScheduledMessages {
       this.entries.delete(message.id);
     } else {
       const fault = { code: reply.code ?? "submit_failed", message: reply.message ?? "The message was not sent" };
-      if (UNCERTAIN_CODES.has(fault.code)) message.state = "uncertain";
+      if (UNCERTAIN_CODES.has(fault.code)) { message.state = "uncertain"; this.deps.uncertain?.(message.pane_id); }
       // Send now's refusal leaves it as it was; the timer's waits stay scheduled and say why
       else if (!automatic) message.state = before.state;
       else message.state = WAIT_CODES.has(fault.code) ? "scheduled" : "held";
@@ -220,7 +233,8 @@ export class ScheduledMessages {
     const retry = this.deps.retryMs ?? RETRY_MS;
     let next = Infinity;
     for (const entry of this.entries.values()) {
-      if (entry.message.state !== "scheduled") continue;
+      // one waiting behind its pane's message on its way or left uncertain sets no timer: that one's settling (or discard) arms again
+      if (entry.message.state !== "scheduled" || this.blocked(entry)) continue;
       const at = Date.parse(entry.message.send_at);
       next = Math.min(next, entry.triedAt !== undefined && at <= entry.triedAt ? entry.triedAt + retry : at);
     }

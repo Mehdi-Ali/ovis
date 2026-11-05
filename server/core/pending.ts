@@ -55,7 +55,13 @@ export type PendingOwner = Client | FirstMessageOwner;
  * user scheduled (server/scheduled-messages.ts), which keeps no Pi receipt. `authorize` throws once it may no
  * longer type; `cols`: the grid a password prompt is read for.
  */
-interface Sender { owner: Client | null; authorize(): void; cols(): number | undefined }
+/**
+ * The grid a password prompt is read for when no client has the pane attached (nothing then tells its width): a row that
+ * wrapped reached the right edge, so it is as wide as the widest row, and a final space may be trimmed. This only ever
+ * finds more prompts than the true width would (secretPrompt joins a row that long), never fewer.
+ */
+const widestRow = (screen: string): number => Math.max(0, ...screen.split(/\r?\n/).map((row) => row.trimEnd().length));
+interface Sender { owner: Client | null; authorize(): void; cols(screen: string): number | undefined }
 const isClient = (owner: PendingOwner): owner is Client => owner !== FIRST_MESSAGE_OWNER;
 /** a first message's lease is the delivering connection's, taken at each attempt: none is kept on the record */
 type PendingItem = PendingRecord<PendingOwner, PendingLease | null>;
@@ -550,7 +556,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     // the live screen, not the viewport: a pane scrolled into its history still draws its next
     // menu or password prompt at the bottom (server/prompt.ts liveScreen)
     const screen = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-    if (secretPrompt(screen, sender.cols()) !== null) {
+    if (secretPrompt(screen, sender.cols(screen)) !== null) {
       throw new HerdrError("agent_blocked", "The terminal is waiting for masked input; answer it with the secret-input form first");
     }
     const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);
@@ -1258,11 +1264,14 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    */
   const sendScheduled = (paneId: string, text: string, identity: PendingIdentity, automatic: boolean, authorize: () => void): Promise<SubmitReply> =>
     serialize(paneId, () => {
+      if (automatic && pending.turnUnconfirmed(paneId)) {
+        return { ok: false, code: "pending_turn_unconfirmed", message: "The turn the last message started was not confirmed; review this one and send it explicitly" };
+      }
       if (automatic && (pending.waiting(paneId) || pending.turnBusy(paneId))) {
         return { ok: false, code: "pending_wait", message: "The pane's queued messages, or the turn the last one started, go first" };
       }
       const id = `scheduled:${crypto.randomUUID()}`;
-      return dispatchPendingText({ owner: null, authorize, cols: () => attachments.get(paneId)?.cols }, paneId, pendingText(text), identity,
+      return dispatchPendingText({ owner: null, authorize, cols: (screen) => attachments.get(paneId)?.cols ?? widestRow(screen) + 1 }, paneId, pendingText(text), identity,
         automatic, Date.now(), (working, restarting) => pending.committingUnrecorded(paneId, id, working, restarting), !automatic, 0, true);
     });
 

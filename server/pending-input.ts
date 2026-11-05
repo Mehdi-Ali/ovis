@@ -60,6 +60,8 @@ export class PendingInputs<Owner, Lease> {
   /** how many status events each pane has had: orders a snapshot read against them (mark, observe) */
   private readonly events = new Map<string, number>();
   private readonly gates = new Map<string, TurnGate>();
+  /** panes whose turn gate ran out unconfirmed, until their next status event: a message with no record here is held for them (`turnUnconfirmed`) */
+  private readonly unconfirmed = new Set<string>();
   private readonly closed = new Map<Owner, number>();
   /** sends on their way when their pane moved (`move`) */
   private readonly movedInFlight = new WeakSet<PendingRecord<Owner, Lease>>();
@@ -278,6 +280,9 @@ export class PendingInputs<Owner, Lease> {
     return this.gates.has(paneId) || [...this.records.values()].some((item) => item.paneId === paneId && (item.inFlight || item.message.state === "uncertain"));
   }
 
+  /** Whether the pane's last turn gate ran out with no status since: such a message is held for review, as `expire` holds the records. */
+  turnUnconfirmed(paneId: string): boolean { return this.unconfirmed.has(paneId); }
+
   /** Such a message committing its key: the pane's next message waits for the turn it starts, as `committing` makes a record's do. */
   committingUnrecorded(paneId: string, id: string, steeringWorkingTurn = false, restartingWorkingTurn = false): void {
     this.gates.set(paneId, { by: id, committed: true, sawWorking: steeringWorkingTurn && !restartingWorkingTurn, completed: false,
@@ -292,10 +297,11 @@ export class PendingInputs<Owner, Lease> {
   }
 
   /** The pane ended: its held messages stay with their owners, its status and turn gate go. */
-  forget(paneId: string): void { this.statuses.delete(paneId); this.events.delete(paneId); this.gates.delete(paneId); }
+  forget(paneId: string): void { this.statuses.delete(paneId); this.events.delete(paneId); this.gates.delete(paneId); this.unconfirmed.delete(paneId); }
 
   private apply(paneId: string, status: AgentStatus): void {
     this.statuses.set(paneId, status);
+    this.unconfirmed.delete(paneId);
     const gate = this.gates.get(paneId);
     if (!gate?.committed) return;
     // Escape may expose ready before the submitted steering starts its replacement turn.
@@ -379,6 +385,7 @@ export class PendingInputs<Owner, Lease> {
       if (gate.deadline !== null && this.now() >= gate.deadline && ![...this.records.values()].some((item) => item.paneId === paneId && item.inFlight)) {
         this.holdPane(paneId, { code: "pending_turn_unconfirmed", message: "The next turn did not start in time; review and send the remaining messages explicitly" });
         this.gates.delete(paneId);
+        this.unconfirmed.add(paneId);
       }
     }
     for (const [owner, closedAt] of this.closed) if (this.now() - closedAt >= CLOSED_RETENTION_MS) {
