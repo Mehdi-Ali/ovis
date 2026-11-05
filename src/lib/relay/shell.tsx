@@ -220,8 +220,9 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
   const leave = (): void => {
     void leaveAccount({ service: account, accountStore, relayStore: store }).then(async ({ unconfirmed }) => {
       // a PC the account does not list kept this device: say so, rather than claim it is gone everywhere
+      const names = new Map((await store.list()).map((device) => [device.server_id, device.name ?? device.server_id.slice(0, 8)]));
       accountView = { kind: "signed-out", error: unconfirmed.length === 0 ? null
-        : t("This device left the account. {n} PCs the account does not list still have it: revoke it on them.", { n: unconfirmed.length }) };
+        : t("This device left the account. These PCs the account does not list still have it, so revoke it on them: {pcs}", { pcs: unconfirmed.map((id) => names.get(id) ?? id.slice(0, 8)).join(", ") }) };
       await showFront();
     }, async (error: unknown) => {
       console.warn("Ovis: this device did not leave the account", error instanceof Error ? error.name : error);
