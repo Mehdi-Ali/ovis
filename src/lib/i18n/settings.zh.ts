@@ -377,8 +377,6 @@ export const SETTINGS_ZH: Record<string, string> = {
   "Link or code": "链接或代码",
   "{name} was added. Its workspaces join the sidebar.": "已添加 {name}。它的工作区会显示在侧栏中。",
   "Group agents by state": "按状态分组代理",
-  "Read OpenCode subagent ends from their session (experimental)": "根据会话记录判断 OpenCode 子 Agent 的结束（实验性）",
-  "An OpenCode subagent counts as running, and holds its turn's BG wait, until the session that started it is told it ended, not as soon as the subagent goes idle. Its own background work may still run then. When off, the subagent's own rows tell.": "OpenCode 子 Agent 不会在其空闲时立即视为结束，而是一直计为运行中，并保持该轮的 BG 等待，直到启动它的会话被告知它已结束。此时子 Agent 自己的后台任务可能仍在运行。关闭时，按子 Agent 自己的记录判断。",
   "Lock pinned agents (experimental)": "锁定固定的 Agent（实验性）",
   "A pinned agent's menu in the Agents list offers Lock agent. This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.": "在 Agent 列表中，已固定 Agent 的菜单会提供“锁定 Agent”。之后在所有浏览器中，本应用都无法关闭已锁定 Agent 的面板、标签页或工作区。通过 herdr 本身或脚本关闭不受影响。",
   "On this device, list the agents above the workspaces: the ones that need you first, then working, done and idle. Pinned agents stay on top.": "在此设备上，把代理列在工作区上方：先是需要你回应的，然后是工作中、已完成和空闲。已固定的代理仍在最上面。",

@@ -377,8 +377,6 @@ export const SETTINGS_JA: Record<string, string> = {
   "Link or code": "リンクまたはコード",
   "{name} was added. Its workspaces join the sidebar.": "{name} を追加しました。ワークスペースはサイドバーに並びます。",
   "Group agents by state": "エージェントを状態ごとにまとめる",
-  "Read OpenCode subagent ends from their session (experimental)": "OpenCode のサブエージェントの終了をセッションの記録で判断（実験的）",
-  "An OpenCode subagent counts as running, and holds its turn's BG wait, until the session that started it is told it ended, not as soon as the subagent goes idle. Its own background work may still run then. When off, the subagent's own rows tell.": "OpenCode のサブエージェントは、アイドルになった時点ではなく、それを始めたセッションに終了が伝えられるまで実行中として数え、そのターンの BG 待機も保ちます。そのとき、サブエージェント自身のバックグラウンド作業はまだ動いていることがあります。オフのときは、サブエージェント自身の記録で判断します。",
   "Lock pinned agents (experimental)": "固定したエージェントをロック（実験的）",
   "A pinned agent's menu in the Agents list offers Lock agent. This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.": "エージェント一覧で固定したエージェントのメニューに「エージェントをロック」が加わります。ロックしたエージェントのペイン、タブ、ワークスペースは、どのブラウザでもこのアプリから閉じられません。herdr 本体やスクリプトからは閉じられます。",
   "On this device, list the agents above the workspaces: the ones that need you first, then working, done and idle. Pinned agents stay on top.": "このデバイスでは、エージェントをワークスペースの上に表示します。応答が必要なものが先で、次に作業中、完了、待機の順です。ピン留めしたエージェントは一番上のままです。",
