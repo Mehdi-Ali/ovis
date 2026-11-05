@@ -1,0 +1,106 @@
+/**
+ * The PC's mailbox at the account service (docs/account.md, "Account service API"): records left for
+ * this PC while it was off. The PC signs in with nothing but its relay key, answering a server proof
+ * for the `account` role, which the relay itself never accepts. The service can hold records back,
+ * never forge one: each is checked and applied like a record a client hands over directly.
+ */
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { ACCOUNT_RECORDS_MAX } from "../../shared/account-records.ts";
+import { importPublicKey, importSecretKey } from "../../shared/relay-e2ee.ts";
+import { answerServerChallenge } from "../../shared/relay-server-proof.ts";
+import type { DeviceStore } from "../devices.ts";
+import type { RelayIdentity } from "../relay/identity.ts";
+import { applyAccountRecords } from "./records.ts";
+
+export const MAILBOX_PULL_MS = 5 * 60_000;
+/** Pages one pull reads at most; the rest waits for the next pull. */
+const MAX_PAGES = 20;
+
+export function accountServiceUrl(value = process.env["OVIS_ACCOUNT_SERVICE_URL"] ?? "https://account.ovis.sh"): string {
+  const url = new URL(value);
+  const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) throw new Error("The account service must be https");
+  return url.origin;
+}
+
+export interface AccountMailboxOptions {
+  readonly devices: DeviceStore;
+  /** This PC's relay identity, when it has one; its `server_id` names the mailbox. */
+  readonly identity: () => RelayIdentity | undefined;
+  readonly service: string;
+  readonly fetch?: (request: Request) => Promise<Response>;
+}
+
+export class AccountMailbox {
+  lastPullAt: string | null = null;
+  error: string | null = null;
+  private timer: ReturnType<typeof setInterval> | undefined;
+  private pulling: Promise<number> | undefined;
+
+  constructor(private readonly options: AccountMailboxOptions) {}
+
+  /** Pulls now unless a pull is under way; how many records changed something. Never throws. */
+  pull(): Promise<number> {
+    this.pulling ??= this.drain().finally(() => { this.pulling = undefined; });
+    return this.pulling;
+  }
+
+  start(): void {
+    if (this.timer) return;
+    void this.pull();
+    this.timer = setInterval(() => { void this.pull(); }, MAILBOX_PULL_MS);
+    this.timer.unref?.();
+  }
+
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+  }
+
+  private async drain(): Promise<number> {
+    const account = this.options.devices.account();
+    const identity = this.options.identity();
+    if (account === null || !identity) return 0;
+    let applied = 0;
+    let ack: number | null = null;
+    try {
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const entries = await this.page(identity, account, ack);
+        if (entries.length === 0) break;
+        for (let start = 0; start < entries.length; start += ACCOUNT_RECORDS_MAX) {
+          const outcomes = await applyAccountRecords(this.options.devices, entries.slice(start, start + ACCOUNT_RECORDS_MAX).map(({ record }) => record));
+          applied += outcomes.filter(({ outcome }) => outcome === "applied").length;
+        }
+        // every record read is acknowledged, refused ones too, so a refused one cannot hold the rest back
+        ack = Math.max(...entries.map(({ seq }) => seq));
+      }
+      this.lastPullAt = new Date().toISOString();
+      this.error = null;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+    }
+    return applied;
+  }
+
+  private async page(identity: RelayIdentity, account: string, ack: number | null): Promise<{ seq: number; record: unknown }[]> {
+    const call = async (path: string, body: unknown) => {
+      const response = await (this.options.fetch ?? fetch)(new Request(this.options.service + path, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
+      }));
+      if (!response.ok) throw new Error(`The account service answered ${response.status} to ${path}`);
+      return await response.json() as Record<string, unknown>;
+    };
+    const publicKey = bytesToHex(importPublicKey(identity.public_key));
+    const challenge = await call("/v1/pc/challenge", { server_id: identity.server_id, public_key: publicKey });
+    if (typeof challenge.challenge_id !== "string") throw new Error("The account service sent no challenge");
+    const proof = answerServerChallenge(challenge.frame, importSecretKey(identity.secret_key),
+      { server_id: identity.server_id, role: "account", connection_id: challenge.challenge_id });
+    if (!proof) throw new Error("The account service sent a malformed challenge");
+    const mailbox = await call("/v1/pc/mailbox", { server_id: identity.server_id, challenge_id: challenge.challenge_id, proof, account, ack });
+    const records = mailbox.records;
+    if (!Array.isArray(records) || !records.every((entry) => typeof entry === "object" && entry !== null && Number.isSafeInteger((entry as { seq?: unknown }).seq))) {
+      throw new Error("The account service sent a malformed mailbox");
+    }
+    return records as { seq: number; record: unknown }[];
+  }
+}

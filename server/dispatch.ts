@@ -35,6 +35,8 @@ import { handleUpdateRequest } from "./update-api.ts";
 import { handleHerdrUpdateRequest } from "./herdr-update.ts";
 import { handlePortalRequest } from "./portal.ts";
 import { handleRelayRequest } from "./relay/routes.ts";
+import { handleAccountRequest } from "./account/routes.ts";
+import type { AccountMailbox } from "./account/mailbox.ts";
 import type { RelayService } from "./relay/service.ts";
 import { handleTelemetryRequest, visitSurface } from "./telemetry.ts";
 import type { TelemetryIngress } from "../shared/telemetry.ts";
@@ -69,6 +71,7 @@ export interface RequestServices {
   readonly bridgeToken: string;
   readonly bootId: string;
   readonly devices: DeviceStore;
+  readonly accountMailbox: AccountMailbox;
   readonly preferences: PreferenceStore;
   readonly herdrSidebar: HerdrSidebarConfig;
   readonly identityOf: (grantPath: boolean, host: string | null) => Promise<TailnetIdentity>;
@@ -101,7 +104,8 @@ export interface ServerContext {
   timeout(request: Request, seconds: number): void;
   upgrade(request: Request, options: { headers?: HeadersInit; data: SocketData }): boolean;
   readonly port: number | undefined;
-  readonly peer: { kind: "socket" } | { kind: "relay"; device: DeviceMatch; sessionId: string };
+  /** `serverId`: the relay identity the device signed in to, which a `link` must name (docs/account.md). */
+  readonly peer: { kind: "socket" } | { kind: "relay"; device: DeviceMatch; sessionId: string; serverId: string };
   readonly services: RequestServices;
   readonly relayBodyBudget?: EventStreamBudget;
 }
@@ -238,6 +242,7 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
     pathname.startsWith("/api/portal/")
     || pathname.startsWith("/api/devices/")
     || pathname === "/api/relay" || pathname.startsWith("/api/relay/")
+    || pathname.startsWith("/api/account/")
     || (request.method === "POST" && (pathname === "/api/push/subscribe" || pathname === "/api/push/status"))
   );
   // pairing without a code ends in an approval only a window that hears of it can give (relay-pairings below):
@@ -382,6 +387,7 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
   if (pathname === "/api/portal" || pathname.startsWith("/api/portal/")) {
     return handlePortalRequest(request, pathname, options.portal, { port: ctx.port ?? DEFAULT_PORT, ...portalGuards() });
   }
+  if (pathname.startsWith("/api/account/")) return handleAccountRequest(request, pathname, ctx, access);
   if (pathname === "/api/relay" || pathname.startsWith("/api/relay/")) {
     return handleRelayRequest(request, pathname, ctx);
   }

@@ -53,6 +53,10 @@ export class RelayService {
     this.app = relayEndpoint(options.app ?? process.env["OVIS_RELAY_APP_URL"] ?? "https://app.ovis.sh", "https:");
   }
 
+  /** This PC's relay identity once the relay has started: what the account service knows it by (server/account/mailbox.ts). */
+  currentIdentity(): RelayIdentity | undefined { return this.identity; }
+
+
   status(): RelayStatus {
     return { phase: this.phase, relay: this.relay, app: this.app, sessions: this.link?.sessions ?? 0,
       blocked: this.blocked, error: this.error };

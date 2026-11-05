@@ -4,7 +4,7 @@ import type { SecureChannel } from "../../shared/relay-e2ee.ts";
 import { commitmentHolds, fromBase64Url, PAIR_APPROVAL_MS, pairDigits, randomPairNonce, toBase64Url } from "../../shared/relay-pair-sas.ts";
 import { MuxEngine, MuxStreamError } from "../../shared/relay-mux-engine.ts";
 import type { HttpStream, MuxClock, SessionFrame, WsStream } from "../../shared/relay-mux-engine.ts";
-import { FrameType, LIMITS_V1, PAIR_INTENT_ACCOUNT, PAIR_INTENT_PC, PAIR_SAS_FEATURE, RELAY_PROTOCOL, REQUEST_HEADERS, RESPONSE_HEADERS, WS_CONTINUATION_CAPACITY } from "../../shared/relay-mux.ts";
+import { ACCOUNT_FEATURE, FrameType, LIMITS_V1, PAIR_INTENT_ACCOUNT, PAIR_INTENT_PC, PAIR_SAS_FEATURE, RELAY_PROTOCOL, REQUEST_HEADERS, RESPONSE_HEADERS, WS_CONTINUATION_CAPACITY } from "../../shared/relay-mux.ts";
 import type { HeaderList, SessionError } from "../../shared/relay-mux.ts";
 import type { PairingIntent } from "../../shared/machines.ts";
 import { PairingRateLimitedError, type DeviceMatch } from "../devices.ts";
@@ -206,7 +206,7 @@ export class RelaySession {
         const intents = frame.payload.features.filter((f) => f === PAIR_INTENT_PC || f === PAIR_INTENT_ACCOUNT);
         if (intents.length > 1) { this.close("protocol_error"); return; }
         if (this.sasBinding && intents[0] === PAIR_INTENT_ACCOUNT) this.intent = "account";
-        const selected = this.sasBinding ? [PAIR_SAS_FEATURE, ...intents] : [];
+        const selected = [...this.sasBinding ? [PAIR_SAS_FEATURE, ...intents] : [], ...frame.payload.features.includes(ACCOUNT_FEATURE) ? [ACCOUNT_FEATURE] : []];
         this.mux.sendSession({
           type: FrameType.WELCOME, flags: 0, stream_id: 0,
           payload: {
@@ -373,7 +373,7 @@ export class RelaySession {
     relayBodyBudget?: EventStreamBudget): ServerContext {
     return {
       services: this.options.services, port: this.options.port, requestIP: () => null, timeout, upgrade,
-      peer: { kind: "relay", device, sessionId: this.sessionId }, relayBodyBudget,
+      peer: { kind: "relay", device, sessionId: this.sessionId, serverId: this.options.serverId }, relayBodyBudget,
     };
   }
 

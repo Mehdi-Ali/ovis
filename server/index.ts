@@ -33,6 +33,7 @@ import { connectUpdater, type UpdateService } from "./update-api.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
 import { PortalService } from "./portal.ts";
 import { RelayService } from "./relay/service.ts";
+import { AccountMailbox, accountServiceUrl } from "./account/mailbox.ts";
 import { Telemetry } from "./telemetry.ts";
 import { UsageService } from "./usage.ts";
 import { CLIProxyService } from "./cliproxy.ts";
@@ -146,6 +147,8 @@ export function createServer(
     portal?: PortalService;
     /** Relay opt-in and identity persist in stateDir; tests can supply a local physical transport. */
     relay?: RelayService;
+    /** Where this PC collects account records left for it (server/account/mailbox.ts); tests pass the in-memory service. */
+    accountService?: { url: string; fetch?: (request: Request) => Promise<Response> };
     /** anonymous install and update counts (server/telemetry.ts); unset, the server sends none and answers 404. Only the real entrypoint passes one. */
     telemetry?: Telemetry;
     /** plan limits of the AI subscriptions signed in here; tests pass one without real sign-ins */
@@ -329,11 +332,16 @@ export function createServer(
   });
 
   const requestLog = new RequestLog(stateDir);
+  const accountMailbox = new AccountMailbox({
+    devices, identity: () => ovisRelay.currentIdentity(),
+    service: accountServiceUrl(options.accountService?.url), ...(options.accountService?.fetch ? { fetch: options.accountService.fetch } : {}),
+  });
   const services: RequestServices = {
-    options, relay: ovisRelay, hostname, token, bridgeToken, bootId, devices, preferences, herdrSidebar, identityOf, serveOnly, portalGuards, shellAgents, agentDetector, agentOffered, agentInstaller, openCodeState, cliProxyRoutes, usageLogin, usage, usageAccounts, voice, browserSnapshot, core, seen, piReader, orderSequence, clientConnectionLog, requestLog, portalStartup,
+    options, relay: ovisRelay, hostname, token, bridgeToken, bootId, devices, accountMailbox, preferences, herdrSidebar, identityOf, serveOnly, portalGuards, shellAgents, agentDetector, agentOffered, agentInstaller, openCodeState, cliProxyRoutes, usageLogin, usage, usageAccounts, voice, browserSnapshot, core, seen, piReader, orderSequence, clientConnectionLog, requestLog, portalStartup,
     get portalStartupResult() { return portalStartupResult; },
   };
   ovisRelay.resume(services, server.port ?? DEFAULT_PORT);
+  accountMailbox.start();
 
   if (options.portal) {
     // a Portal that ends on its own is started again only while this server's own token and serve-only allow it
@@ -380,6 +388,7 @@ export function createServer(
       });
     },
     stop: () => {
+      accountMailbox.stop();
       void ovisRelay.shutdown();
       settlePortalStartup({ ok: false, error: new Error("Server stopped before Portal startup cleanup completed") });
       core.stop(() => {

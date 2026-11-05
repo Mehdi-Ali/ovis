@@ -167,6 +167,21 @@ export function readDeviceRegistry(path: string): DeviceRegistry {
   return { kind: "ok", gateClosedAt: parsed.gate_closed_at, devices: parsed.devices as StoredDevice[], placeholder: parsed.placeholder === true && parsed.devices.length === 0 };
 }
 
+/** A key removed through the account, kept in `account-tombstones.json` beside devices.json. */
+export interface AccountTombstone { key: string; account: string; record_id: string; removed_at: string }
+
+/** Null for a file that exists and will not parse; an absent file holds no tombstones. */
+function readTombstones(path: string): AccountTombstone[] | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(readFileSync(path, "utf8")); } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? [] : null;
+  }
+  if (!isJsonObject(parsed) || parsed.v !== 1 || !Array.isArray(parsed.tombstones)
+    || !parsed.tombstones.every((t) => isJsonObject(t) && typeof t.key === "string" && typeof t.account === "string"
+      && typeof t.record_id === "string" && typeof t.removed_at === "string")) return null;
+  return parsed.tombstones as AccountTombstone[];
+}
+
 export class DeviceStore {
   private devices: StoredDevice[] = [];
   /** when the first device was paired: from then on, only this PC, the owner's login, a device or the token get in */
@@ -182,6 +197,11 @@ export class DeviceStore {
   private readonly revocations = new Map<string, Set<() => void>>();
   private readonly revokeAllListeners = new Set<() => void>();
   private readonly pairings = new Set<(event: DevicePairedEvent, origin: readonly string[]) => void>();
+  private readonly tombstonePath: string;
+  /** Keys removed through the account (docs/account.md, rule 5); only a pairing on this PC clears one. */
+  private tombstones: AccountTombstone[] = [];
+  /** Why account records cannot be applied: a tombstone file that will not parse is not an empty one. */
+  readonly accountError: string | null = null;
   readonly error: string | null = null;
 
   /**
@@ -191,6 +211,10 @@ export class DeviceStore {
    */
   constructor(stateDir: string, blocked: string | null = null) {
     this.path = join(stateDir, "devices.json");
+    this.tombstonePath = join(stateDir, "account-tombstones.json");
+    const tombstones = readTombstones(this.tombstonePath);
+    if (tombstones === null) this.accountError = `Cannot read ${this.tombstonePath}: account records are refused until it is restored or fixed.`;
+    else this.tombstones = tombstones;
     const read = readDeviceRegistry(this.path);
     if (read.kind === "ok") {
       this.gateClosedAt = read.gateClosedAt;
@@ -338,6 +362,7 @@ export class DeviceStore {
       this.noteRelayFailure("code", now);
       return null;
     }
+    this.clearTombstone(publicKey);
     return this.enrollRelay(label, publicKey, now, true);
   }
 
@@ -365,6 +390,9 @@ export class DeviceStore {
     if (!isRelayPublicKey(publicKey)) { this.noteRelayFailure(approval.path, now); return null; }
     // an approver revoked or demoted while the device waited approves nothing
     if (approval.addedBy !== undefined && !this.isAccountApprover(approval.addedBy)) { this.noteRelayFailure(approval.path, now); return null; }
+    // only this PC lets a key removed through the account back in
+    if (approval.addedBy !== undefined && this.isTombstoned(publicKey)) { this.noteRelayFailure(approval.path, now); return null; }
+    if (approval.addedBy === undefined) this.clearTombstone(publicKey);
     // no code was used, so one still showing on the PC keeps working
     return this.enrollRelay(label, publicKey, now, false, approval.addedBy);
   }
@@ -525,6 +553,88 @@ export class DeviceStore {
 
   private save(devices = this.devices, gateClosedAt = this.gateClosedAt): void {
     writePrivateState(this.path, { gate_closed_at: gateClosedAt, devices });
+  }
+
+  /** The account of this PC's members (docs/account.md: a PC belongs to at most one), or null. */
+  account(): string | null {
+    return this.devices.find((d) => d.account !== undefined)?.account ?? null;
+  }
+
+  /** The drive member of `account` whose key is `key`, the only signer whose `add` or `remove` applies. */
+  accountSigner(key: string, account: string): DeviceMatch | null {
+    const device = this.devices.find((d) => d.relay_public_key === key && d.account === account && d.role === "drive");
+    return device ? { id: device.id, label: device.label, role: device.role } : null;
+  }
+
+  /** Members, and the relay rows a member's removal does not reach. */
+  accountRows(): { members: number; unlinked: string[] } {
+    return {
+      members: this.devices.filter((d) => d.account !== undefined).length,
+      unlinked: this.devices.filter((d) => d.account === undefined && d.relay_public_key !== undefined).map((d) => d.id),
+    };
+  }
+
+  isTombstoned(key: string): boolean { return this.tombstones.some((t) => t.key === key); }
+
+  hasKey(key: string): boolean { return this.devices.some((d) => d.relay_public_key === key); }
+
+  /** An `add` that verified: a new member row, announced like any other enrollment. Never for a tombstoned key. */
+  addAccountDevice(entry: { key: string; label: string; role: DeviceRole; account: string; addedBy: string }, now = Date.now()): DeviceMatch {
+    this.assertAccountWritable();
+    if (this.isTombstoned(entry.key)) throw new Error("tombstoned key");
+    const device: StoredDevice = {
+      id: randomBytes(8).toString("hex"), label: normalizeLabel(entry.label, "Device"), role: entry.role,
+      token_hash: hash(randomBytes(32).toString("hex")), relay_public_key: entry.key,
+      created_at: new Date(now).toISOString(), last_seen_at: null, account: entry.account, added_by: entry.addedBy,
+    };
+    this.enroll(device, now, [], false);
+    return { id: device.id, label: device.label, role: device.role };
+  }
+
+  /**
+   * A `remove` that verified: the tombstone is written first, so a crash between the two writes
+   * leaves the key refused; then every row holding the key is revoked, closing its sessions.
+   * Returns whether anything changed.
+   */
+  removeAccountKey(key: string, account: string, recordId: string, now = Date.now()): boolean {
+    this.assertAccountWritable();
+    const fresh = !this.isTombstoned(key);
+    if (fresh) {
+      const next = [...this.tombstones, { key, account, record_id: recordId, removed_at: new Date(now).toISOString() }];
+      writePrivateState(this.tombstonePath, { v: 1, tombstones: next });
+      this.tombstones = next;
+    }
+    const ids = this.devices.filter((d) => d.relay_public_key === key).map((d) => d.id);
+    for (const id of ids) this.revoke(id);
+    return fresh || ids.length > 0;
+  }
+
+  /**
+   * A `link` the device `deviceId` sent over its own session: its row takes `key` and joins `account`
+   * in one write. Its sessions stay: the device is the same, and a role change is what ends them.
+   */
+  linkAccountKey(deviceId: string, oldKey: string, key: string, account: string): PairedDevice | null {
+    this.assertAccountWritable();
+    const device = this.devices.find((d) => d.id === deviceId && d.relay_public_key === oldKey);
+    if (!device) return null;
+    const updated: StoredDevice = { ...device, relay_public_key: key, account };
+    const next = this.devices.map((d) => d === device ? updated : d);
+    this.save(next);
+    this.devices = next;
+    return this.list(null).find((d) => d.id === deviceId) ?? null;
+  }
+
+  /** A pairing made on this PC (a code, or a comparison approved here) lets a removed key back in. */
+  private clearTombstone(key: string): void {
+    if (this.accountError !== null || !this.isTombstoned(key)) return;
+    const next = this.tombstones.filter((t) => t.key !== key);
+    writePrivateState(this.tombstonePath, { v: 1, tombstones: next });
+    this.tombstones = next;
+  }
+
+  private assertAccountWritable(): void {
+    this.assertWritable();
+    if (this.accountError !== null) throw new Error(this.accountError);
   }
 }
 

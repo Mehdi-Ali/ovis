@@ -214,6 +214,22 @@ member sent. It already holds X's sessions; what it gains is the new device tryi
 PC then still admits it only by its own `devices.json`, and a PC the device has never been added to
 refuses it.
 
+## On the PC
+
+- Membership lives on the rows of `devices.json` (`account`, `added_by`); the PC's account is the
+  account of its members. Tombstones live beside it, in `account-tombstones.json` (readable by your
+  user only). A tombstone file that will not parse is not an empty one: account records are then
+  refused (`account_unavailable`) until it is restored, and nothing else changes.
+- A `remove` writes its tombstone before it revokes the device, so a stop between the two leaves
+  the key refused. The device's relay connections close at once (`auth_revoked`).
+- A pairing made on this PC (a code, or a comparison approved here) clears that key's tombstone. A
+  comparison an account member approves remotely is refused for a tombstoned key.
+- **Reset relay identity** removes every relay device, members included, so the PC leaves the
+  account; a client adds it again by pairing with its new identity, after the client's usual "this
+  PC's identity changed" notice.
+- The PC collects its mailbox from `OVIS_ACCOUNT_SERVICE_URL` (https, or http on loopback only;
+  `https://account.ovis.sh` when unset), only while it has members and a relay identity.
+
 ## Account service API
 
 The service the apps and PCs call; a self-hosted install can point both at its own. Clients
@@ -302,6 +318,7 @@ the account service gets an answer the relay refuses.
 | `introduction_unknown_key` | 404 | an introduction for a key no account member added on this PC |
 | `introduction_invalid` | 400 | an introduction's PC list does not parse, or a `server_id` does not derive from its key |
 | `introduction_none` | 404 | no introduction waits for this device |
+| `account_unavailable` | 503 | the tombstone file cannot be read; no account record applies |
 
 ## What this does not protect against
 
