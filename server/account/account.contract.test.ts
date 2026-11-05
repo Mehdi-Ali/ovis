@@ -11,7 +11,8 @@ import { rotateRelayIdentity } from "../relay/identity.ts";
 import { bounded, relayConnection, relayDevice, relayFixture } from "../relay/test-helpers.ts";
 import { AccountMailbox } from "./mailbox.ts";
 import { AccountIntroductions, INTRODUCTION_TTL_MS } from "./introductions.ts";
-import { exportPublicKey, generateKeyPair } from "../../shared/relay-e2ee.ts";
+import { exportPublicKey, generateKeyPair, importPublicKey } from "../../shared/relay-e2ee.ts";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { deriveServerId } from "../../shared/relay-server-proof.ts";
 import { applyAccountRecords } from "./records.ts";
 
@@ -210,7 +211,7 @@ test("the PC collects its mailbox with a proof of its relay key and applies it: 
   const identity = rotateRelayIdentity(f.stateDir);
   const service = new FakeAccountService();
   const token = service.issueToken(ACCOUNT);
-  await service.fetch(new Request(`https://account.test/v1/pcs/${identity.server_id}`, { method: "PUT", body: JSON.stringify({ label: "PC" }), headers: { authorization: `Bearer ${token}` } }));
+  await service.fetch(new Request(`https://account.test/v1/pcs/${identity.server_id}`, { method: "PUT", body: JSON.stringify({ label: "PC", public_key: bytesToHex(importPublicKey(identity.public_key)), relay: "wss://relay.ovis.sh" }), headers: { authorization: `Bearer ${token}` } }));
   const stranger = await accountKey();
   for (const record of [await remove(stranger, key.spki), await remove(key, lost.spki)]) {
     await service.fetch(new Request("https://account.test/v1/records", { method: "POST", body: JSON.stringify({ server_ids: [identity.server_id], record }), headers: { authorization: `Bearer ${token}` } }));

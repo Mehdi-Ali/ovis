@@ -4,15 +4,20 @@ import type { DeviceMatch } from "../devices.ts";
 
 /** Comparisons waiting on the owner at once; a phone past them is refused (`auth_failed`), so prompts cannot pile up. */
 export const MAX_PENDING_APPROVALS = 3;
+/** How long after the owner copies a link without a code this PC takes comparisons, as a Bluetooth device in pairing mode. */
+export const PAIRING_WINDOW_MS = 10 * 60_000;
 
 /** How a waiting comparison ended: approved (by this PC when `by` is absent, else by that account member) or not. */
 export type PairingDecision = { approved: true; by?: DeviceMatch } | { approved: false };
 
 /** What a remote approval came to: done, nothing waiting under that id, or the wrong digits picked (which ends it). */
-export type RemoteDecision = "decided" | "gone" | "wrong_digits";
+export type RemoteDecision = { outcome: "decided"; device_id: string } | { outcome: "gone" | "wrong_digits" };
 
 interface Waiting {
   request: RelayPairingRequest & { intent: PairingIntent };
+  /** the new device's key, and the id its row will have (accountDeviceId) */
+  key: string;
+  deviceId: string;
   choices: [string, string, string];
   finish: (decision: PairingDecision) => void;
 }
@@ -38,14 +43,21 @@ export class RelayPairingApprovals {
   private readonly waiting = new Map<string, Waiting>();
   private readonly listeners = new Set<(pairings: RelayPairingRequest[]) => void>();
   private readonly remoteListeners = new Set<(pairings: RemotePairingRequest[]) => void>();
+  private windowUntil = 0;
+
+  /** The owner asked for a link without a code: comparisons are taken for PAIRING_WINDOW_MS from now. */
+  openWindow(now = Date.now()): void { this.windowUntil = now + PAIRING_WINDOW_MS; }
+
+  /** Outside the window a comparison is refused before any prompt, so nobody the owner did not invite can raise one. */
+  windowOpen(now = Date.now()): boolean { return now < this.windowUntil; }
 
   list(): RelayPairingRequest[] {
     return [...this.waiting.values()].map(({ request }) => request);
   }
 
   remoteList(): RemotePairingRequest[] {
-    return [...this.waiting.values()].map(({ request, choices }) => ({
-      id: request.id, label: request.label, intent: request.intent, choices, expires_at: request.expires_at,
+    return [...this.waiting.values()].map(({ request, choices, key }) => ({
+      id: request.id, label: request.label, intent: request.intent, choices, expires_at: request.expires_at, key,
     }));
   }
 
@@ -63,7 +75,7 @@ export class RelayPairingApprovals {
   }
 
   /** Null when MAX_PENDING_APPROVALS are already waiting. `withdraw` ends it unapproved (the phone left, or time ran out). */
-  ask(label: string, digits: string, expiresAt: number, intent: PairingIntent = "pc"): { decision: Promise<PairingDecision>; withdraw: () => void } | null {
+  ask(label: string, digits: string, expiresAt: number, device: { intent: PairingIntent; key: string; deviceId: string } = { intent: "pc", key: "", deviceId: "" }): { decision: Promise<PairingDecision>; withdraw: () => void } | null {
     if (this.waiting.size >= MAX_PENDING_APPROVALS) return null;
     const id = randomBytes(8).toString("hex");
     const decided = Promise.withResolvers<PairingDecision>();
@@ -72,7 +84,7 @@ export class RelayPairingApprovals {
       this.changed();
       decided.resolve(decision);
     };
-    this.waiting.set(id, { request: { id, label, digits, expires_at: new Date(expiresAt).toISOString(), intent }, choices: decoys(digits), finish });
+    this.waiting.set(id, { request: { id, label, digits, expires_at: new Date(expiresAt).toISOString(), intent: device.intent }, key: device.key, deviceId: device.deviceId, choices: decoys(digits), finish });
     this.changed();
     return { decision: decided.promise, withdraw: () => finish({ approved: false }) };
   }
@@ -91,11 +103,11 @@ export class RelayPairingApprovals {
    */
   decideRemote(id: string, approved: boolean, digits: string, by: DeviceMatch): RemoteDecision {
     const entry = this.waiting.get(id);
-    if (!entry) return "gone";
-    if (!approved) { entry.finish({ approved: false }); return "decided"; }
-    if (digits !== entry.request.digits) { entry.finish({ approved: false }); return "wrong_digits"; }
+    if (!entry) return { outcome: "gone" };
+    if (!approved) { entry.finish({ approved: false }); return { outcome: "decided", device_id: entry.deviceId }; }
+    if (digits !== entry.request.digits) { entry.finish({ approved: false }); return { outcome: "wrong_digits" }; }
     entry.finish({ approved: true, by });
-    return "decided";
+    return { outcome: "decided", device_id: entry.deviceId };
   }
 
   private changed(): void {

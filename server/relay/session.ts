@@ -8,6 +8,7 @@ import { ACCOUNT_FEATURE, FrameType, LIMITS_V1, PAIR_INTENT_ACCOUNT, PAIR_INTENT
 import type { HeaderList, SessionError } from "../../shared/relay-mux.ts";
 import type { PairingIntent } from "../../shared/machines.ts";
 import { PairingRateLimitedError, type DeviceMatch } from "../devices.ts";
+import { accountDeviceId } from "../../shared/account-records.ts";
 import { handleRequest } from "../dispatch.ts";
 import type { RequestServices, ServerContext } from "../dispatch.ts";
 import type { EventStreamBudget } from "../machine-api.ts";
@@ -202,10 +203,11 @@ export class RelaySession {
       case FrameType.HELLO:
         if (this.state !== "hello") { this.close("protocol_error"); return; }
         if (!frame.payload.versions.includes(1)) { this.close("unsupported_version"); return; }
-        if (frame.payload.required_features.length) { this.close("unsupported_extension"); return; }
-        this.state = "auth";
-        // selected only where it can finish: a protected channel to bind the digits to, and the owner's approvals
+        // selected only where it can finish: a protected channel to bind the digits to
         if (frame.payload.features.includes(PAIR_SAS_FEATURE)) this.sasBinding = channelBinding(this.options.channel);
+        // a feature the phone requires has to be one this PC selects on this channel
+        if (frame.payload.required_features.some((feature) => feature !== PAIR_SAS_FEATURE || !this.sasBinding)) { this.close("unsupported_extension"); return; }
+        this.state = "auth";
         // an intent is selected only with pair-sas, and only the one offered (docs/account.md, "Negotiation")
         const intents = frame.payload.features.filter((f) => f === PAIR_INTENT_PC || f === PAIR_INTENT_ACCOUNT);
         if (intents.length > 1) { this.close("protocol_error"); return; }
@@ -235,6 +237,8 @@ export class RelaySession {
       case FrameType.PAIR_REQUEST: {
         if (this.state !== "auth" || !this.sasBinding) { this.close("protocol_error"); return; }
         if (this.options.services.serveOnly) { this.close("auth_failed"); return; }
+        // nobody asked for a link lately: refused before any prompt, and not counted, since no person was asked
+        if (!this.options.services.relay.approvals.windowOpen()) { this.close("auth_failed"); return; }
         this.options.services.devices.assertRelayPairing(this.path);
         this.state = "pair-commit";
         this.sas = {
@@ -258,7 +262,8 @@ export class RelaySession {
         // a pause that began while this phone held its reveal still keeps its prompt off the owner's screen
         this.options.services.devices.assertRelayPairing(this.path);
         const asked = this.options.services.relay.approvals.ask(sas.label,
-          pairDigits(this.sasBinding, sas.publicKey, phoneNonce, sas.pcNonce), sas.expiresAt, this.intent);
+          pairDigits(this.sasBinding, sas.publicKey, phoneNonce, sas.pcNonce), sas.expiresAt,
+          { intent: this.intent, key: sas.publicKey, deviceId: accountDeviceId(this.options.serverId, sas.publicKey) });
         if (!asked) { this.close("auth_failed"); return; }
         this.state = "pair-wait";
         sas.withdraw = asked.withdraw;
@@ -288,9 +293,11 @@ export class RelaySession {
   private finishPairing(): void {
     const sas = this.sas;
     if (!sas || !sas.phoneConfirmed || !sas.approved || this.state !== "pair-wait") return;
+    // an answer that lands after the deadline, before its timer ran, makes no device either
+    if (Date.now() > sas.expiresAt) { this.close("timeout"); return; }
     this.state = "verifying";
     let device: DeviceMatch | undefined;
-    try { device = this.options.services.devices.pairRelayApproved(sas.label, sas.publicKey, { path: this.path, ...(sas.approvedBy === undefined ? {} : { addedBy: sas.approvedBy }) })?.device; }
+    try { device = this.options.services.devices.pairRelayApproved(sas.label, sas.publicKey, { path: this.path, id: accountDeviceId(this.options.serverId, sas.publicKey), ...(sas.approvedBy === undefined ? {} : { addedBy: sas.approvedBy }) })?.device; }
     catch (error) {
       if (error instanceof PairingRateLimitedError) { this.close("auth_failed"); return; }
       throw error;
