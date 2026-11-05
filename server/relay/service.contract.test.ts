@@ -9,6 +9,7 @@ import type { Transport } from "../../shared/relay-e2ee.ts";
 import { decodeOffer, validateOffer } from "../../shared/relay-offer.ts";
 import { normalizePairCode, PairCodeExpiredError, PairCodeGuest, splitPairCode } from "../../shared/relay-pair-code.ts";
 import { PAIR_CLOSE } from "../../relay/pair-room.ts";
+import { offerFromCode } from "../../src/lib/relay/pairCode.ts";
 import type { RelayOffer } from "../../shared/relay-offer.ts";
 import { MuxEngine } from "../../shared/relay-mux-engine.ts";
 import type { HttpRequest, SessionFrame } from "../../shared/relay-mux-engine.ts";
@@ -876,4 +877,15 @@ it("a relay that is not Ovis's own has no codes to type", async () => {
   const response = await f.request("/code", "POST");
   expect(response.status).toBe(409);
   expect(await response.json()).toMatchObject({ error: { code: "code_unavailable" } });
+});
+
+it("end to end: the hosted app's code screen finds the PC through the relay and the phone pairs with what it gets", async () => {
+  const f = await fixture(false, { pairCodeRelay: "wss://relay.ovis.sh" });
+  await f.start();
+  const minted = await mintCode(f);
+  const offer = await offerFromCode(minted.code, { connect: (url) => new WebSocket(url.replace("wss://relay.ovis.sh", `ws://127.0.0.1:${f.localRelay.port}`)) });
+  expect(offer.server_id).toBe(minted.server_id);
+  const paired = await client(f, offer);
+  expect((await paired.http("/api/health")).status).toBe(200);
+  expect(f.app.context.services.devices.list(null).some((device) => device.via_relay)).toBe(true);
 });

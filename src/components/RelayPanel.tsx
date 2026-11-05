@@ -175,6 +175,7 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
       {offer !== null && <ShareLink url={offer.url} copyLabel={t("Copy link")}>{newCode}</ShareLink>}
       {offer === null && <div className="phone-actions">{newCode}</div>}
       {offer !== null && <QrReveal value={offer.url} label={t("QR code that pairs a phone through the relay")} hint={t("Scan it with the other device's camera.")} />}
+      <TypedCode onMinted={() => { quiet.current = true; again(); }} />
       {pcId}
     </div>
   );
