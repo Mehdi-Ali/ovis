@@ -76,4 +76,5 @@ export const RELAY_ZH: Record<string, string> = {
   "Update Ovis on it": "需要更新 Ovis",
   "To add a PC, sign in on it or scan its QR code.": "要添加 PC，请在该 PC 上登录或扫描其二维码。",
   "If they match, approve this phone on {name}.": "如果一致，请在 {name} 上批准此手机。",
+  "Ready · not in the account yet": "可连接 · 尚未加入账户",
 };

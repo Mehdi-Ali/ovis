@@ -3,6 +3,8 @@
  * directory of the account's PCs, and the tokens a sign-in gives. Answers are parsed here, at the
  * edge; a token is never logged or put in an error's text.
  */
+import type { AccountRecord } from "../../../shared/account-records.ts";
+import { isWssOrigin } from "../../../shared/relay-offer.ts";
 import type { AccountLock, AccountProvider, AccountSession, AccountStore } from "./store.ts";
 import { ACCOUNT_PROVIDERS, accountLock } from "./store.ts";
 
@@ -47,6 +49,9 @@ export interface DirectoryPc {
   readonly label: string;
   readonly added_at: string;
   readonly last_seen_at: string | null;
+  /** the PC's relay key (X25519, 64 hex) and relay, to compare digits with it; null from an entry without them */
+  readonly public_key: string | null;
+  readonly relay: string | null;
 }
 
 type Fetch = (input: Request | string | URL, init?: RequestInit) => Promise<Response>;
@@ -74,7 +79,9 @@ function parsePc(value: unknown): DirectoryPc | null {
   if (!isRecord(value) || typeof value.server_id !== "string" || !SERVER_ID.test(value.server_id)) return null;
   if (typeof value.label !== "string" || typeof value.added_at !== "string") return null;
   if (value.last_seen_at !== null && typeof value.last_seen_at !== "string") return null;
-  return { server_id: value.server_id, label: value.label, added_at: value.added_at, last_seen_at: value.last_seen_at };
+  const public_key = typeof value.public_key === "string" && /^[0-9a-f]{64}$/.test(value.public_key) ? value.public_key : null;
+  const relay = typeof value.relay === "string" && isWssOrigin(value.relay) ? value.relay : null;
+  return { server_id: value.server_id, label: value.label, added_at: value.added_at, last_seen_at: value.last_seen_at, public_key, relay };
 }
 
 export function sessionOf(body: unknown, service: string, now: number): AccountSession {
@@ -137,8 +144,16 @@ export class AccountService {
     return pcs.map(parsePc).filter((pc): pc is DirectoryPc => pc !== null);
   }
 
-  async putPc(serverId: string, label: string): Promise<void> {
-    await this.call("PUT", `/v1/pcs/${serverId}`, { label });
+  /** Lists a PC in the account's directory, with its relay key and relay so a new device can compare digits with it. */
+  async putPc(serverId: string, entry: { label: string; public_key: string; relay: string }): Promise<void> {
+    await this.call("PUT", `/v1/pcs/${serverId}`, entry);
+  }
+
+  /** Leaves a signed record in the mailbox of each listed PC of the account (at most 32 at a time). */
+  async postRecord(serverIds: readonly string[], record: AccountRecord): Promise<number> {
+    if (serverIds.length === 0) return 0;
+    const body = await this.call("POST", "/v1/records", { server_ids: serverIds, record });
+    return isRecord(body) && typeof body.queued === "number" ? body.queued : 0;
   }
 
   /**

@@ -7,14 +7,18 @@
 import { createElement, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
-import { MIN_SERVER_VERSION, MuxProtocolError } from "../../../shared/relay-mux.ts";
+import { ACCOUNT_FEATURE, MIN_SERVER_VERSION, MuxProtocolError } from "../../../shared/relay-mux.ts";
 import type { RelayOffer } from "../../../shared/relay-offer.ts";
 import type { UpdateStatus } from "../../../shared/update.ts";
 import { RelayShell } from "../../components/RelayShell.tsx";
 import { myPcs } from "../account/myPcs.ts";
+import type { MyPc } from "../account/myPcs.ts";
 import { accountServiceOf, AccountService, SignedOutError } from "../account/service.ts";
 import { beginSignIn, finishSignIn, SignInError, signInReturn } from "../account/signin.ts";
+import { linkThisDevice, needsLink, pcAccountStatus, takeIntroduction } from "../account/join.ts";
 import { indexedAccountStore } from "../account/store.ts";
+import { importPublicKey } from "../../../shared/relay-e2ee.ts";
+import { encodeOffer } from "../../../shared/relay-offer.ts";
 import type { AccountProvider, AccountStore } from "../account/store.ts";
 import { fetchUpdateStatus, requestUpdate } from "../api.ts";
 import { t } from "../i18n.ts";
@@ -153,7 +157,7 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
   const show = (state: RelayShellState): void => {
     shell ??= createRoot(mount.container);
     shell.render(createElement(StrictMode, null, createElement(SettingsProvider, null,
-      createElement(RelayShell, { state, scoped, iosTab, onPair: pair, onRetry: retry, onCancel: cancel, onBack: toFront, onForget: forget, onUpdate: update, onMatch: match, ...(accountService === null ? {} : { onSignIn: signIn }) }))));
+      createElement(RelayShell, { state, scoped, iosTab, onPair: pair, onRetry: retry, onCancel: cancel, onBack: toFront, onForget: forget, onUpdate: update, onMatch: match, ...(accountService === null ? {} : { onSignIn: signIn, onJoin: joinPc }) }))));
   };
 
   /** The front page: the saved PCs, or the account's once signed in. */
@@ -172,15 +176,22 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
     await showFront();
     try {
       const directory = await account.listPcs();
-      accountView = { ...signedIn, pcs: myPcs(directory, await store.list(), { now: Date.now() }) };
+      accountView = { ...signedIn, pcs: myPcs(directory, await store.list(), { now: Date.now(), accountKey: (await accountStore.key()).public_spki }) };
     } catch (error) {
       if (error instanceof SignedOutError) accountView = { kind: "signed-out", error: t("Your sign-in ended. Sign in again to see every PC of your account.") };
       else {
         console.warn("Ovis: the account's PCs could not be read", error);
-        accountView = { ...signedIn, pcs: myPcs([], await store.list(), { now: Date.now() }), error: t("The account service could not be reached. The PCs this device is paired with still work.") };
+        accountView = { ...signedIn, pcs: myPcs([], await store.list(), { now: Date.now(), accountKey: (await accountStore.key()).public_spki }), error: t("The account service could not be reached. The PCs this device is paired with still work.") };
       }
     }
     await showFront();
+  };
+
+  /** A PC of the account this device is not paired with: compare digits with it, as a link without a code does. */
+  const joinPc = (pc: MyPc): void => {
+    if (pc.join === undefined) return;
+    const link = new URL(encodeOffer({ v: 1, server_id: pc.server_id, server_public_key: pc.join.server_public_key, relay: pc.join.relay, name: pc.name }, window.location.origin));
+    navigate(link.pathname + link.hash);
   };
 
   const signIn = (provider: AccountProvider): void => {
@@ -218,10 +229,14 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
     const controller = new AbortController();
     opening = controller;
     show({ kind: "connecting", name: attempt.offer.name ?? null });
+    // signed in, a new pairing takes the account key and asks to join the account, so the PC's prompt says so
+    const signedIn = accountService !== null && await account.session() !== undefined;
+    const accountKey = signedIn ? await accountStore.key() : undefined;
     let opened: RelayTransport;
     try {
       opened = await open(attempt.offer, {
         store, label, signal: controller.signal,
+        ...(accountKey ? { accountKey, intent: "account" as const } : {}),
         // a link without a code: the digits wait on screen until this phone says they match
         compare: (digits) => new Promise<void>((resolve) => {
           if (controller.signal.aborted) return;
@@ -262,6 +277,33 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
     shell = null;
     app = mount.renderApp();
     registerPending(attempt.offer.server_id);
+    void joinAccount(opened, attempt.offer.server_id);
+  };
+
+  /**
+   * Once in a PC that has accounts, while signed in: this device's pairing joins the account (a QR
+   * pairing is linked to the account key, with no tap), the PC is listed in the account's directory,
+   * and an introduction waiting there saves the account's other PCs. A failure leaves the pairing as
+   * it was; the next connection tries again.
+   */
+  const joinAccount = async (opened: RelayTransport, serverId: string): Promise<void> => {
+    if (accountService === null || !opened.server?.features?.includes(ACCOUNT_FEATURE)) return;
+    const session = await account.session();
+    if (session === undefined) return;
+    const fetch = (path: string, init?: RequestInit) => opened.fetch(path, init);
+    try {
+      const key = await accountStore.key();
+      let device = await store.get(serverId);
+      if (device === undefined || device.device_id === null) return;
+      const status = await pcAccountStatus(fetch);
+      if (needsLink(status, device, session.account)) device = await linkThisDevice({ fetch, device, key, account: session.account, store });
+      if (device.public_spki !== key.public_spki) return;
+      const publicKey = Array.from(importPublicKey(device.server_public_key), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      await account.putPc(serverId, { label: (device.name ?? serverId.slice(0, 8)).slice(0, 48), public_key: publicKey, relay: device.relay });
+      await takeIntroduction({ fetch, key, label, store });
+    } catch (error) {
+      console.warn("Ovis: this PC did not join the account yet", error instanceof Error ? error.name : error);
+    }
   };
 
   /** The PC let this phone in: the version policy (skew.ts) decides between the app, the update screen and a newer shell. */

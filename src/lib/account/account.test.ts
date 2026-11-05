@@ -38,7 +38,7 @@ describe("signing in", () => {
     const { store, session } = await signIn(service);
     expect(session.account).toBe("acct_1");
     const client = new AccountService({ store, fetch: service.fetch });
-    await client.putPc(PC_A, "p620");
+    await client.putPc(PC_A, { label: "p620", public_key: "11".repeat(32), relay: "wss://relay.example" });
     expect((await client.listPcs()).map((pc) => pc.label)).toEqual(["p620"]);
   });
 
@@ -187,16 +187,29 @@ describe("My PCs", () => {
   const stale = new Date(now - OFFLINE_AFTER_MS - 1).toISOString();
 
   it("marks a listed PC this device is not paired with as needing approval, and keeps a paired PC the account does not list", () => {
-    const rows = myPcs([{ server_id: PC_B, label: "nuc", added_at: recent, last_seen_at: recent }], [paired(PC_A, "p620")], { now });
+    const rows = myPcs([{ server_id: PC_B, label: "nuc", added_at: recent, last_seen_at: recent, public_key: null, relay: null }], [paired(PC_A, "p620")], { now });
     expect(rows.map(({ name, state, listed }) => [name, state, listed])).toEqual([["p620", "paired", false], ["nuc", "needs-approval", true]]);
   });
 
   it("calls a PC offline once it stops coming by the service, and never one it has not seen", () => {
     const rows = myPcs([
-      { server_id: PC_A, label: "p620", added_at: recent, last_seen_at: stale },
-      { server_id: PC_B, label: "nuc", added_at: recent, last_seen_at: null },
+      { server_id: PC_A, label: "p620", added_at: recent, last_seen_at: stale, public_key: null, relay: null },
+      { server_id: PC_B, label: "nuc", added_at: recent, last_seen_at: null, public_key: null, relay: null },
     ], [paired(PC_A, "p620"), paired(PC_B, "nuc")], { now });
     expect(rows.map(({ name, state }) => [name, state])).toEqual([["nuc", "paired"], ["p620", "offline"]]);
+  });
+
+  it("offers to compare digits with a listed PC only when its key is the one its id comes from", async () => {
+    const { deriveServerId } = await import("../../../shared/relay-server-proof.ts");
+    const { generateKeyPair } = await import("../../../shared/relay-e2ee.ts");
+    const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const real = generateKeyPair().publicKey;
+    const other = generateKeyPair().publicKey;
+    const id = deriveServerId(real);
+    const listed = (key: Uint8Array) => myPcs([{ server_id: id, label: "nuc", added_at: recent, last_seen_at: recent, public_key: hex(key), relay: "wss://relay.example" }], [], { now })[0];
+    expect(listed(real)?.join?.relay).toBe("wss://relay.example");
+    // a directory that hands out another key for this id gets no way in
+    expect(listed(other)?.join).toBeUndefined();
   });
 
   it("says a PC needs an update when its Ovis has no accounts", () => {
@@ -205,9 +218,9 @@ describe("My PCs", () => {
   });
 
   it("names a paired PC by its own name, never the directory's label, even when it has none", () => {
-    const rows = myPcs([{ server_id: PC_A, label: "renamed by anyone", added_at: recent, last_seen_at: recent }], [paired(PC_A, "p620")], { now });
+    const rows = myPcs([{ server_id: PC_A, label: "renamed by anyone", added_at: recent, last_seen_at: recent, public_key: null, relay: null }], [paired(PC_A, "p620")], { now });
     expect(rows[0]?.name).toBe("p620");
     const { name: _unnamed, ...nameless } = paired(PC_A, "p620");
-    expect(myPcs([{ server_id: PC_A, label: "renamed by anyone", added_at: recent, last_seen_at: recent }], [nameless], { now })[0]?.name).toBe(PC_A.slice(0, 8));
+    expect(myPcs([{ server_id: PC_A, label: "renamed by anyone", added_at: recent, last_seen_at: recent, public_key: null, relay: null }], [nameless], { now })[0]?.name).toBe(PC_A.slice(0, 8));
   });
 });

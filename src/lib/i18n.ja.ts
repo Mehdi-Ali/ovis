@@ -26,6 +26,11 @@ import { RELAY_JA } from "./i18n/relay.ja.ts";
  * in English. Placeholders in braces keep their English names.
  */
 const BASE: Record<string, string> = {
+  "Add {device}?": "{device} を追加しますか？",
+  "Through {pc} · joins your {n} PCs": "{pc} 経由 · {n} 台の PC に参加します",
+  "Pick the number on {device}": "{device} に表示されている数字を選んでください",
+  "Didn't ask for this? Deny it.": "心当たりがなければ拒否してください。",
+  "Deny": "拒否",
   "never": "なし",
   "just now": "たった今",
   "{n} min ago": "{n} 分前",

@@ -28,6 +28,11 @@ import { RELAY_ZH } from "./i18n/relay.zh.ts";
  * Placeholders in braces keep their English names.
  */
 const BASE: Record<string, string> = {
+  "Add {device}?": "添加 {device}？",
+  "Through {pc} · joins your {n} PCs": "经由 {pc} · 将加入你的 {n} 台 PC",
+  "Pick the number on {device}": "选择 {device} 上显示的数字",
+  "Didn't ask for this? Deny it.": "如果不是你发起的，请拒绝。",
+  "Deny": "拒绝",
   "never": "从未",
   "just now": "刚刚",
   "{n} min ago": "{n} 分钟前",

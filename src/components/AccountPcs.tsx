@@ -50,7 +50,8 @@ export function AccountFinePrint() {
 
 function stateText(pc: MyPc, t: ReturnType<typeof useT>): string {
   switch (pc.state) {
-    case "paired": return t("Ready");
+    // a pairing from before the account: removing this device through the account does not reach it yet
+    case "paired": return pc.linked ? t("Ready") : t("Ready · not in the account yet");
     case "needs-approval": return t("Needs approval");
     case "offline": return t("Offline · {when}", { when: lastSeen(pc.last_seen_at) });
     case "needs-update": return t("Update Ovis on it");
@@ -58,7 +59,7 @@ function stateText(pc: MyPc, t: ReturnType<typeof useT>): string {
 }
 
 /** The account's PCs: a paired one opens; the others say what they wait for. */
-export function AccountPcList({ pcs }: { pcs: readonly MyPc[] }) {
+export function AccountPcList({ pcs, onJoin }: { pcs: readonly MyPc[]; onJoin?: (pc: MyPc) => void }) {
   const t = useT();
   return (
     <ul className="relay-shell-pcs">
@@ -73,7 +74,9 @@ export function AccountPcList({ pcs }: { pcs: readonly MyPc[] }) {
           <li key={pc.server_id} data-pc-state={pc.state}>
             {pc.paired
               ? <a className="relay-shell-pc" href={serverScopePath(pc.server_id)}>{body}<ChevronRight className="relay-shell-pc-glyph" aria-hidden="true" /></a>
-              : <div className="relay-shell-pc account-pc-waiting">{body}</div>}
+              : pc.join && onJoin
+                ? <button type="button" className="relay-shell-pc account-pc-join" onClick={() => onJoin(pc)}>{body}<ChevronRight className="relay-shell-pc-glyph" aria-hidden="true" /></button>
+                : <div className="relay-shell-pc account-pc-waiting">{body}</div>}
           </li>
         );
       })}
@@ -82,7 +85,7 @@ export function AccountPcList({ pcs }: { pcs: readonly MyPc[] }) {
 }
 
 /** The front page once signed in: the account's PCs, then how another one joins. */
-export function AccountPcs({ view }: { view: Extract<AccountView, { kind: "signed-in" }> }) {
+export function AccountPcs({ view, onJoin }: { view: Extract<AccountView, { kind: "signed-in" }>; onJoin?: (pc: MyPc) => void }) {
   const t = useT();
   return (
     <>
@@ -90,7 +93,7 @@ export function AccountPcs({ view }: { view: Extract<AccountView, { kind: "signe
       <p className="relay-shell-copy account-subtitle">{t("Signed in with {provider}", { provider: PROVIDER_NAMES[view.provider] })}</p>
       {view.pcs === null
         ? <div className="relay-shell-wait" role="status"><div className="boot-spinner" aria-hidden="true" /><span className="visually-hidden">{t("Loading your PCs…")}</span></div>
-        : <AccountPcList pcs={view.pcs} />}
+        : <AccountPcList pcs={view.pcs} {...(onJoin ? { onJoin } : {})} />}
       {view.error !== null && <p className="relay-shell-detail" role="alert">{view.error}</p>}
       <p className="account-fineprint">{t("To add a PC, sign in on it or scan its QR code.")}</p>
     </>

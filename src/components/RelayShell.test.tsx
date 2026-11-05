@@ -21,7 +21,7 @@ const render = (shown: RelayShellProps): string => {
   }
 };
 describe("the front page's account part", () => {
-  const pc = (server_id: string, name: string, state: "paired" | "needs-approval" | "offline" | "needs-update", paired = state === "paired") => ({ server_id, name, state, last_seen_at: null, listed: true, paired });
+  const pc = (server_id: string, name: string, state: "paired" | "needs-approval" | "offline" | "needs-update", paired = state === "paired") => ({ server_id, name, state, last_seen_at: null, listed: true, paired, linked: paired });
 
   it("offers GitHub and Apple alike, under one title, with the QR route behind a link", () => {
     const html = render({ ...props({ kind: "empty", account: { kind: "signed-out", error: null } }), scoped: false, onSignIn: none });

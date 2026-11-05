@@ -3,6 +3,7 @@ import "./RelayShell.css";
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 
+import type { MyPc } from "../lib/account/myPcs.ts";
 import type { AccountProvider } from "../lib/account/store.ts";
 import { useT } from "../lib/i18n.ts";
 import type { AccountView, KeyMismatch } from "../lib/relay/shellState.ts";
@@ -29,6 +30,8 @@ export interface RelayShellProps {
   onMatch: () => void;
   /** the front page's sign-in: off to the provider's pages */
   onSignIn?: (provider: AccountProvider) => void;
+  /** a PC of the account this device is not paired with: compare digits with it */
+  onJoin?: (pc: MyPc) => void;
 }
 
 /**
@@ -67,7 +70,7 @@ export const PLUGIN_COMMANDS = "herdr plugin install devswha/ovis\nherdr plugin 
  * `data-relay-state` for scripts. One card in the token gate's frame (AccessGate.css), so a phone
  * that pairs through the relay and one that pairs with a code see the same room.
  */
-export function RelayShell({ state, scoped, iosTab, onPair, onRetry, onCancel, onBack, onForget, onUpdate, onMatch, onSignIn }: RelayShellProps) {
+export function RelayShell({ state, scoped, iosTab, onPair, onRetry, onCancel, onBack, onForget, onUpdate, onMatch, onSignIn, onJoin }: RelayShellProps) {
   const t = useT();
   const account: AccountView | null = (state.kind === "list" || state.kind === "empty") && onSignIn ? state.account ?? null : null;
   const signIn = account?.kind === "signed-out" && onSignIn ? <AccountSignIn onSignIn={onSignIn} error={account.error} /> : null;
@@ -85,7 +88,7 @@ export function RelayShell({ state, scoped, iosTab, onPair, onRetry, onCancel, o
     <main className="relay-shell-screen" data-relay-state={stateName} {...(account ? { "data-account-state": account.kind } : {})}>
       <div className={signInFirst || state.kind === "compare" ? "relay-shell account-centered" : "relay-shell"}>
         <img src="/icons/icon-192.png?v=sheep1" alt="" width="44" height="44" className="relay-shell-mark" />
-        {account?.kind === "signed-in" && <AccountPcs view={account} />}
+        {account?.kind === "signed-in" && <AccountPcs view={account} {...(onJoin ? { onJoin } : {})} />}
         {account?.kind === "signing-in" && (
           <>
             <h1 className="relay-shell-title">{t("Signing in…")}</h1>

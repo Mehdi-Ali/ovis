@@ -76,4 +76,5 @@ export const RELAY_JA: Record<string, string> = {
   "Update Ovis on it": "Ovis の更新が必要",
   "To add a PC, sign in on it or scan its QR code.": "PC を追加するには、その PC でサインインするか QR コードをスキャンします。",
   "If they match, approve this phone on {name}.": "一致したら {name} でこのスマホを承認してください。",
+  "Ready · not in the account yet": "接続可能 · まだアカウント外",
 };

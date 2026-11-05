@@ -76,4 +76,5 @@ export const RELAY_KO: Record<string, string> = {
   "Update Ovis on it": "Ovis 업데이트 필요",
   "To add a PC, sign in on it or scan its QR code.": "PC를 추가하려면 그 PC에서 로그인하거나 QR 코드를 스캔하세요.",
   "If they match, approve this phone on {name}.": "같으면 {name}에서 이 폰을 승인하세요.",
+  "Ready · not in the account yet": "연결됨 · 아직 계정에 없음",
 };

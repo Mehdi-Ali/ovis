@@ -117,6 +117,17 @@
 [data-pc-state="needs-approval"] .account-pc-dot { background: var(--status-working); }
 [data-pc-state="needs-update"] .account-pc-dot { background: var(--status-blocked); }
 
+/* a PC to compare digits with: the row is the button, as a saved PC's row is the link */
+.account-pc-join {
+  width: 100%;
+  background: none;
+  border: 0;
+  border-bottom: var(--hairline) solid var(--border);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
 /* a PC that does not open yet: the row without the link's hover */
 .account-pc-waiting:hover {
   color: var(--text-strong);

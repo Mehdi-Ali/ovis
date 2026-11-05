@@ -148,15 +148,18 @@ function checkPin(device: RelayDevice, offer: RelayOffer): RelayDevice {
  * The saved key for the offer's PC, or a new one that is not saved yet: a new key is kept only once
  * the PC admits it (channel.ts), so a link whose PC never does takes no PC's slot.
  */
-export async function getDevice(offer: RelayOffer, store: RelayDeviceStore = indexedDeviceStore, label = "Device"): Promise<RelayDevice> {
+export async function getDevice(offer: RelayOffer, store: RelayDeviceStore = indexedDeviceStore, label = "Device", accountKey?: { private_key: CryptoKey; public_spki: string }): Promise<RelayDevice> {
   const stored = await store.get(offer.server_id);
   if (stored) return checkPin(stored, offer);
-  const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
+  // signed in, a new pairing uses the account key, the same on every PC of the account
+  const key = accountKey ?? await (async () => {
+    const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
+    return { private_key: keys.privateKey, public_spki: base64url(new Uint8Array(await crypto.subtle.exportKey("spki", keys.publicKey))) };
+  })();
   return {
     server_id: offer.server_id, server_public_key: offer.server_public_key, relay: offer.relay,
     ...(offer.name === undefined ? {} : { name: offer.name }),
-    device_id: null, private_key: keys.privateKey,
-    public_spki: base64url(new Uint8Array(await crypto.subtle.exportKey("spki", keys.publicKey))), label,
+    device_id: null, private_key: key.private_key, public_spki: key.public_spki, label,
   };
 }
 

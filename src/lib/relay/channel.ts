@@ -1,7 +1,8 @@
 import { channelBinding, openClientSecureChannel } from "../../../shared/relay-e2ee.ts";
 import { PAIR_APPROVAL_MS, pairCommitment, pairDigits, randomPairNonce, toBase64Url, fromBase64Url } from "../../../shared/relay-pair-sas.ts";
 import type { SecureChannel, Transport } from "../../../shared/relay-e2ee.ts";
-import { decodeFrame, FrameType, LIMITS_V1, MuxProtocolError, PAIR_SAS_FEATURE, RELAY_PROTOCOL } from "../../../shared/relay-mux.ts";
+import { ACCOUNT_FEATURE, decodeFrame, FrameType, LIMITS_V1, MuxProtocolError, PAIR_INTENT_ACCOUNT, PAIR_INTENT_PC, PAIR_SAS_FEATURE, RELAY_PROTOCOL } from "../../../shared/relay-mux.ts";
+import type { AccountKey } from "../account/store.ts";
 import { MuxEngine } from "../../../shared/relay-mux-engine.ts";
 import type { SessionFrame } from "../../../shared/relay-mux-engine.ts";
 import { isWssOrigin, SERVER_ID_PATTERN } from "../../../shared/relay-offer.ts";
@@ -75,6 +76,13 @@ export interface RelayChannelOptions {
    * cannot pair. The PC's owner still has to approve it there.
    */
   readonly compare?: (digits: string) => Promise<void>;
+  /**
+   * This client's account key, when it is signed in: a new pairing signs in with it instead of a key
+   * of its own for this PC, so the row it gets is the account's to link (docs/account.md, rule 2).
+   */
+  readonly accountKey?: AccountKey;
+  /** What a comparison asks for, shown in the approval prompt: this PC only, or the account; `pc` by default. */
+  readonly intent?: "pc" | "account";
 }
 export interface RelayChannel {
   readonly mux: MuxEngine;
@@ -94,6 +102,8 @@ export interface RelayChannel {
 export interface RelayServerInfo {
   readonly version: string;
   readonly relayProtocol: number;
+  /** what the PC selected of what this client offered; `account` says it has /api/account/* */
+  readonly features?: readonly string[];
 }
 
 /** Resolves only after protected Noise, WELCOME and device admission all succeeded. Never retries. */
@@ -106,7 +116,7 @@ export async function openRelayChannel(offer: RelayOffer, options: RelayChannelO
   url.searchParams.set("v", "1");
   options.signal?.throwIfAborted();
   const store = options.store ?? indexedDeviceStore;
-  const device = await getDevice(offer, store, options.label);
+  const device = await getDevice(offer, store, options.label, options.accountKey);
   options.signal?.throwIfAborted();
   const socket = (options.socket ?? ((address) => new WebSocket(address)))(url.href);
   socket.binaryType = "arraybuffer";
@@ -114,6 +124,10 @@ export async function openRelayChannel(offer: RelayOffer, options: RelayChannelO
     let phase: "assigned" | "handshake" | "welcome" | "pair" | "auth" | "ready" | "closed" = "assigned";
     // a device with neither a code nor a saved admission pairs by comparing digits, when the PC selects it
     const comparing = offer.code === undefined && device.device_id === null && options.compare !== undefined;
+    // an older PC selects none of these; a comparison names what it asks for, so the PC's prompt can say it
+    const offered: readonly string[] = comparing
+      ? [ACCOUNT_FEATURE, PAIR_SAS_FEATURE, options.intent === "account" ? PAIR_INTENT_ACCOUNT : PAIR_INTENT_PC]
+      : [ACCOUNT_FEATURE];
     let phoneNonce: Uint8Array | undefined;
     let binding: Uint8Array | undefined;
     let challenge: Uint8Array | undefined;
@@ -180,8 +194,8 @@ export async function openRelayChannel(offer: RelayOffer, options: RelayChannelO
       if (phase === "welcome" && frame.type === FrameType.WELCOME) {
         // before any credential: a PC of another relay generation is an update, not a pairing
         if (frame.payload.relay_protocol !== RELAY_PROTOCOL) throw new MuxProtocolError("unsupported_version", `The PC speaks relay protocol ${frame.payload.relay_protocol}`);
-        server = { version: frame.payload.server_version, relayProtocol: frame.payload.relay_protocol };
-        if (frame.payload.features.some((feature) => !comparing || feature !== PAIR_SAS_FEATURE)) throw new MuxProtocolError("unsupported_extension", "Server selected unoffered features");
+        server = { version: frame.payload.server_version, relayProtocol: frame.payload.relay_protocol, features: frame.payload.features };
+        if (frame.payload.features.some((feature) => !offered.includes(feature))) throw new MuxProtocolError("unsupported_extension", "Server selected unoffered features");
         phase = "auth";
         Object.assign(limits, frame.payload.limits);
         welcome = bytes;
@@ -317,7 +331,7 @@ export async function openRelayChannel(offer: RelayOffer, options: RelayChannelO
           onClose: (error) => stop(error),
         });
         await send({ type: FrameType.HELLO, flags: 0, stream_id: 0,
-          payload: { protocol: "ovis-mux", versions: [1], features: comparing ? [PAIR_SAS_FEATURE] : [], required_features: [] } });
+          payload: { protocol: "ovis-mux", versions: [1], features: [...offered], required_features: [] } });
       }).catch(failed);
     };
   });
