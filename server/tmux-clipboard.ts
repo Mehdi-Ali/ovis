@@ -15,7 +15,7 @@
  * a pane whose tmux client shows the copying pane's window: the clients tmux itself would set.
  */
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { closeSync, lstatSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { cameThroughProxy } from "./access.ts";
 import { jsonResponse } from "./http.ts";
@@ -43,7 +43,8 @@ export interface TmuxCopyOptions {
   shownPanes(): Iterable<string>;
   /** the pane's foreground processes, as herdr's `pane.process_info` names them */
   foreground(paneId: string): Promise<TmuxForeground[]>;
-  copy(paneId: string, text: string): void;
+  /** the clients each pane has now; the answer tells a copy to those of them still showing the pane */
+  capture(): (paneId: string, text: string) => void;
   /** the tmux and curl programs; found on PATH unless a test names others */
   tmux?: string | null;
   curl?: string | null;
@@ -112,9 +113,12 @@ function clientTmpdir(pid: number): string {
   return process.env["TMUX_TMPDIR"] || "/tmp";
 }
 
+/** the sockets this state folder's servers hooked, by hook index, so a run after a crash unsets them */
+const HOOKED_FILE = "tmux-hooks.json";
+
 export class TmuxCopyHooks {
   private readonly secret = randomBytes(32).toString("hex");
-  private readonly headerFile: string;
+  private headerFile: string | null = null;
   private readonly tmux: string | null;
   private readonly curl: string | null;
   /** the shown panes that run a tmux client: its pid and its server's socket (real path) */
@@ -124,16 +128,82 @@ export class TmuxCopyHooks {
   private readonly timer: ReturnType<typeof setInterval>;
   private readonly unsubscribe: () => void;
   private sweeping: Promise<void> | null = null;
+  /** copies being read per socket: a copy while one is read is read once after it (the newest buffer then) */
+  private readonly reading = new Map<string, { again: (() => void) | null }>();
+  private warned = false;
+  /** the buffers each hooked tmux held at the last look (`name\tcreated`): a hook's copy is the one buffer new since */
+  private readonly seen = new Map<string, Set<string>>();
+  private readonly leftovers: Promise<void>;
   private again = false;
   private stopped = false;
 
   constructor(private readonly options: TmuxCopyOptions) {
-    this.headerFile = join(options.stateDir, "tmux-hook-header");
     this.tmux = options.tmux === undefined ? Bun.which("tmux") : options.tmux;
     this.curl = options.curl === undefined ? Bun.which("curl") : options.curl;
     this.timer = setInterval(() => void this.sweep(), options.sweepMs ?? SWEEP_MS);
     this.timer.unref();
     this.unsubscribe = options.subscribe(() => void this.sweep());
+    this.leftovers = this.clearLeftovers().catch(() => {});
+  }
+
+  /** the URL the hook posts to: in the hook text, it tells this server's hook from any other */
+  private url(index: number): string {
+    return `http://127.0.0.1:${index}${TMUX_COPIED_PATH}`;
+  }
+
+  private hookedPath(): string {
+    return join(this.options.stateDir, HOOKED_FILE);
+  }
+
+  private readHooked(): Record<string, string[]> {
+    try {
+      const held = JSON.parse(readFileSync(this.hookedPath(), "utf8")) as unknown;
+      return typeof held === "object" && held !== null && !Array.isArray(held) ? held as Record<string, string[]> : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private writeHooked(): void {
+    const index = this.index();
+    if (index === null) return;
+    const all = this.readHooked();
+    if (this.hooked.size === 0) delete all[String(index)];
+    else all[String(index)] = [...this.hooked];
+    try { writeFileSync(this.hookedPath(), `${JSON.stringify(all)}\n`, { mode: 0o600 }); } catch {}
+  }
+
+  /** A server of this port that ended without unsetting its hooks (a crash, a kill) left them listed: they go now. */
+  private async clearLeftovers(): Promise<void> {
+    const index = this.index();
+    if (index === null || this.tmux === null) return;
+    const left = this.readHooked()[String(index)];
+    if (!Array.isArray(left)) return;
+    await Promise.all(left.filter((socket) => typeof socket === "string" && !this.hooked.has(socket) && ownSocket(socket)).map((socket) => this.unsetOurs(socket, index)));
+    if (this.hooked.size === 0) this.writeHooked();
+  }
+
+  /** The hook at our index, when it is this server's own; another hook there (the user's) is never replaced or unset. */
+  private async hookAt(socket: string, index: number): Promise<"ours" | "free" | "other"> {
+    const shown = await run(this.tmux!, ["-S", socket, "show-hooks", "-g", `pane-set-clipboard[${index}]`]);
+    // tmux answers an unset index with its name alone
+    const value = shown?.trim().replace(/^pane-set-clipboard\[\d+\]/, "").trim() ?? "";
+    if (value === "") return "free";
+    return value.includes(this.url(index)) ? "ours" : "other";
+  }
+
+  private async unsetOurs(socket: string, index: number): Promise<void> {
+    if (await this.hookAt(socket, index) === "ours") await run(this.tmux!, ["-S", socket, "set-hook", "-gu", `pane-set-clipboard[${index}]`]);
+  }
+
+  /** this server's own secret file, made new and only this user's: a name taken by anything else (a link) is replaced, never followed */
+  private secretFile(index: number): string {
+    if (this.headerFile !== null) return this.headerFile;
+    const path = join(this.options.stateDir, `tmux-hook-${index}.header`);
+    try { unlinkSync(path); } catch {}
+    const fd = openSync(path, "wx", 0o600);
+    try { writeSync(fd, `${TMUX_HOOK_HEADER}: ${this.secret}\n`); } finally { closeSync(fd); }
+    return this.headerFile = path;
   }
 
   /** the hook's array index: one per server port, so two servers on this PC never unset each other's */
@@ -158,6 +228,7 @@ export class TmuxCopyHooks {
   }
 
   private async reconcile(): Promise<void> {
+    await this.leftovers;
     const on = !this.stopped && this.options.enabled() && this.tmux !== null && process.platform !== "win32";
     const shown = on ? new Set(this.options.shownPanes()) : new Set<string>();
     for (const paneId of this.panes.keys()) if (!shown.has(paneId)) this.panes.delete(paneId);
@@ -196,17 +267,38 @@ export class TmuxCopyHooks {
 
   private async install(socket: string): Promise<void> {
     const index = this.index();
-    if (index === null || this.curl === null || !PLAIN_PATH.test(this.headerFile) || !PLAIN_PATH.test(this.curl)) return;
-    writeFileSync(this.headerFile, `${TMUX_HOOK_HEADER}: ${this.secret}\n`, { mode: 0o600 });
-    chmodSync(this.headerFile, 0o600);
-    const post = `${this.curl} -fsS -m 2 -o /dev/null -H @${this.headerFile} --data-urlencode socket=#{q:socket_path} --data-urlencode pane=#{pane_id} http://127.0.0.1:${index}${TMUX_COPIED_PATH} || true`;
-    if (await run(this.tmux!, ["-S", socket, "set-hook", "-g", `pane-set-clipboard[${index}]`, `run-shell -b "${post}"`]) !== null) this.hooked.add(socket);
+    if (index === null) return;
+    const header = this.curl !== null && PLAIN_PATH.test(this.curl) && PLAIN_PATH.test(join(this.options.stateDir, "x")) ? this.secretFile(index) : null;
+    if (header === null) {
+      if (!this.warned) console.error("tmux copy: no hook is set: curl is missing, or its path or the state folder's has characters the hook cannot quote");
+      this.warned = true;
+      return;
+    }
+    if (await this.hookAt(socket, index) === "other") {
+      console.error(`tmux copy: pane-set-clipboard[${index}] on ${socket} is another hook; it is left as it is`);
+      return;
+    }
+    const buffers = await this.buffers(socket);
+    if (buffers === null) return;
+    this.seen.set(socket, buffers);
+    const post = `${this.curl} -fsS -m 2 -o /dev/null -H @${header} --data-urlencode socket=#{q:socket_path} --data-urlencode pane=#{pane_id} ${this.url(index)} || true`;
+    if (await run(this.tmux!, ["-S", socket, "set-hook", "-g", `pane-set-clipboard[${index}]`, `run-shell -b "${post}"`]) !== null) {
+      this.hooked.add(socket);
+      this.writeHooked();
+    }
+  }
+
+  private async buffers(socket: string): Promise<Set<string> | null> {
+    const listed = await run(this.tmux!, ["-S", socket, "list-buffers", "-F", "#{buffer_name}\t#{buffer_created}"]);
+    return listed === null ? null : new Set(listed.split("\n").filter((line) => line !== ""));
   }
 
   private async uninstall(socket: string): Promise<void> {
     this.hooked.delete(socket);
+    this.seen.delete(socket);
     const index = this.index();
-    if (index !== null) await run(this.tmux!, ["-S", socket, "set-hook", "-gu", `pane-set-clipboard[${index}]`]);
+    if (index !== null) await this.unsetOurs(socket, index);
+    this.writeHooked();
   }
 
   /** Unsets every hook this server set; settles once tmux has answered. */
@@ -217,6 +309,8 @@ export class TmuxCopyHooks {
     await this.sweeping;
     this.panes.clear();
     await Promise.all([...this.hooked].map((socket) => this.uninstall(socket)));
+    if (this.headerFile !== null) try { unlinkSync(this.headerFile); } catch {}
+    this.headerFile = null;
   }
 
   /** Whether the request is this server's hook: a POST from 127.0.0.1 or ::1, straight to it, with its secret and no Origin. */
@@ -228,7 +322,9 @@ export class TmuxCopyHooks {
   }
 
   async handle(request: Request, peer: string | null): Promise<Response> {
-    if (!this.fromHook(request, peer)) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
+    if (!this.fromHook(request, peer) || !this.options.enabled()) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
+    // who shows a pane now: a browser that joins while the copy is read is not sent a copy from before it
+    const tell = this.options.capture();
     const form = await request.formData().catch(() => null);
     const named = form?.get("socket");
     const pane = form?.get("pane");
@@ -238,14 +334,44 @@ export class TmuxCopyHooks {
     let socket: string;
     try { socket = realpathSync(named); } catch { socket = named; }
     if (!this.hooked.has(socket) || !ownSocket(socket)) return jsonResponse({ error: { code: "forbidden", message: "this server set no hook on that tmux" } }, 403);
-    // show-buffer without -b prints the newest buffer: the copy that ran the hook
+    // one read per socket at a time, in order; copies that came during it are read once after it
+    const busy = this.reading.get(socket);
+    if (busy) {
+      busy.again = () => this.read(socket, pane, tell);
+      return new Response(null, { status: 204 });
+    }
+    const state: { again: (() => void) | null } = { again: null };
+    this.reading.set(socket, state);
+    try {
+      await this.read(socket, pane, tell);
+      while (state.again) {
+        const next = state.again;
+        state.again = null;
+        await next();
+      }
+    } finally {
+      this.reading.delete(socket);
+    }
+    return new Response(null, { status: 204 });
+  }
+
+  private async read(socket: string, pane: string, tell: (paneId: string, text: string) => void): Promise<void> {
+    // The copy this hook is for is the one buffer made since the last look. Two or more (copies close
+    // together, perhaps in other windows) cannot be told apart, so none of them is sent: a copy reaches
+    // only the window it was made in, or nowhere. A buffer changed in place (append-selection) is not new.
+    const now = await this.buffers(socket);
+    if (now === null) return;
+    const fresh = [...now].filter((key) => !(this.seen.get(socket)?.has(key) ?? false));
+    this.seen.set(socket, now);
+    if (fresh.length !== 1) return;
+    const name = fresh[0]!.split("\t")[0]!;
     const [text, window, clients] = await Promise.all([
-      run(this.tmux!, ["-S", socket, "show-buffer"], MAX_TMUX_COPY_BYTES),
+      run(this.tmux!, ["-S", socket, "show-buffer", "-b", name], MAX_TMUX_COPY_BYTES),
       run(this.tmux!, ["-S", socket, "display-message", "-p", "-t", pane, "#{window_id}"]),
       run(this.tmux!, ["-S", socket, "list-clients", "-F", "#{client_pid}\t#{window_id}"]),
     ]);
     // nothing to copy, a copy too big for a browser's clipboard (as OSC 52 drops it), or a pane gone
-    if (!text || window === null || clients === null) return new Response(null, { status: 204 });
+    if (!text || window === null || clients === null) return;
     const shown = window.trim();
     const pids = new Set(clients.split("\n").flatMap((line) => {
       const [pid, at] = line.split("\t");
@@ -253,8 +379,7 @@ export class TmuxCopyHooks {
     }));
     const showing = new Set(this.options.shownPanes());
     for (const [paneId, client] of this.panes) {
-      if (client.socket === socket && pids.has(client.pid) && showing.has(paneId)) this.options.copy(paneId, text);
+      if (client.socket === socket && pids.has(client.pid) && showing.has(paneId)) tell(paneId, text);
     }
-    return new Response(null, { status: 204 });
   }
 }

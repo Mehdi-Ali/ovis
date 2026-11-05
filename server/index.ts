@@ -401,7 +401,7 @@ export function createServer(
   const requestLog = new RequestLog(stateDir);
   const tmuxCopy = new TmuxCopyHooks({
     stateDir, port: () => server.port, enabled: () => preferences.get().settings.tmuxCopy === true, subscribe: (listener) => preferences.subscribe(listener),
-    shownPanes: core.paneClipboard.shownPanes, copy: core.paneClipboard.copy,
+    shownPanes: core.paneClipboard.shownPanes, capture: core.paneClipboard.capture,
     foreground: async (paneId) => (await paneProcessInfo(paneId))?.foreground_processes ?? [],
   });
   const accountMailbox = new AccountMailbox({

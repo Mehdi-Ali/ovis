@@ -42,12 +42,12 @@ describe.skipIf(tmuxProgram === null || process.platform === "win32")("tmux copy
       subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
       shownPanes: () => state.shown,
       foreground: async (paneId) => paneId === "pane-shell" ? [{ pid: 1, argv: ["bash"] }] : [{ pid: clientPid, argv }],
-      copy: (paneId, text) => { copies.push([paneId, text]); },
+      capture: () => (paneId, text) => { copies.push([paneId, text]); },
       tmux, curl: Bun.which("curl") ?? "/usr/bin/curl",
     };
     return new TmuxCopyHooks(options);
   }
-  const secret = () => readFileSync(join(dir, "tmux-hook-header"), "utf8").split(": ")[1]!.trim();
+  const secret = () => readFileSync(join(dir, `tmux-hook-${PORT}.header`), "utf8").split(": ")[1]!.trim();
   const post = (fields: Record<string, string>, headers: Record<string, string> = { [TMUX_HOOK_HEADER]: secret() }) =>
     new Request(`http://127.0.0.1:${PORT}/api/tmux/copied`, { method: "POST", headers: { host: `127.0.0.1:${PORT}`, ...headers }, body: new URLSearchParams(fields) });
 
@@ -87,7 +87,7 @@ describe.skipIf(tmuxProgram === null || process.platform === "win32")("tmux copy
       expect(set).toContain(`pane-set-clipboard[${PORT}]`);
       expect(set).toContain(`127.0.0.1:${PORT}/api/tmux/copied`);
       // the secret is in a file only this user reads, and not in the hook's command line
-      expect(statSync(join(dir, "tmux-hook-header")).mode & 0o777).toBe(0o600);
+      expect(statSync(join(dir, `tmux-hook-${PORT}.header`)).mode & 0o777).toBe(0o600);
       expect(set).not.toContain(secret());
       state.on = false;
       await hooked.sweep();
@@ -112,14 +112,39 @@ describe.skipIf(tmuxProgram === null || process.platform === "win32")("tmux copy
     expect(await hooks()).toBe("pane-set-clipboard[0] run-shell true");
   });
 
+  it("unsets on its next start the hook a server that ended without stopping left, and never a hook of the user's at its index", async () => {
+    const crashed = manager({ on: true, shown: ["pane-tmux"] }, []);
+    await crashed.sweep();
+    expect(await hooks()).toContain(`[${PORT}]`);
+    // the next run of this server, with the setting off: what the last one listed goes
+    const next = manager({ on: false, shown: ["pane-tmux"] }, []);
+    await next.sweep();
+    expect(await hooks()).toBe("pane-set-clipboard[0] run-shell true");
+    await next.stop();
+    // the user's own hook at this server's index is neither replaced nor unset
+    await run("set-hook", "-g", `pane-set-clipboard[${PORT}]`, "run-shell mine");
+    const beside = manager({ on: true, shown: ["pane-tmux"] }, []);
+    await beside.sweep();
+    expect(await hooks()).toContain(`pane-set-clipboard[${PORT}] run-shell mine`);
+    await beside.stop();
+    expect(await hooks()).toContain(`pane-set-clipboard[${PORT}] run-shell mine`);
+    await run("set-hook", "-gu", `pane-set-clipboard[${PORT}]`);
+  });
+
   it("brings a copy to the pane whose tmux client shows the copying window, and to no other", async () => {
     const copies: [string, string][] = [];
-    const hooked = manager({ on: true, shown: ["pane-tmux", "pane-shell"] }, copies);
+    const state = { on: true, shown: ["pane-tmux", "pane-shell"] };
+    const hooked = manager(state, copies);
     try {
       await hooked.sweep();
       const shown = await run("display-message", "-p", "-t", "one:0", "#{pane_id}");
       const hidden = await run("display-message", "-p", "-t", "one:1", "#{pane_id}");
       await run("set-buffer", "copied in tmux ✓");
+      expect((await hooked.handle(post({ socket, pane: shown }), "127.0.0.1")).status).toBe(204);
+      expect(copies).toEqual([["pane-tmux", "copied in tmux ✓"]]);
+      // two copies before the hook's post is read: which window each came from cannot be told, so neither goes
+      await run("set-buffer", "made in the window behind");
+      await run("set-buffer", "made here");
       expect((await hooked.handle(post({ socket, pane: shown }), "127.0.0.1")).status).toBe(204);
       expect(copies).toEqual([["pane-tmux", "copied in tmux ✓"]]);
       await run("set-buffer", "from the window behind");
@@ -128,6 +153,11 @@ describe.skipIf(tmuxProgram === null || process.platform === "win32")("tmux copy
       writeFileSync(big, "x".repeat(MAX_TMUX_COPY_BYTES + 1));
       await run("load-buffer", big);
       expect((await hooked.handle(post({ socket, pane: shown }), "127.0.0.1")).status).toBe(204);
+      expect(copies).toEqual([["pane-tmux", "copied in tmux ✓"]]);
+      // the setting turned off: a hook still set is not taken, even before the sweep unsets it
+      state.on = false;
+      await run("set-buffer", "after off");
+      expect((await hooked.handle(post({ socket, pane: shown }), "127.0.0.1")).status).toBe(404);
       expect(copies).toEqual([["pane-tmux", "copied in tmux ✓"]]);
     } finally {
       await hooked.stop();
