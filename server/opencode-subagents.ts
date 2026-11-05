@@ -5,7 +5,8 @@
  * OpenCode 2 runs a subagent in a child session of the session that started it: a `session_v2`
  * row whose `parent_id` names that session, with `session_message` rows of its own (the
  * `subagent` tool, packages/core/src/tool/plugin/subagent.ts in 2.0.32; a plugin that starts
- * subagents makes the same child sessions). Whether one still runs is told first by the parent's
+ * subagents makes the same child sessions). With Settings -> Read OpenCode subagent ends from their
+ * session (experimental, off by default; `parentEnds`), whether one still runs is told first by the parent's
  * own record, as a Claude Code subagent's end is taken from its parent's transcript: the newest
  * `subagent` call naming the child (`state.metadata.sessionID`) runs it until it is answered
  * (`completed`, or `error`), and a background call, answered at once with `metadata.status:
@@ -283,6 +284,8 @@ interface Scan {
    * one a read before left; the newest `time_updated` and `seq` of the session's rows as this read began
    */
   told: Map<string, Told> | null; log: ParentLog; since: number | null; newest: number; idle: number;
+  /** whether the parent's record is read at all (Settings -> Read OpenCode subagent ends from their session); off, only the children's rows tell */
+  parentEnds: boolean;
   open: string[]; ended: { id: string; at: number }[];
   /** phase 2: the ids to read again, and how far (a page is taken only once all of it is read: one that failed is read again whole) */
   ids: string[] | null; reread: number; promptAt: number | null;
@@ -297,8 +300,8 @@ const WORK_STEP = 50;
 /** How many running children are listed, the newest: each counts, however many run */
 export const RUNNING_LIMIT = 1000;
 
-function newScan(sessionId: string, now: number, live: boolean, serviceStart: number | null, detail: boolean, log: ParentLog = NO_LOG): Scan {
-  return { sessionId, now, live, serviceStart, detail, columns: null, after: 0, paged: false, shells: null, shellRunning: 0, told: null, log, since: null, newest: 0, idle: -1, open: [], ended: [], ids: null, reread: 0, promptAt: null, running: 0, turnRunning: 0, going: [], stopped: [], state: null, shown: [], work: new Map(), worked: 0, finished: false };
+function newScan(sessionId: string, now: number, live: boolean, serviceStart: number | null, detail: boolean, log: ParentLog = NO_LOG, parentEnds = false): Scan {
+  return { sessionId, now, live, serviceStart, detail, columns: null, after: 0, paged: false, shells: null, shellRunning: 0, told: parentEnds ? null : new Map(), log, since: null, newest: 0, idle: -1, parentEnds, open: [], ended: [], ids: null, reread: 0, promptAt: null, running: 0, turnRunning: 0, going: [], stopped: [], state: null, shown: [], work: new Map(), worked: 0, finished: false };
 }
 
 /** What one of a session's `shell` rows says of a command it ran in the background. */
@@ -617,15 +620,15 @@ const STEP_TRIES = 50;
  * ended when it was last heard of. `serviceStart`: when OpenCode's service started, when known (see above). `detail`:
  * read what each listed one did (its steps, tool calls, tokens), which a count does not need.
  */
-export function readSubagents(db: Database, sessionId: string, live: boolean, now: number, serviceStart: number | null, detail: boolean): OpencodeSubagentState {
-  const scan = newScan(sessionId, now, live, serviceStart, detail);
+export function readSubagents(db: Database, sessionId: string, live: boolean, now: number, serviceStart: number | null, detail: boolean, parentEnds = false): OpencodeSubagentState {
+  const scan = newScan(sessionId, now, live, serviceStart, detail, NO_LOG, parentEnds);
   while (!scan.finished) scanStep(db, scan);
   return scanResult(scan);
 }
 
 /** readSubagents on the store at `path`; null when it cannot be read now. */
-export function opencodeSubagentState(path: string, sessionId: string, live: boolean, now = Date.now(), serviceStart: number | null = null, detail = true): OpencodeSubagentState | null {
-  try { return withStore(path, (db) => readSubagents(db, sessionId, live, now, serviceStart, detail)); }
+export function opencodeSubagentState(path: string, sessionId: string, live: boolean, now = Date.now(), serviceStart: number | null = null, detail = true, parentEnds = false): OpencodeSubagentState | null {
+  try { return withStore(path, (db) => readSubagents(db, sessionId, live, now, serviceStart, detail, parentEnds)); }
   catch { return null; }
 }
 
@@ -633,8 +636,8 @@ export function opencodeSubagentState(path: string, sessionId: string, live: boo
  * opencodeSubagentState a step at a time, the event loop let go between steps; null when it cannot be read now. Only
  * the first step waits on a store its writer holds; a later one that finds it so is tried again on the next turn.
  */
-export async function pagedState(path: string, sessionId: string, live: boolean, now = Date.now(), serviceStart: number | null = null, detail = true, open: typeof withStore = withStore, log: ParentLog = NO_LOG): Promise<OpencodeSubagentState | null> {
-  const scan = newScan(sessionId, now, live, serviceStart, detail, log);
+export async function pagedState(path: string, sessionId: string, live: boolean, now = Date.now(), serviceStart: number | null = null, detail = true, open: typeof withStore = withStore, log: ParentLog | null = null): Promise<OpencodeSubagentState | null> {
+  const scan = newScan(sessionId, now, live, serviceStart, detail, log ?? NO_LOG, log !== null);
   try {
     if (open(path, (db) => { scanStep(db, scan); return true; }) === null) return null;
   } catch { return null; }
@@ -651,6 +654,11 @@ export async function pagedState(path: string, sessionId: string, live: boolean,
 export interface OpencodeSubagentDeps {
   /** OpenCode's store: the one this server is configured with, else where OpenCode keeps it */
   store: () => string | null;
+  /**
+   * Whether a subagent's end is taken from its parent session's record (Settings -> Read OpenCode subagent ends from
+   * their session, experimental): read on every poll. Off, or not given, only the children's own rows tell.
+   */
+  parentEnds?: () => boolean;
   /** when OpenCode's background service started, when it can be told now: read on every poll, so never waited for */
   serviceStart?: () => number | null;
   /**
@@ -720,7 +728,7 @@ export class OpencodeSubagentStatus {
     for (let tries = 0; tries < 3; tries++) {
       const known = this.sessionOf(paneId);
       if (known === null) return null;
-      const log = this.panes.get(paneId)?.log ?? NO_LOG;
+      const log = this.deps.parentEnds?.() === true ? this.panes.get(paneId)?.log ?? NO_LOG : null;
       const state = await pagedState(known.path, known.session, known.live, this.now(), this.deps.serviceStart?.() ?? null, true, withStore, log);
       const current = this.sessionOf(paneId);
       if (current?.path === known.path && current.session === known.session && current.live === known.live) return state === null ? null : { tasks: state.tasks, unlisted: state.unlisted, read: known };
@@ -794,12 +802,13 @@ export class OpencodeSubagentStatus {
     const scans = new Map<string, Scan>();
     const live = [...this.panes].filter(([paneId, tracked]) => wanted(paneId) && tracked.live && this.reading.get(paneId)?.session !== tracked.session);
     const serviceStart = path !== null && live.length > 0 ? this.deps.serviceStart?.() ?? null : null;
+    const parentEnds = this.deps.parentEnds?.() === true;
     if (path !== null && live.length > 0) {
       // one read for all: a store held by its writer is waited on once, not once per pane, and on the event loop not at all
       try {
         withStore(path, (db) => {
           for (const [paneId, tracked] of live) {
-            const scan = newScan(tracked.session, this.now(), true, serviceStart, false, tracked.log);
+            const scan = newScan(tracked.session, this.now(), true, serviceStart, false, tracked.log, parentEnds);
             for (let step = 0; step < 2 && !scan.finished; step++) scanStep(db, scan);
             if (scan.finished) { tracked.log = scan.log; states.set(paneId, scanResult(scan)); }
             else scans.set(paneId, scan);

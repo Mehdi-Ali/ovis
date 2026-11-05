@@ -407,10 +407,12 @@ describe("an OpenCode session's subagents are its child sessions", () => {
     s.prompt("ses_bg", NOW - 15 * MIN);
     s.idle("ses_bg", NOW - 14 * MIN);
 
-    const state = opencodeSubagentState(s.path, s.parent, true, NOW)!;
+    const state = opencodeSubagentState(s.path, s.parent, true, NOW, null, true, true)!;
 
     expect(state.tasks.map((task) => [task.id, task.status])).toEqual([["ses_fg", "running"], ["ses_bg", "running"]]);
     expect([state.running, state.turnRunning]).toEqual([2, 2]);
+    // Settings -> Read OpenCode subagent ends from their session off (the default): each child's own idle row ends it, as before
+    expect(opencodeSubagentState(s.path, s.parent, true, NOW)!.running).toBe(0);
   });
 
   it("ends a subagent where its parent's record says it ended, however its child's rows read", () => {
@@ -433,7 +435,7 @@ describe("an OpenCode session's subagents are its child sessions", () => {
       s.notice(id, NOW - at * MIN, state);
     }
 
-    const state = opencodeSubagentState(s.path, s.parent, true, NOW)!;
+    const state = opencodeSubagentState(s.path, s.parent, true, NOW, null, true, true)!;
 
     expect(state.tasks.map((task) => [task.id, task.status, task.ended_at])).toEqual([
       ["ses_bg_cancelled", "cancelled", new Date(NOW - 26 * MIN).toISOString()],
@@ -471,13 +473,13 @@ describe("an OpenCode session's subagents are its child sessions", () => {
     s.prompt("ses_unnamed", NOW - 30 * MIN);
     s.idle("ses_unnamed", NOW - 29 * MIN);
 
-    const state = opencodeSubagentState(s.path, s.parent, true, NOW)!;
+    const state = opencodeSubagentState(s.path, s.parent, true, NOW, null, true, true)!;
     expect(state.tasks.map((task) => [task.id, task.status])).toEqual([
       ["ses_resumed", "running"], ["ses_woken", "running"], ["ses_unnamed", "completed"],
     ]);
     s.idle("ses_woken", NOW - 4 * MIN);
     s.call("ses_resumed", NOW - 3 * MIN, "completed");
-    expect(opencodeSubagentState(s.path, s.parent, true, NOW)!.tasks.map((task) => [task.id, task.status, task.ended_at])).toEqual([
+    expect(opencodeSubagentState(s.path, s.parent, true, NOW, null, true, true)!.tasks.map((task) => [task.id, task.status, task.ended_at])).toEqual([
       ["ses_resumed", "completed", new Date(NOW - 3 * MIN + 500).toISOString()],
       ["ses_woken", "completed", new Date(NOW - 4 * MIN).toISOString()],
       ["ses_unnamed", "completed", new Date(NOW - 29 * MIN).toISOString()],
@@ -493,7 +495,7 @@ describe("an OpenCode session's subagents are its child sessions", () => {
     s.idle("ses_left", NOW - 19 * MIN);
     s.idle(s.parent, NOW - 18 * MIN, "interrupted");
 
-    expect(opencodeSubagentState(s.path, s.parent, true, NOW)!.tasks.map((task) => [task.id, task.status])).toEqual([["ses_left", "completed"]]);
+    expect(opencodeSubagentState(s.path, s.parent, true, NOW, null, true, true)!.tasks.map((task) => [task.id, task.status])).toEqual([["ses_left", "completed"]]);
   });
 
   it("takes nothing from a call a staged /undo hides, as the chat shows nothing of it", () => {
@@ -503,11 +505,11 @@ describe("an OpenCode session's subagents are its child sessions", () => {
     s.call("ses_hidden", NOW - 20 * MIN, "background");
     s.prompt("ses_hidden", NOW - 20 * MIN);
     s.idle("ses_hidden", NOW - 19 * MIN);
-    expect(opencodeSubagentState(s.path, s.parent, true, NOW)!.tasks.map((task) => task.status)).toEqual(["running"]);
+    expect(opencodeSubagentState(s.path, s.parent, true, NOW, null, true, true)!.tasks.map((task) => task.status)).toEqual(["running"]);
     const call = s.db.query<{ id: string }, [string]>("SELECT id FROM session_message WHERE session_id = ? AND type = 'assistant'").get(s.parent)!;
     s.db.query("UPDATE session_v2 SET revert = ? WHERE id = ?").run(JSON.stringify({ messageID: call.id }), s.parent);
 
-    expect(opencodeSubagentState(s.path, s.parent, true, NOW)!.tasks.map((task) => [task.id, task.status])).toEqual([["ses_hidden", "completed"]]);
+    expect(opencodeSubagentState(s.path, s.parent, true, NOW, null, true, true)!.tasks.map((task) => [task.id, task.status])).toEqual([["ses_hidden", "completed"]]);
   });
 
   it("finds no subagents in a store without child sessions, and says nothing of one it cannot read", () => {
@@ -732,7 +734,7 @@ describe("the OpenCode subagent tracker", () => {
   it("holds a pane's count while its parent waits on a child that went idle, and drops it at the parent's answer", () => {
     const s = store();
     const changes: unknown[] = [];
-    const tracker = new OpencodeSubagentStatus({ store: () => s.path, now: () => NOW, onChange: (...args) => changes.push(args) });
+    const tracker = new OpencodeSubagentStatus({ store: () => s.path, now: () => NOW, parentEnds: () => true, onChange: (...args) => changes.push(args) });
     s.prompt(s.parent, NOW - 10 * MIN);
     s.session("ses_fg", NOW - 5 * MIN);
     s.call("ses_fg", NOW - 5 * MIN, "running");
@@ -750,7 +752,7 @@ describe("the OpenCode subagent tracker", () => {
 
   it("reads a parent row taken out and another put at its seq, and does not keep what the old one said", () => {
     const s = store();
-    const tracker = new OpencodeSubagentStatus({ store: () => s.path, now: () => NOW, onChange: () => undefined });
+    const tracker = new OpencodeSubagentStatus({ store: () => s.path, now: () => NOW, parentEnds: () => true, onChange: () => undefined });
     s.prompt(s.parent, NOW - 10 * MIN);
     s.session("ses_child", NOW - 5 * MIN);
     s.call("ses_child", NOW - 5 * MIN, "completed");
@@ -770,7 +772,7 @@ describe("the OpenCode subagent tracker", () => {
   it("counts a turn's subagent in the frame that ends it however long the parent's history, once read before", async () => {
     const s = store();
     for (let n = 0; n < 2 * SUBAGENT_PAGE + 5; n++) s.step(s.parent, NOW - 30 * MIN + n);
-    const tracker = new OpencodeSubagentStatus({ store: () => s.path, now: () => NOW, onChange: () => undefined });
+    const tracker = new OpencodeSubagentStatus({ store: () => s.path, now: () => NOW, parentEnds: () => true, onChange: () => undefined });
     await tracker.refresh([pane(s.parent)]);
     s.prompt(s.parent, NOW - 5 * MIN);
     s.session("ses_fg", NOW - 4 * MIN);

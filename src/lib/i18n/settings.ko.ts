@@ -377,6 +377,8 @@ export const SETTINGS_KO: Record<string, string> = {
   "Link or code": "링크 또는 코드",
   "{name} was added. Its workspaces join the sidebar.": "{name}을(를) 추가했습니다. 워크스페이스가 사이드바에 함께 보입니다.",
   "Group agents by state": "에이전트를 상태별로 묶기",
+  "Read OpenCode subagent ends from their session (experimental)": "OpenCode 하위 에이전트 종료를 세션 기록으로 판단 (실험적)",
+  "An OpenCode subagent counts as running, and holds its turn's BG wait, until the session that started it is told it ended, not as soon as the subagent goes idle. Its own background work may still run then. When off, the subagent's own rows tell.": "OpenCode 하위 에이전트는 자기가 쉬는 상태가 되어도 바로 끝난 것으로 보지 않고, 그 에이전트를 시작한 세션이 끝났다고 전달받을 때까지 실행 중으로 세며 그 턴의 BG 대기도 유지합니다. 그때도 에이전트 자신의 백그라운드 작업은 계속 돌 수 있습니다. 끄면 하위 에이전트 자신의 기록으로 판단합니다.",
   "Lock pinned agents (experimental)": "고정 에이전트 잠그기 (실험적)",
   "A pinned agent's menu in the Agents list offers Lock agent. This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.": "에이전트 목록에서 고정한 에이전트의 메뉴에 '에이전트 잠금'이 생깁니다. 잠긴 에이전트의 패널, 탭, 워크스페이스는 모든 브라우저에서 이 앱으로 닫을 수 없습니다. herdr 자체나 스크립트로는 여전히 닫을 수 있습니다.",
   "On this device, list the agents above the workspaces: the ones that need you first, then working, done and idle. Pinned agents stay on top.": "이 기기에서 에이전트를 워크스페이스 위에 보여 줍니다. 내 응답이 필요한 에이전트가 먼저, 그다음 작업 중, 완료, 대기 순입니다. 고정한 에이전트는 맨 위에 그대로 있습니다.",

@@ -222,6 +222,8 @@ export function createStatusHub<Owner, Lease>({ options, devices, preferences, c
   /** OpenCode panes count their subagents too: child sessions in OpenCode's store (server/opencode-subagents.ts) */
   const opencodeAgents = new OpencodeSubagentStatus({
     store: () => options.opencodeDb ?? opencodeDatabasePath(),
+    // Settings -> Read OpenCode subagent ends from their session (experimental)
+    parentEnds: () => preferences.get().settings.opencodeParentEnds === true,
     // the runs are its service's: one that started since took what ran before it
     serviceStart: () => {
       const found = readOpenCodeService(options.openCodeStateDir ?? openCodeServiceOptions.stateDir);
