@@ -44,8 +44,12 @@ refuse() {
   refusal="This self-hosted runner only runs code from ${GITHUB_REPOSITORY:-its own repository}; refusing ${GITHUB_EVENT_NAME:-this} job${GITHUB_RUN_ID:+ $GITHUB_RUN_ID}: $reason."
   echo "::error::$refusal" 2>/dev/null
   # the job's log never reaches GitHub once its worker is killed: say it in the container's own
-  # output too, which the launcher's journal keeps
-  echo "[job-started] $refusal" 2>/dev/null >/proc/1/fd/2
+  # output too, which the launcher's journal keeps (the Mac runner has no /proc: its system log)
+  if [[ -e /proc/1/fd/2 ]]; then
+    echo "[job-started] $refusal" 2>/dev/null >/proc/1/fd/2
+  else
+    logger -t ovis-runner-guard "$refusal" 2>/dev/null
+  fi
   exit 1
 }
 trap refuse EXIT

@@ -65,6 +65,7 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           REPOSITORY: ${{ github.repository }}
           CONFIGURED_LABELS: ${{ vars.CI_MAC_SELF_HOSTED_LABELS }}
+          RUNNER_SEEN: ${{ vars.CI_MAC_RUNNER_SEEN }}
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci-mac-runner-route.sh >> "$GITHUB_OUTPUT"
       - id: filter

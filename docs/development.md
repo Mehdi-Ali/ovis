@@ -1068,8 +1068,10 @@ The macOS jobs (`ci.yml`'s Native macOS session identity and `remote-bundles.yml
 bundle) of a same-repository pull request or a push to main go to the maintainer's Mac runner
 (`["self-hosted","self-hosted-ovis-mac"]`, one job at a time) while it looks online and free, and
 to `macos-15` otherwise; tags, dispatches and release runs stay on `macos-15`.
-`scripts/ci-mac-runner-route.sh` decides from the Actions API: a job that has waited over 10
-minutes for that label means the Mac is offline, and two unfinished jobs there mean it is busy.
+`scripts/ci-mac-runner-route.sh` sends a job there only while the repository variable
+`CI_MAC_RUNNER_SEEN` (a heartbeat the maintainer PC writes every minute while GitHub lists the
+runner online) is under five minutes old; then, from the Actions API, a job that has waited over 10
+minutes for that label means the Mac is stuck, and two unfinished jobs there mean it is busy.
 The repository variable `CI_MAC_SELF_HOSTED_LABELS='"macos-15"'` keeps every macOS job hosted.
 Setup and how to stop it: `scripts/self-hosted-runner/README.md` ("Mac runner").
 

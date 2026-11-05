@@ -55,7 +55,7 @@ function route(env: Record<string, string>) {
   const result = spawnSync("bash", [script], {
     encoding: "utf8",
     timeout: 5_000,
-    env: { PATH: `${bin}:${process.env.PATH ?? ""}`, FAKE_GH: tempDir(), REPOSITORY: repo, ROUTE_NOW: String(now), ...env },
+    env: { PATH: `${bin}:${process.env.PATH ?? ""}`, FAKE_GH: tempDir(), REPOSITORY: repo, ROUTE_NOW: String(now), RUNNER_SEEN: String(now - 60), ...env },
   });
   expect(result.error).toBeUndefined();
   return result;
@@ -92,6 +92,16 @@ describe.skipIf(process.platform === "win32")("CI Mac runner route", () => {
     expect(routed({ ...pr, MAC_STALE_MINUTES: "15", FAKE_GH: actions({ queued: { 1: [job("queued", 11)] } }) })).toEqual(mac);
     // a long-running job is busy, not offline
     expect(routed({ ...pr, FAKE_GH: actions({ in_progress: { 1: [job("in_progress", 30)] } }) })).toEqual(mac);
+  });
+
+  it("goes hosted unless the heartbeat saw the Mac runner online in the last five minutes", () => {
+    for (const seen of ["", " ", "soon", String(now - 301), String(now + 3600)]) {
+      const dir = actions({});
+      expect(routed({ ...pr, RUNNER_SEEN: seen, FAKE_GH: dir })).toBe("macos-15");
+      expect(apiCalled(dir)).toBe(false);
+    }
+    expect(routed({ ...pr, RUNNER_SEEN: String(now - 300), FAKE_GH: actions({}) })).toEqual(mac);
+    expect(routed({ ...pr, RUNNER_SEEN: String(now - 600), MAC_SEEN_SECONDS: "900", FAKE_GH: actions({}) })).toEqual(mac);
   });
 
   it("ignores finished jobs and jobs for other runners", () => {
@@ -136,7 +146,7 @@ describe.skipIf(process.platform === "win32")("CI Mac runner route", () => {
   });
 
   it("refuses limits that are not whole numbers", () => {
-    for (const env of [{ MAC_MAX_JOBS: "two" }, { MAC_STALE_MINUTES: "-1" }, { MAC_STALE_MINUTES: "99999" }]) {
+    for (const env of [{ MAC_MAX_JOBS: "two" }, { MAC_STALE_MINUTES: "-1" }, { MAC_STALE_MINUTES: "99999" }, { MAC_SEEN_SECONDS: "5m" }]) {
       expect(route({ ...pr, ...env, FAKE_GH: actions({}) }).status).toBe(1);
     }
   });

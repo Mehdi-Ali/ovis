@@ -193,7 +193,10 @@ A manual run can override the variable with the `self_hosted_labels` workflow_di
 The macOS jobs (`ci.yml`'s Native macOS session identity, `remote-bundles.yml`'s `macos-15` bundle)
 of a same-repository pull request or a push to main run on the maintainer's test MacBook Air
 (`ssh eamac`) when `scripts/ci-mac-runner-route.sh` finds it online and free, and on `macos-15`
-otherwise (see `docs/development.md`). It is one plain GitHub Actions runner, not this directory's
+otherwise (see `docs/development.md`). The route only sends a job there while the repository
+variable `CI_MAC_RUNNER_SEEN` is under five minutes old: `mac-heartbeat.sh` sets it while GitHub
+lists the runner online, every minute from the systemd user timer `ovis-mac-heartbeat.timer` on the
+maintainer PC (listing runners needs the admin token the workflow lacks). It is one plain GitHub Actions runner, not this directory's
 Docker launcher, so it runs one job at a time:
 
 - `~/actions-runner-ovis` on the Mac's internal disk, name `eamac-ovis-mac`, labels `self-hosted`,
@@ -207,21 +210,35 @@ Docker launcher, so it runs one job at a time:
 - No job signs anything: nothing here touches the user's keychains (the signing identities stay
   in their own keychains), and jobs get no signing secret.
 
-Set up again after a wipe (registration token from
-`gh api -X POST repos/devswha/ovis/actions/runners/registration-token --jq .token`):
+Set it up, or again after a wipe, on the Mac from a checkout of this repository. `mac-setup.sh`
+installs the hook and `.env` before it registers or starts the runner, so it never runs a job
+without the guard; rerun it after changing `job-started.sh`:
 
 ```sh
-cd ~/actions-runner-ovis   # the osx-arm64 runner release, checksum-verified
-./config.sh --unattended --url https://github.com/devswha/ovis --token <token> \
-  --name eamac-ovis-mac --labels self-hosted-ovis-mac --work _work --replace
-./svc.sh install && ./svc.sh start
+REGISTRATION_TOKEN=$(gh api -X POST repos/devswha/ovis/actions/runners/registration-token --jq .token) \
+  bash scripts/self-hosted-runner/mac-setup.sh
 ```
 
-Copy `job-started.sh` to `hooks/` again after changing it. Stop or remove it:
+The heartbeat on the maintainer PC (`~/.config/systemd/user/ovis-mac-heartbeat.{service,timer}`):
+
+```ini
+# ovis-mac-heartbeat.service
+[Service]
+Type=oneshot
+ExecStart=/bin/bash %h/.local/share/ovis-ci-runner/mac-heartbeat.sh
+# ovis-mac-heartbeat.timer
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+[Install]
+WantedBy=timers.target
+```
+
+Stop or remove it:
 
 ```sh
 gh variable set CI_MAC_SELF_HOSTED_LABELS --body '"macos-15"'   # every macOS job hosted, runner untouched
-ssh eamac 'cd ~/actions-runner-ovis && ./svc.sh stop'            # stop; set the variable first, or a job already sent there waits
+ssh eamac 'cd ~/actions-runner-ovis && ./svc.sh stop'            # stop; new jobs go hosted within ~5 min, set the variable first so none is sent meanwhile
 ssh eamac 'cd ~/actions-runner-ovis && ./svc.sh start'           # start again
 ssh eamac 'cd ~/actions-runner-ovis && ./svc.sh uninstall && ./config.sh remove --token <removal token>'
 ```

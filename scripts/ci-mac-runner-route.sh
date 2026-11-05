@@ -6,9 +6,13 @@
 #
 # Only a same-repository pull request and a push to main may go to the Mac; a fork pull request,
 # a tag, a dispatch or a release run always gets macos-15. The workflow token cannot list runners,
-# so "online" is read from the Actions API: a job that has waited for that label longer than
-# MAC_STALE_MINUTES (default 10) means the Mac is offline (or stuck), and MAC_MAX_JOBS (default 2)
-# unfinished jobs on it means it is busy; either keeps the job hosted, as does an API failure. The
+# so "online" comes from the repository variable CI_MAC_RUNNER_SEEN: the epoch seconds at which
+# scripts/self-hosted-runner/mac-heartbeat.sh, run every minute with an admin token, last saw the
+# runner online. Unset or older than MAC_SEEN_SECONDS (default 300) keeps the job hosted, so a job
+# is never sent to a Mac that is already offline. The Actions API then guards the rest: a job that
+# has waited for that label longer than MAC_STALE_MINUTES (default 10) means the Mac is stuck, and
+# MAC_MAX_JOBS (default 2) unfinished jobs on it means it is busy; either keeps the job hosted, as
+# does an API failure. The
 # repository variable CI_MAC_SELF_HOSTED_LABELS set to "macos-15" keeps every macOS job hosted.
 # This script runs from the checked-out revision, which a fork pull request controls; the runner
 # itself refuses fork code (scripts/self-hosted-runner/job-started.sh).
@@ -20,6 +24,8 @@ event="${EVENT_NAME:-}"
 configured="${CONFIGURED_LABELS:-}"
 stale_minutes="${MAC_STALE_MINUTES:-10}"
 max_jobs="${MAC_MAX_JOBS:-2}"
+seen_seconds="${MAC_SEEN_SECONDS:-300}"
+seen="${RUNNER_SEEN:-}"
 
 hosted_because() {
   echo "Runner: macos-15 ($1)" >&2
@@ -59,11 +65,21 @@ fi
 if ! [[ "$event" == pull_request || ("$event" == push && "${REF:-}" == refs/heads/main) ]]; then
   hosted_because "${event:-unknown event} ${REF:-}"
 fi
-for value in "$stale_minutes" "$max_jobs"; do
-  [[ "$value" =~ ^[0-9]{1,4}$ ]] || { echo "::error::MAC_STALE_MINUTES and MAC_MAX_JOBS must be whole numbers, got: $value" >&2; exit 1; }
+for value in "$stale_minutes" "$max_jobs" "$seen_seconds"; do
+  [[ "$value" =~ ^[0-9]{1,4}$ ]] || { echo "::error::MAC_STALE_MINUTES, MAC_MAX_JOBS and MAC_SEEN_SECONDS must be whole numbers, got: $value" >&2; exit 1; }
 done
 stale_minutes=$((10#$stale_minutes))
 max_jobs=$((10#$max_jobs))
+seen_seconds=$((10#$seen_seconds))
+
+seen="${seen//[[:space:]]/}"
+if ! [[ "$seen" =~ ^[0-9]{1,12}$ ]]; then
+  hosted_because "Mac runner heartbeat CI_MAC_RUNNER_SEEN unset or not a number"
+fi
+age=$(( ${ROUTE_NOW:-$(date +%s)} - 10#$seen ))
+if (( age > seen_seconds || age < -60 )); then
+  hosted_because "Mac runner last seen online ${age}s ago"
+fi
 
 if ! counts=$(mac_jobs); then
   echo "::warning::could not count the Mac runner's jobs; using macos-15" >&2
