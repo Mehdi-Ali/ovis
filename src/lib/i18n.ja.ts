@@ -26,6 +26,8 @@ import { RELAY_JA } from "./i18n/relay.ja.ts";
  * in English. Placeholders in braces keep their English names.
  */
 const BASE: Record<string, string> = {
+  "Sign out": "サインアウト",
+
   "Only for {pc}": "{pc} のみ",
   "Could not verify this device. It was declined: approve only a device you are signing in yourself.": "このデバイスを確認できなかったため拒否しました。自分でサインインしているデバイスだけを承認してください。",
   "Add {device}?": "{device} を追加しますか？",

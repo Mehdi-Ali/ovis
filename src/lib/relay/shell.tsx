@@ -15,7 +15,8 @@ import { myPcs } from "../account/myPcs.ts";
 import type { MyPc } from "../account/myPcs.ts";
 import { accountServiceOf, AccountService, SignedOutError } from "../account/service.ts";
 import { beginSignIn, finishSignIn, SignInError, signInReturn } from "../account/signin.ts";
-import { linkThisDevice, needsLink, pcAccountStatus, takeIntroduction } from "../account/join.ts";
+import { enrollPc, linkThisDevice, needsLink, pcAccountStatus, rememberMembers, takeIntroduction } from "../account/join.ts";
+import { leaveAccount } from "../account/leave.ts";
 import { indexedAccountStore } from "../account/store.ts";
 import { importPublicKey } from "../../../shared/relay-e2ee.ts";
 import { encodeOffer } from "../../../shared/relay-offer.ts";
@@ -163,7 +164,7 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
   const show = (state: RelayShellState): void => {
     shell ??= createRoot(mount.container);
     shell.render(createElement(StrictMode, null, createElement(SettingsProvider, null,
-      createElement(RelayShell, { state, scoped, iosTab, onPair: pair, onRetry: retry, onCancel: cancel, onBack: toFront, onForget: forget, onUpdate: update, onMatch: match, ...(accountService === null ? {} : { onSignIn: signIn, onJoin: joinPc }) }))));
+      createElement(RelayShell, { state, scoped, iosTab, onPair: pair, onRetry: retry, onCancel: cancel, onBack: toFront, onForget: forget, onUpdate: update, onMatch: match, ...(accountService === null ? {} : { onSignIn: signIn, onJoin: joinPc, onSignOut: signOut, onLeave: leave }) }))));
   };
 
   /** The front page: the saved PCs, or the account's once signed in. */
@@ -209,6 +210,22 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
       const link = new URL(encodeOffer({ v: 1, server_id: pc.server_id, server_public_key: join.server_public_key, relay: join.relay, name: pc.name }, window.location.origin));
       navigate(link.pathname + link.hash);
     })();
+  };
+
+  const signOut = (): void => {
+    void account.signOut().catch((error: unknown) => console.warn("Ovis: the account service did not confirm the sign-out", error instanceof Error ? error.name : error))
+      .finally(async () => { accountView = { kind: "signed-out", error: null }; await showFront(); });
+  };
+
+  const leave = (): void => {
+    void leaveAccount({ service: account, accountStore, relayStore: store }).then(async () => {
+      accountView = { kind: "signed-out", error: null };
+      await showFront();
+    }, async (error: unknown) => {
+      console.warn("Ovis: this device did not leave the account", error instanceof Error ? error.name : error);
+      if (accountView?.kind === "signed-in") accountView = { ...accountView, error: t("This device could not leave the account. Try again.") };
+      await showFront();
+    });
   };
 
   const signIn = (provider: AccountProvider): void => {
@@ -327,6 +344,9 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
       if (linking || fresh) opened.renew();
       // a PC of another account is not this account's to list or introduce from
       if (device.public_spki !== key.public_spki || (!linking && status.account !== session.account)) return;
+      // a PC with no account until this link: the account's other members get in from what this device knows
+      if (linking && status.account === null) await enrollPc({ fetch, key, account: session.account, store: accountStore });
+      await rememberMembers({ fetch, account: session.account, store: accountStore });
       const publicKey = Array.from(importPublicKey(device.server_public_key), (byte) => byte.toString(16).padStart(2, "0")).join("");
       await account.putPc(serverId, { label: (device.name ?? serverId.slice(0, 8)).slice(0, 48), public_key: publicKey, relay: device.relay });
       // the approver hands the introduction over once this device's row exists, which may be a moment after it

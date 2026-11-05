@@ -79,4 +79,8 @@ export const RELAY_ZH: Record<string, string> = {
   "Ready · not in the account yet": "可连接 · 尚未加入账户",
   "{name} is not taking new phones right now": "{name} 现在不接受新手机",
   "Its link may have run out (it works for 10 minutes), or it may be paused after too many tries or busy with other phones. Copy a new link on the PC, or wait a few minutes.": "链接可能已过期（有效 10 分钟），或因尝试次数过多而暂停，或正在处理其他手机。请在电脑上复制新链接，或等几分钟。",
+  "Every PC of the account removes this device. You can pair it again later.": "账户中的所有 PC 都会移除此设备。之后可以再次配对。",
+  "Remove this device": "移除此设备",
+  "Remove this device from your account": "从账户中移除此设备",
+  "This device could not leave the account. Try again.": "未能将此设备移出账户。请重试。",
 };

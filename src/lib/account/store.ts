@@ -42,6 +42,8 @@ interface Records {
   session: AccountSession;
   /** by `state`, so a return consumes only its own sign-in and two tabs can each have one */
   pending: Readonly<Record<string, PendingSignIn>>;
+  /** the account's members this device saw on its PCs' own device lists, by account key: their names */
+  members: Readonly<Record<string, string>>;
 }
 type Name = keyof Records;
 

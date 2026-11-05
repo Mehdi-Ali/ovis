@@ -11,6 +11,11 @@ import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { SettingsRow } from "./SettingsControls.tsx";
 import { useT } from "../lib/i18n.ts";
 import { lastSeen } from "../lib/lastSeen.ts";
+import { removeFromAccount } from "../lib/account/leave.ts";
+import { AccountService } from "../lib/account/service.ts";
+import { indexedAccountStore } from "../lib/account/store.ts";
+import { useAccountSignedIn } from "../lib/account/useAccountSignedIn.ts";
+import { getTransport } from "../lib/transport.ts";
 import { pairThisBrowser, UnconfirmedPairing } from "../lib/pairing.ts";
 
 const POLL_MS = 3000;
@@ -136,6 +141,19 @@ export function DevicesPanel({ onPair, onDevicePaired, auth, onPaired, onRevoked
     if (!renaming) return;
     try { await renameDevice(renaming.id, renaming.label); setRenaming(null); await load(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
+  const signedIn = useAccountSignedIn();
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  /** A device of the account, gone from every PC of it: at once here, from the mailbox on the others. */
+  const disconnect = async (id: string, key: string) => {
+    // fixed wait: the second tap must come within 4 seconds, as Revoke's does
+    if (disconnecting !== id) { setDisconnecting(id); window.setTimeout(() => setDisconnecting((c) => (c === id ? null : c)), 4000); return; }
+    setDisconnecting(null);
+    const transport = getTransport();
+    try {
+      await removeFromAccount({ service: new AccountService({ store: indexedAccountStore }), accountStore: indexedAccountStore, key, here: (path, init) => transport.fetch(path, init) });
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
   const revoke = async (id: string) => {
     if (confirming !== id) { setConfirming(id); window.setTimeout(() => setConfirming((c) => (c === id ? null : c)), 4000); return; }
     setConfirming(null);
@@ -212,6 +230,11 @@ export function DevicesPanel({ onPair, onDevicePaired, auth, onPaired, onRevoked
                   {!guest && (
                     <div className="devices-actions">
                       <button type="button" className="icon-button" aria-label={t("Rename {name}", { name: d.label })} onClick={() => setRenaming({ id: d.id, label: d.label })}><Pencil /></button>
+                      {signedIn && d.account_key !== undefined && !d.current && (
+                        <button type="button" className={disconnecting === d.id ? "btn btn-danger" : "btn"} onClick={() => void disconnect(d.id, d.account_key!)}>
+                          {disconnecting === d.id ? t("Disconnect everywhere?") : t("Disconnect from all PCs")}
+                        </button>
+                      )}
                       {/* one element across both steps, so focus stays on it when it asks to confirm */}
                       <button type="button" className={confirming === d.id ? "btn btn-danger" : "icon-button"} aria-label={confirming === d.id ? undefined : t("Revoke {name}", { name: d.label })} onClick={() => void revoke(d.id)}>
                         <Trash2 aria-hidden="true" />{confirming === d.id && t("Revoke?")}

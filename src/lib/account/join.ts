@@ -12,9 +12,9 @@ import type { RemotePairingRequest } from "../../../shared/protocol.ts";
 import type { RelayDevice, RelayDeviceStore } from "../relay/device.ts";
 import { keyIdOf } from "../relay/shellState.ts";
 import type { AccountService } from "./service.ts";
-import type { AccountKey } from "./store.ts";
+import type { AccountKey, AccountStore } from "./store.ts";
 
-type PcFetch = (input: string, init?: RequestInit) => Promise<Response>;
+export type PcFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 /** The PC refused an account request; `code` is its error code, never its words. */
 export class AccountPcError extends Error {
@@ -35,7 +35,7 @@ async function refusal(response: Response): Promise<AccountPcError> {
   return new AccountPcError(response.status, code);
 }
 
-async function post(fetch: PcFetch, path: string, body: unknown): Promise<Response> {
+export async function post(fetch: PcFetch, path: string, body: unknown): Promise<Response> {
   const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify(body) });
   if (!response.ok) throw await refusal(response);
   return response;
@@ -197,4 +197,37 @@ export async function admitToAccount(options: {
   const others = options.directory.filter((serverId) => serverId !== options.through);
   for (let start = 0; start < others.length; start += 32) await options.service.postRecord(others.slice(start, start + 32), add);
   return add;
+}
+
+/**
+ * Remembers the account's members a PC lists (`GET /api/devices`, account members with their keys),
+ * as this device saw them on a PC whose key it checked itself, so it can enroll them on a new PC.
+ */
+export async function rememberMembers(options: { fetch: PcFetch; account: string; store: AccountStore }): Promise<void> {
+  const response = await options.fetch("/api/devices");
+  if (!response.ok) throw await refusal(response);
+  const body = await response.json() as { devices?: unknown };
+  const seen: Record<string, string> = {};
+  for (const row of Array.isArray(body.devices) ? body.devices : []) {
+    const device = row as { account?: unknown; account_key?: unknown; label?: unknown };
+    if (device.account === options.account && typeof device.account_key === "string" && typeof device.label === "string") seen[device.account_key] = device.label;
+  }
+  await options.store.update("members", (current) => ({ ...current, ...seen }));
+}
+
+/**
+ * A PC that just got its first member from this device (design 5.4): the account's other members
+ * this device knows, each as an `add` it signs, so they get in without pairing again
+ * (`POST /api/account/enroll`). Returns how many it sent.
+ */
+export async function enrollPc(options: { fetch: PcFetch; key: AccountKey; account: string; store: AccountStore; now?: () => number }): Promise<number> {
+  const members = Object.entries(await options.store.get("members") ?? {}).filter(([memberKey]) => memberKey !== options.key.public_spki);
+  const issued = new Date((options.now ?? Date.now)()).toISOString();
+  const records: AddRecord[] = [];
+  for (const [memberKey, label] of members.slice(0, 32)) {
+    records.push(await signAccountRecord({ v: 1, kind: "add", account: options.account, key: memberKey, label: label.slice(0, 48) || "Device", role: "drive",
+      issued_at: issued, id: newRecordId(), signer: options.key.public_spki }, options.key.private_key));
+  }
+  if (records.length > 0) await post(options.fetch, "/api/account/enroll", { account: options.account, records });
+  return records.length;
 }

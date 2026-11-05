@@ -197,4 +197,7 @@ export const DEVICES_ZH: Record<string, string> = {
   "Copy a link without a code": "复制不含配对码的链接",
   "Copied. Open it on the phone within 10 minutes: both screens show six digits to compare, and you approve the phone here.": "已复制。请在 10 分钟内在手机上打开它：两个屏幕会显示六位数字供比对，然后在这里批准手机。",
   "This PC's ID": "此电脑的 ID",
+  "Disconnect from all PCs": "从所有 PC 断开",
+  "Disconnect everywhere?": "全部断开？",
+  "A new device joined at {time}: {name}, approved on {approver}. If that was not you, revoke it.": "{time} 新设备 {name} 经 {approver} 批准加入。如果不是你，请撤销。",
 };

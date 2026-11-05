@@ -24,6 +24,8 @@ import { RELAY_KO } from "./i18n/relay.ko.ts";
  * braces keep their English names.
  */
 const BASE: Record<string, string> = {
+  "Sign out": "로그아웃",
+
   "Only for {pc}": "{pc}에만",
   "Could not verify this device. It was declined: approve only a device you are signing in yourself.": "이 기기를 확인할 수 없어 거절했습니다. 직접 로그인 중인 기기만 승인하세요.",
   "Add {device}?": "{device} 추가할까요?",

@@ -1,5 +1,6 @@
 import "./AccountPcs.css";
 
+import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 
 import type { MyPc } from "../lib/account/myPcs.ts";
@@ -85,8 +86,15 @@ export function AccountPcList({ pcs, onJoin }: { pcs: readonly MyPc[]; onJoin?: 
 }
 
 /** The front page once signed in: the account's PCs, then how another one joins. */
-export function AccountPcs({ view, onJoin }: { view: Extract<AccountView, { kind: "signed-in" }>; onJoin?: (pc: MyPc) => void }) {
+export function AccountPcs({ view, onJoin, onSignOut, onLeave }: {
+  view: Extract<AccountView, { kind: "signed-in" }>; onJoin?: (pc: MyPc) => void;
+  /** ends the sign-in; every pairing stays */
+  onSignOut?: () => void;
+  /** removes this device from every PC of the account, then signs out */
+  onLeave?: () => void;
+}) {
   const t = useT();
+  const [leaving, setLeaving] = useState(false);
   return (
     <>
       <h1 className="relay-shell-title">{t("Your PCs")}</h1>
@@ -96,6 +104,22 @@ export function AccountPcs({ view, onJoin }: { view: Extract<AccountView, { kind
         : <AccountPcList pcs={view.pcs} {...(onJoin ? { onJoin } : {})} />}
       {view.error !== null && <p className="relay-shell-detail" role="alert">{view.error}</p>}
       <p className="account-fineprint">{t("To add a PC, sign in on it or scan its QR code.")}</p>
+      {(onSignOut || onLeave) && (
+        <div className="account-actions">
+          {leaving && onLeave ? (
+            <>
+              <p className="account-fineprint">{t("Every PC of the account removes this device. You can pair it again later.")}</p>
+              <button type="button" className="btn btn-danger" onClick={onLeave}>{t("Remove this device")}</button>
+              <button type="button" className="btn" onClick={() => setLeaving(false)}>{t("Cancel")}</button>
+            </>
+          ) : (
+            <>
+              {onSignOut && <button type="button" className="account-link" onClick={onSignOut}>{t("Sign out")}</button>}
+              {onLeave && <button type="button" className="account-link account-link-danger" onClick={() => setLeaving(true)}>{t("Remove this device from your account")}</button>}
+            </>
+          )}
+        </div>
+      )}
     </>
   );
 }

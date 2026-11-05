@@ -197,4 +197,7 @@ export const DEVICES_KO: Record<string, string> = {
   "Copy a link without a code": "코드 없는 링크 복사",
   "Copied. Open it on the phone within 10 minutes: both screens show six digits to compare, and you approve the phone here.": "복사했습니다. 10분 안에 휴대폰에서 여세요. 두 화면에 같은 여섯 자리 숫자가 뜨면 비교한 뒤 여기서 휴대폰을 승인합니다.",
   "This PC's ID": "이 PC의 ID",
+  "Disconnect from all PCs": "모든 PC에서 끊기",
+  "Disconnect everywhere?": "모든 PC에서 끊을까요?",
+  "A new device joined at {time}: {name}, approved on {approver}. If that was not you, revoke it.": "{time}에 새 기기 {name}이(가) {approver}의 승인으로 들어왔습니다. 본인이 아니라면 취소하세요.",
 };
