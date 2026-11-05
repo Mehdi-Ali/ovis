@@ -48,6 +48,12 @@ in three ways:
 - `enroll`: a member hands a PC it just paired a batch of `add` records for the account's other
   clients. It is a batch of records, nothing more.
 
+The row an `add` makes has a known id, so the new device can sign in without asking the PC first:
+the first 16 hex digits of `SHA-256("ovis-account-device/1" || server_id || key)`, with `server_id`
+as its 32 hex characters and `key` as the record's base64url text (`accountDeviceId` in
+[`shared/account-records.ts`](../shared/account-records.ts)). `AUTH` is unchanged and signs with that
+id. Rows made any other way keep random ids.
+
 A PC belongs to at most one account: the account of its first member. A record for another account
 is refused (`account_mismatch`). **Revoke all** clears the PC's account with its members; tombstones
 stay.
@@ -178,6 +184,27 @@ present) and `refused` with a code.
 PC it just paired. The request's own device must already be a member of `account` (it links itself
 first). Same answer as `records`.
 
+### Introductions
+
+A device just admitted on PC X learns the account's other PCs from the member that approved it,
+through X, and then signs in to each as usual; each PC still decides by its own `devices.json`.
+
+`POST /api/account/introduce` `{ "key", "pcs": [{ "server_id", "server_public_key", "relay", "name" }] }`:
+from a drive account member (`account_required` otherwise), for a key X holds a row for that an
+account member added (`added_by`, from an `add` or a remote approval; `introduction_unknown_key`
+otherwise). `pcs` lists only PCs the member verified itself (QR, digits, or its own pairing), at
+most 32: `server_id` must derive from `server_public_key`, `relay` is a `wss:` origin, `name` at
+most 48 characters (`introduction_invalid` otherwise). X keeps it in memory only, for 10 minutes;
+a later one for the same key replaces it. Answers 204.
+
+`GET /api/account/introduction`: over the new device's own signed-in session; answers `{ "pcs" }`
+for its own key, or 404 `introduction_none`.
+
+Known risk (T10 in the design): a compromised X can show the new device other PCs' keys than the
+member sent. It already holds X's sessions; what it gains is the new device trying those keys. Each
+PC then still admits it only by its own `devices.json`, and a PC the device has never been added to
+refuses it.
+
 ## Account service API
 
 The service the apps and PCs call; a self-hosted install can point both at its own. Clients
@@ -259,6 +286,9 @@ the account service gets an answer the relay refuses.
 | `tombstoned` | — | the key was removed through the account; only this PC can let it back in (a record outcome) |
 | `link_not_owner` | 403 | a link for another device, another PC, or a key that is not the row's |
 | `key_in_use` | 409 | a link to a key another row already has |
+| `introduction_unknown_key` | 404 | an introduction for a key no account member added on this PC |
+| `introduction_invalid` | 400 | an introduction's PC list does not parse, or a `server_id` does not derive from its key |
+| `introduction_none` | 404 | no introduction waits for this device |
 
 ## What this does not protect against
 

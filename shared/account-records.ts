@@ -3,6 +3,8 @@
  * by a client's account key. The PC and the apps both import this file, so it reads no environment
  * and uses WebCrypto only.
  */
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { fromBase64Url, toBase64Url } from "./relay-pair-sas.ts";
 
 /** Signing bytes start with this; `AUTH` signs `ovis-relay-auth/1 ...`, which differs at the sixth byte. */
@@ -148,4 +150,9 @@ export function newRecordId(): string {
 
 export async function exportAccountKey(publicKey: CryptoKey): Promise<string> {
   return toBase64Url(new Uint8Array(await crypto.subtle.exportKey("spki", publicKey)));
+}
+
+/** The id a PC gives a device an `add` puts there; the client works out the same to sign in (docs/account.md, "Account members"). */
+export function accountDeviceId(serverId: string, devicePublicKey: string): string {
+  return bytesToHex(sha256(utf8ToBytes(`ovis-account-device/1${serverId}${devicePublicKey}`))).slice(0, 16);
 }

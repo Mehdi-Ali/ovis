@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  AccountRecordError, exportAccountKey, newRecordId, parseAccountRecord, readAccountRecord, recordSigningBytes,
+  AccountRecordError, accountDeviceId, exportAccountKey, newRecordId, parseAccountRecord, readAccountRecord, recordSigningBytes,
   signAccountRecord, verifyAccountRecord, type AccountRecord, type UnsignedAccountRecord,
 } from "./account-records.ts";
 import { fromBase64Url, toBase64Url } from "./relay-pair-sas.ts";
@@ -102,4 +102,12 @@ describe("account records", () => {
     const b = recordSigningBytes({ ...unsigned.remove, account: "a", key: "bc" });
     expect(Buffer.from(a).equals(Buffer.from(b))).toBe(false);
   });
+});
+
+test("an added device's id is the first 16 hex of SHA-256 over the domain, the PC and the key, so both ends agree", async () => {
+  const serverId = "0123456789abcdef0123456789abcdef";
+  const expected = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`ovis-account-device/1${serverId}${other.spki}`))).toString("hex").slice(0, 16);
+  expect(accountDeviceId(serverId, other.spki)).toBe(expected);
+  expect(accountDeviceId(serverId, other.spki)).toMatch(/^[0-9a-f]{16}$/);
+  expect(accountDeviceId("f".repeat(32), other.spki)).not.toBe(expected);
 });
