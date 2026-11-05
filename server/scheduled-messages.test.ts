@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HerdrError } from "./herdr/client.ts";
@@ -200,4 +200,57 @@ it("answers a watching device read_only, and lists and creates for one that driv
   const listed = await handleScheduledRequest(new Request("http://pc/api/scheduled"), "/api/scheduled", scheduled, { readOnly: false, device: "d" });
   expect(((await listed!.json()) as { messages: unknown[] }).messages).toHaveLength(1);
   expect(await handleScheduledRequest(new Request("http://pc/api/scheduledx"), "/api/scheduledx", scheduled, { readOnly: false, device: "d" })).toBeNull();
+});
+
+it("keeps the session a message was scheduled for when a Send now to another one is refused", async () => {
+  const other: PendingIdentity = { ...IDENTITY, session: "claude:herdr:s2" };
+  let current = IDENTITY;
+  const { scheduled, sends } = store([{ ok: false, code: "agent_blocked", message: "waits for an answer" }], { identity: async () => ({ ...current }) });
+  const message = await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T09:59:00Z" }, null);
+  current = other;
+  expect(await scheduled.sendNow({ id: message.id }, null)).toMatchObject({ ok: false });
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(sends.map((send) => send[2].session)).toEqual(["claude:herdr:s2", "claude:herdr:s1"]);
+});
+
+it("leaves a message as it was when an edit is refused", async () => {
+  const { scheduled } = store();
+  const message = await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null);
+  expect(() => scheduled.update({ id: message.id, text: "something else", send_at: "2027-01-01T00:00:00Z" })).toThrow(ScheduledError);
+  expect(scheduled.list()[0]!.text).toBe("continue");
+});
+
+it("sets an unreadable state file aside instead of writing over it", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-scheduled-"));
+  dirs.push(stateDir);
+  writeFileSync(join(stateDir, "scheduled-messages.json"), "{ not json");
+  const { scheduled } = store([], { stateDir });
+  await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null);
+  const kept = readdirSync(stateDir).filter((name) => name.startsWith("scheduled-messages.json.unreadable-"));
+  expect(kept).toHaveLength(1);
+  expect(readFileSync(join(stateDir, kept[0]!), "utf8")).toBe("{ not json");
+});
+
+it("sends nothing more into a pane while one of its messages may sit typed in its input", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-scheduled-"));
+  dirs.push(stateDir);
+  const entry = (id: string, state: string) => ({ identity: IDENTITY, device: null,
+    message: { id, pane_id: "p1", text: id, send_at: "2026-11-05T09:00:00Z", created_at: "2026-11-05T08:00:00Z", state } });
+  writeFileSync(join(stateDir, "scheduled-messages.json"), JSON.stringify([entry("a", "sending"), entry("b", "scheduled")]));
+  const { scheduled, sends } = store([], { stateDir });
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(sends).toEqual([]);
+});
+
+it("keeps a message the server stopped before typing for its next start", async () => {
+  const { scheduled } = store([{ ok: false, code: "cancelled", message: "This PC's server is stopping" }]);
+  await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T09:59:00Z" }, null);
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(scheduled.list()[0]!.state).toBe("scheduled");
 });

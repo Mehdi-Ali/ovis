@@ -55,3 +55,20 @@ it("types nothing once the scheduler withdraws its authority", async () => {
   expect(await d.pending.sendScheduled("p", "continue", identity, true, revoked)).toMatchObject({ ok: false, code: "device_revoked" });
   expect(d.writes).toEqual([]);
 });
+
+it("types nothing when the shell is in front where herdr still names the agent", async () => {
+  const d = delivery("idle");
+  const identity = await d.pending.scheduledIdentity("p");
+  d.front.pid = 41000;
+  d.front.name = "bash";
+  expect((await d.pending.sendScheduled("p", "continue", identity, true, () => {})).ok).toBe(false);
+  expect(d.writes).toEqual([]);
+});
+
+it("keeps a second scheduled message for the turn the first one started", async () => {
+  const d = delivery("idle");
+  const identity = await d.pending.scheduledIdentity("p");
+  expect(await d.pending.sendScheduled("p", "first", identity, true, () => {})).toEqual({ ok: true });
+  expect(await d.pending.sendScheduled("p", "second", identity, true, () => {})).toMatchObject({ ok: false, code: "pending_wait" });
+  expect(d.writes).toEqual(["\u001b[200~first\u001b[201~", "Enter"]);
+});

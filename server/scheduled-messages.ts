@@ -7,7 +7,8 @@
  * before anything is typed, so the timer and a Send now never send it twice; one the PC stopped in the middle of
  * is never sent again on its own.
  *
- * Routes (finite paths, so a connection server can pass them to a remote PC: server/machine-api.ts):
+ * Routes, on this PC only: a connection server does not pass them to a remote PC (server/machine-api.ts), as it forwards with
+ * its own credential and a device revoked there could not stop what it scheduled:
  *   GET  /api/scheduled                 { messages }
  *   POST /api/scheduled                 { pane_id, text, send_at } -> { message }
  *   POST /api/scheduled/update          { id, text?, send_at? }    -> { message }
@@ -24,7 +25,7 @@ import type { PendingIdentity } from "./pending-input.ts";
 type Reply = { ok: boolean; code?: string; message?: string };
 
 /** refusals that only mean "not yet": the message stays scheduled, says why, and is tried again at the pane's next event */
-const WAIT_CODES = new Set(["pending_wait", "agent_blocked", "agent_not_ready", "input_not_ready", "input_draft", "rewind_dialog_open", "submit_timeout"]);
+const WAIT_CODES = new Set(["cancelled", "pending_wait", "agent_blocked", "agent_not_ready", "input_not_ready", "input_draft", "rewind_dialog_open", "submit_timeout"]);
 /** a delivery that may have typed part of the message: never sent again on its own or by Send now */
 const UNCERTAIN_CODES = new Set(["submit_changed", "pasted_not_sent"]);
 export const MAX_SCHEDULED = 64;
@@ -60,8 +61,13 @@ export interface ScheduledDeps {
 export class ScheduledMessages {
   private readonly entries = new Map<string, Entry>();
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** no timer runs until start, nor after stop */
   private stopped = true;
+  /** the server stops: nothing more is typed */
+  private closed = false;
   private readonly now: () => number;
+  /** the state file could not be read nor set aside: nothing is scheduled, and it is never written over */
+  private unavailable = false;
 
   constructor(private readonly deps: ScheduledDeps) {
     this.now = deps.now ?? Date.now;
@@ -79,6 +85,7 @@ export class ScheduledMessages {
     if (paneId === null) throw new ScheduledError("missing_pane_id", "pane_id is required");
     const text = this.text(record["text"]);
     const sendAt = this.sendAt(record["send_at"]);
+    if (this.unavailable) throw new ScheduledError("scheduled_unavailable", "This PC cannot keep scheduled messages: its scheduled-messages.json could not be read", 503);
     if (this.entries.size >= MAX_SCHEDULED) throw new ScheduledError("scheduled_limit", `At most ${MAX_SCHEDULED} messages can be scheduled; send or discard one first`, 409);
     let identity: PendingIdentity;
     try { identity = await this.deps.identity(paneId); } catch (error) {
@@ -97,8 +104,11 @@ export class ScheduledMessages {
     const entry = this.entry(record["id"]);
     if (entry.message.state === "sending") throw busy();
     if (entry.message.state === "uncertain") throw uncertain();
-    if (record["text"] !== undefined) entry.message.text = this.text(record["text"]);
-    if (record["send_at"] !== undefined) entry.message.send_at = this.sendAt(record["send_at"]);
+    // every field is checked before any changes: a refused edit leaves the message as it was
+    const text = record["text"] === undefined ? entry.message.text : this.text(record["text"]);
+    const sendAt = record["send_at"] === undefined ? entry.message.send_at : this.sendAt(record["send_at"]);
+    entry.message.text = text;
+    entry.message.send_at = sendAt;
     entry.message.state = "scheduled";
     delete entry.message.error;
     delete entry.triedAt;
@@ -128,9 +138,8 @@ export class ScheduledMessages {
       return { ok: false, ...fault };
     }
     if (this.entries.get(entry.message.id) !== entry || entry.message.state !== before) throw busy();
-    entry.identity = identity;
-    entry.device = device;
-    return await this.deliver(entry, false);
+    // sent to what runs now, under the pressing device, for this attempt alone: a refusal keeps the binding it had
+    return await this.deliver(entry, false, identity, device);
   }
 
   /** an event of the pane (a turn ended, input became ready): its due messages are tried again */
@@ -154,15 +163,18 @@ export class ScheduledMessages {
 
   stop(): void {
     this.stopped = true;
+    this.closed = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
 
+  /** due, and not behind another of its pane's that is on its way or may sit typed in its input */
   private due(entry: Entry): boolean {
-    return !this.stopped && entry.message.state === "scheduled" && Date.parse(entry.message.send_at) <= this.now();
+    if (this.stopped || entry.message.state !== "scheduled" || Date.parse(entry.message.send_at) > this.now()) return false;
+    return ![...this.entries.values()].some((other) => other.message.pane_id === entry.message.pane_id && (other.message.state === "sending" || other.message.state === "uncertain"));
   }
 
-  private async deliver(entry: Entry, automatic: boolean): Promise<Reply> {
+  private async deliver(entry: Entry, automatic: boolean, identity = entry.identity, device = entry.device): Promise<Reply> {
     const message = entry.message;
     const before = { state: message.state, error: message.error };
     message.state = "sending";
@@ -170,13 +182,13 @@ export class ScheduledMessages {
     // claimed and kept before anything is typed: a PC that stops now never sends it again on its own
     this.save();
     const authorize = (): void => {
-      if (this.stopped) throw new HerdrError("cancelled", "This PC's server is stopping");
-      if (!this.deps.mayDrive(entry.device)) throw new HerdrError("device_revoked", "The device that scheduled this message can no longer drive this PC");
+      if (this.closed) throw new HerdrError("cancelled", "This PC's server is stopping");
+      if (!this.deps.mayDrive(device)) throw new HerdrError("device_revoked", "The device that scheduled this message can no longer drive this PC");
     };
     let reply: Reply;
     try {
       authorize();
-      reply = await this.deps.send(message.pane_id, message.text, entry.identity, automatic, authorize);
+      reply = await this.deps.send(message.pane_id, message.text, identity, automatic, authorize);
     } catch (error) {
       reply = { ok: false, ...faultOf(error) };
     }
@@ -247,8 +259,21 @@ export class ScheduledMessages {
     const path = this.path;
     if (path === null) return [];
     let raw: unknown;
-    try { raw = JSON.parse(readFileSync(path, "utf8")); } catch { return []; }
-    if (!Array.isArray(raw)) return [];
+    try { raw = JSON.parse(readFileSync(path, "utf8")); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      raw = null;
+    }
+    // a file that cannot be read as a list is kept beside the new one, never written over
+    if (!Array.isArray(raw)) {
+      const kept = `${path}.unreadable-${this.now()}`;
+      try { renameSync(path, kept); console.error(`scheduled messages: ${path} could not be read; kept as ${kept}`); }
+      catch (error) {
+        // it costs the feature, never the server: nothing is scheduled or written over it until it is fixed
+        this.unavailable = true;
+        console.error(`scheduled messages: ${path} could not be read or set aside: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return [];
+    }
     const entries: Entry[] = [];
     for (const item of raw as Entry[]) {
       const message = item?.message;
@@ -267,7 +292,7 @@ export class ScheduledMessages {
 
   private save(): void {
     const path = this.path;
-    if (path === null) return;
+    if (path === null || this.unavailable) return;
     mkdirSync(this.deps.stateDir!, { recursive: true, mode: 0o700 });
     const temporary = `${path}.${process.pid}.tmp`;
     writeFileSync(temporary, JSON.stringify([...this.entries.values()].map(({ message, identity, device }) => ({ message, identity, device }))), { mode: 0o600 });

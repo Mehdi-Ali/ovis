@@ -270,6 +270,22 @@ export class PendingInputs<Owner, Lease> {
     if (this.mark(paneId) === mark) this.apply(paneId, status);
   }
 
+  /**
+   * Whether a message that holds no record here (a scheduled one, server/scheduled-messages.ts) must not go yet: the turn
+   * an earlier send started is not confirmed, or a send is on its way or was left uncertain in the pane's input.
+   */
+  turnBusy(paneId: string): boolean {
+    return this.gates.has(paneId) || [...this.records.values()].some((item) => item.paneId === paneId && (item.inFlight || item.message.state === "uncertain"));
+  }
+
+  /** Such a message committing its key: the pane's next message waits for the turn it starts, as `committing` makes a record's do. */
+  committingUnrecorded(paneId: string, id: string, steeringWorkingTurn = false, restartingWorkingTurn = false): void {
+    this.gates.set(paneId, { by: id, committed: true, sawWorking: steeringWorkingTurn && !restartingWorkingTurn, completed: false,
+      deadline: steeringWorkingTurn && !restartingWorkingTurn ? null : this.now() + this.startTimeoutMs,
+      ...(restartingWorkingTurn ? { restart: "interruption" as const } : {}),
+    });
+  }
+
   /** Whether a message of any connection still waits its turn on the pane. */
   waiting(paneId: string): boolean {
     return [...this.records.values()].some((item) => item.paneId === paneId && (item.inFlight || item.message.state === "queued"));

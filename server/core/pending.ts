@@ -1251,13 +1251,20 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
   const scheduledIdentity = (paneId: string): Promise<PendingIdentity> => serialize(paneId, async () => (await currentIdentity(paneId)).identity);
   /**
    * A scheduled message (#2919), typed by the PC with no connection: as a queued message is, `automatic`, it waits for
-   * the agent's turn (pending_wait), never goes over a draft or an open question, and only into the terminal and session
-   * `identity` names. Send now (`automatic` false) steers a working agent as a pending message's Send now does.
-   * `authorize` is asked before every write, as a connection's lease is.
+   * the agent's turn (pending_wait), behind the pane's queued messages and the turn the last send started, never goes over
+   * a draft or an open question, and only into the terminal and session `identity` names, with that agent's own program
+   * in front (agent-only: never a shell left at its PID). Send now (`automatic` false) steers a working agent as a pending
+   * message's Send now does. `authorize` is asked before every write, as a connection's lease is.
    */
   const sendScheduled = (paneId: string, text: string, identity: PendingIdentity, automatic: boolean, authorize: () => void): Promise<SubmitReply> =>
-    serialize(paneId, () => dispatchPendingText({ owner: null, authorize, cols: () => attachments.get(paneId)?.cols }, paneId, pendingText(text), identity,
-      automatic, Date.now(), undefined, !automatic));
+    serialize(paneId, () => {
+      if (automatic && (pending.waiting(paneId) || pending.turnBusy(paneId))) {
+        return { ok: false, code: "pending_wait", message: "The pane's queued messages, or the turn the last one started, go first" };
+      }
+      const id = `scheduled:${crypto.randomUUID()}`;
+      return dispatchPendingText({ owner: null, authorize, cols: () => attachments.get(paneId)?.cols }, paneId, pendingText(text), identity,
+        automatic, Date.now(), (working, restarting) => pending.committingUnrecorded(paneId, id, working, restarting), !automatic, 0, true);
+    });
 
   return { pending, holdPending, holdPendingPane, movePendingPane, drainPending, pendingFrames, queueFirstMessage, attached, closeConnection, reconcilePiDeliveries, scheduledIdentity, sendScheduled };
 }
