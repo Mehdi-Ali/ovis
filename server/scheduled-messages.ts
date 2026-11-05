@@ -121,9 +121,12 @@ export class ScheduledMessages {
     const was = { message: { ...entry.message }, triedAt: entry.triedAt };
     entry.message.text = text;
     entry.message.send_at = sendAt;
-    entry.message.state = "scheduled";
-    delete entry.message.error;
-    delete entry.triedAt;
+    // a held message edited with its time still past stays held: Save never sends it, only Send now does
+    if (!(was.message.state === "held" && Date.parse(sendAt) <= this.now())) {
+      entry.message.state = "scheduled";
+      delete entry.message.error;
+      delete entry.triedAt;
+    }
     // written before it counts: a refused write leaves the message as it was
     try { this.save(); } catch (error) { entry.message = was.message; entry.triedAt = was.triedAt; throw error; }
     this.announce();

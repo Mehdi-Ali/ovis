@@ -329,3 +329,17 @@ it("sets no timer for a message waiting behind its pane's message on its way", a
   expect(timers.mock.calls.filter(([, ms]) => typeof ms === "number" && ms < 1000)).toHaveLength(0);
   timers.mockRestore();
 });
+
+it("keeps a held message held when its edit leaves the time in the past: Save never sends it", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-scheduled-"));
+  dirs.push(stateDir);
+  writeFileSync(join(stateDir, "scheduled-messages.json"), JSON.stringify([{ identity: IDENTITY, device: null,
+    message: { id: "a", pane_id: "p1", text: "a", send_at: "2026-11-05T09:00:00Z", created_at: "2026-11-05T08:00:00Z", state: "scheduled" } }]));
+  const { scheduled, sends } = store([], { stateDir });
+  scheduled.start();
+  expect(scheduled.update({ id: "a", text: "edited" })).toMatchObject({ text: "edited", state: "held", error: { code: "needs_ok_restart" } });
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(sends).toEqual([]);
+  expect(scheduled.update({ id: "a", send_at: "2026-11-05T11:00:00Z" })).toMatchObject({ state: "scheduled" });
+});
