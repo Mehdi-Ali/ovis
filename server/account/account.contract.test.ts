@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { accountDeviceId, exportAccountKey, newRecordId, signAccountRecord, type AccountRecord, type UnsignedAccountRecord } from "../../shared/account-records.ts";
@@ -339,7 +339,7 @@ test("two state dirs end with every tombstone of both", () => {
     const key = "a-removed-key";
     writeFileSync(join(a, "account-tombstones.json"), JSON.stringify({ v: 1, tombstones: [{ key, account: ACCOUNT, record_id: "r", removed_at: "2026-11-02T00:00:00.000Z" }] }));
     writeFileSync(join(b, "account-tombstones.pending.json"), JSON.stringify({ v: 1, tombstones: [{ key: "a-pending-key", account: "", record_id: "local", removed_at: "2026-11-03T00:00:00.000Z" }] }));
-    mergeAccountTombstones(a, b);
+    expect(mergeAccountTombstones(a, b)).toBeNull();
     expect(new DeviceStore(b).isTombstoned(key)).toBe(true);
     expect(new DeviceStore(a).isTombstoned("a-pending-key")).toBe(true);
   } finally { for (const dir of [a, b]) rmSync(dir, { recursive: true, force: true }); }
@@ -541,4 +541,113 @@ test("a device paired with a code a relay device started on a PC in no account i
   expect(registryRow(f, row.id)?.added_by).toBe(starterDevice.id);
   expect((await post(link, "/api/account/records", { records: [removal] })).body.results?.[0]?.outcome).toBe("applied");
   expect(f.app.context.services.devices.hasKey(target.spki)).toBe(false);
+});
+
+test("a session from a row's former key cannot start a member's pairing code", async () => {
+  const f = fixture();
+  const legacy = await relayDevice(f);
+  const [first, stale] = [await signedIn(f, legacy), await signedIn(f, legacy)];
+  const key = await accountKey();
+  expect((await post(first, "/api/account/link", { record: await linkRecord(legacy, key) })).status).toBe(200);
+  expect((await post(stale, "/api/devices/pair/start", {})).body.error?.code).toBe("account_required");
+});
+
+test("a watching device added by a member reads its own introduction", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const watcher = await accountKey();
+  const record = await sign({ v: 1, kind: "add", account: ACCOUNT, key: watcher.spki, label: "Tablet", role: "watch", issued_at: new Date().toISOString(), id: newRecordId(), signer: key.spki }, key);
+  await post(link, "/api/account/records", { records: [record] });
+  const pcs = [introducedPc()];
+  const introduced = link.open("/api/account/introduce", { method: "POST", headers: guard, body: "stream" });
+  void introduced.stream.sendBody(new Response(JSON.stringify({ key: watcher.spki, pcs })).body!).catch(() => {});
+  expect((await introduced.response).status).toBe(204);
+  const session = await relayConnection(f);
+  await session.auth({ keys: watcher.keys, publicKey: watcher.spki, id: accountDeviceId(SERVER_ID, watcher.spki) });
+  expect(await (await session.open("/api/account/introduction").response).json()).toEqual({ pcs });
+});
+
+test("an admission counts only for the account and relay identity it was made for", async () => {
+  const f = fixture();
+  await member(f);
+  let identity = rotateRelayIdentity(f.stateDir);
+  const service = new FakeAccountService();
+  const token = service.issueToken(ACCOUNT);
+  await service.fetch(new Request(`https://account.test/v1/pcs/${identity.server_id}`, { method: "PUT", headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ label: "PC", public_key: bytesToHex(importPublicKey(identity.public_key)), relay: "wss://relay.ovis.sh" }) }));
+  const waiting = await accountKey();
+  await service.fetch(new Request("https://account.test/v1/admissions", { method: "POST", headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ server_id: identity.server_id, label: "Mac", key: waiting.spki }) }));
+  const mailbox = new AccountMailbox({ devices: f.app.context.services.devices, identity: () => identity, service: "https://account.test", fetch: service.fetch });
+  expect(await mailbox.admitted(waiting.spki)).toBe(true);
+  identity = rotateRelayIdentity(f.stateDir);
+  expect(await mailbox.admitted(waiting.spki)).toBe(false);
+});
+
+test("a remove that reaches the PC before its signer's own add, in one pull, still applies", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const identity = rotateRelayIdentity(f.stateDir);
+  const service = new FakeAccountService();
+  const token = service.issueToken(ACCOUNT);
+  await service.fetch(new Request(`https://account.test/v1/pcs/${identity.server_id}`, { method: "PUT", headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ label: "PC", public_key: bytesToHex(importPublicKey(identity.public_key)), relay: "wss://relay.ovis.sh" }) }));
+  const [b, c] = [await accountKey(), await accountKey()];
+  await post(link, "/api/account/records", { records: [await add(key, c.spki)] });
+  const queue = async (record: AccountRecord) => service.fetch(new Request("https://account.test/v1/records", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ server_ids: [identity.server_id], record }) }));
+  await queue(await remove(b, c.spki));
+  await queue(await add(key, b.spki));
+  const mailbox = new AccountMailbox({ devices: f.app.context.services.devices, identity: () => identity, service: "https://account.test", fetch: service.fetch });
+  await mailbox.pull();
+  expect(f.app.context.services.devices.hasKey(b.spki)).toBe(true);
+  expect(f.app.context.services.devices.hasKey(c.spki)).toBe(false);
+});
+
+test("merging two state dirs keeps the later of two links of one row", () => {
+  const base = { id: "00112233445566aa", label: "Phone", role: "drive" as const, token_hash: "0".repeat(64), account: ACCOUNT, created_at: "2026-11-01T00:00:00.000Z", last_seen_at: null };
+  const earlier = { ...base, relay_public_key: "K1", linked_at: "2026-11-02T00:00:00.000Z" };
+  const later = { ...base, relay_public_key: "K2", linked_at: "2026-11-03T00:00:00.000Z" };
+  const ids = new Set([base.id]);
+  expect(mergeRegistries({ gate_closed_at: null, devices: [earlier] }, { gate_closed_at: null, devices: [later] }, { own: ids, other: ids }).devices[0]?.relay_public_key).toBe("K2");
+  expect(mergeRegistries({ gate_closed_at: null, devices: [later] }, { gate_closed_at: null, devices: [earlier] }, { own: ids, other: ids }).devices[0]?.relay_public_key).toBe("K2");
+});
+
+test("a sibling dir's unreadable tombstones keep account records out of the active dir", () => {
+  const [a, b] = [mkdtempSync(join(tmpdir(), "ovis-account-a-")), mkdtempSync(join(tmpdir(), "ovis-account-b-"))];
+  try {
+    writeFileSync(join(b, "account-tombstones.json"), "{broken");
+    const blocked = mergeAccountTombstones(a, b);
+    expect(blocked).not.toBeNull();
+    expect(new DeviceStore(a, null, blocked).accountError).not.toBeNull();
+  } finally { for (const dir of [a, b]) rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a row a member added goes with its key's tombstone on start, however late it was made", async () => {
+  const state = await interrupted("2026-11-03T00:00:00.000Z", "2026-11-02T00:00:00.000Z");
+  try {
+    const rows = JSON.parse(readFileSync(join(state.stateDir, "devices.json"), "utf8")) as { devices: Record<string, unknown>[] };
+    rows.devices[0]!.added_by = "00112233445566bb";
+    writeFileSync(join(state.stateDir, "devices.json"), JSON.stringify(rows), { mode: 0o600 });
+    const store = state.store();
+    expect(store.hasKey(state.key)).toBe(false);
+    expect(store.isTombstoned(state.key)).toBe(true);
+  } finally { rmSync(state.stateDir, { recursive: true, force: true }); }
+});
+
+test("a remove at the end of a chain of adds read in reverse in one pull still applies", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const identity = rotateRelayIdentity(f.stateDir);
+  const service = new FakeAccountService();
+  const token = service.issueToken(ACCOUNT);
+  await service.fetch(new Request(`https://account.test/v1/pcs/${identity.server_id}`, { method: "PUT", headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ label: "PC", public_key: bytesToHex(importPublicKey(identity.public_key)), relay: "wss://relay.ovis.sh" }) }));
+  const [b, c, d] = [await accountKey(), await accountKey(), await accountKey()];
+  await post(link, "/api/account/records", { records: [await add(key, d.spki)] });
+  const queue = async (record: AccountRecord) => service.fetch(new Request("https://account.test/v1/records", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ server_ids: [identity.server_id], record }) }));
+  await queue(await remove(b, d.spki));
+  await queue(await add(c, b.spki));
+  await queue(await add(key, c.spki));
+  await new AccountMailbox({ devices: f.app.context.services.devices, identity: () => identity, service: "https://account.test", fetch: service.fetch }).pull();
+  expect(f.app.context.services.devices.hasKey(d.spki)).toBe(false);
 });

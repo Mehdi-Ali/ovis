@@ -61,6 +61,8 @@ export interface StoredDevice {
   account?: string;
   /** the account member on this PC that approved it from another device; absent when this PC or a code admitted it */
   added_by?: string;
+  /** when a `link` last moved the row to its key: of two copies of a row (state-merge.ts), the later link wins */
+  linked_at?: string;
 }
 
 /**
@@ -168,7 +170,8 @@ export function readDeviceRegistry(path: string): DeviceRegistry {
       && typeof d.label === "string" && typeof d.created_at === "string"
       && (d.last_seen_at === null || typeof d.last_seen_at === "string")
       && (d.account === undefined || typeof d.account === "string")
-      && (d.added_by === undefined || typeof d.added_by === "string"))) return { kind: "bad" };
+      && (d.added_by === undefined || typeof d.added_by === "string")
+      && (d.linked_at === undefined || typeof d.linked_at === "string"))) return { kind: "bad" };
   return { kind: "ok", gateClosedAt: parsed.gate_closed_at, devices: parsed.devices as StoredDevice[], placeholder: parsed.placeholder === true && parsed.devices.length === 0 };
 }
 
@@ -192,10 +195,12 @@ function readTombstones(path: string): AccountTombstone[] | null {
  * a key removed in either stays removed in both. Per key the later removal is kept. A file that will
  * not parse is left as it is, and the store then refuses account records there.
  */
-export function mergeAccountTombstones(active: string, sibling: string): void {
+export function mergeAccountTombstones(active: string, sibling: string): string | null {
   const paths = [join(active, "account-tombstones.json"), join(sibling, "account-tombstones.json")];
   const read = paths.map(readTombstones);
-  if (read.some((list) => list === null)) return;
+  // the active dir's own unreadable file stops its store anyway; a sibling's must too, or its removals are lost
+  if (read[1] === null) return `Cannot read ${paths[1]}: account records are refused until it is restored or fixed.`;
+  if (read[0] === null) return null;
   // revokes either dir made while its file could not be read (DeviceStore.tombstone) count as well
   const pending = [active, sibling].flatMap((dir) => readTombstones(join(dir, "account-tombstones.pending.json")) ?? []);
   const merged = new Map<string, AccountTombstone>();
@@ -209,6 +214,7 @@ export function mergeAccountTombstones(active: string, sibling: string): void {
       writePrivateState(path, { v: 1, tombstones });
     }
   }
+  return null;
 }
 
 export class DeviceStore {
@@ -243,13 +249,15 @@ export class DeviceStore {
    * take over the other state dir's): the store then stays gated and changes nothing, as for a
    * damaged registry, while the devices it holds still get in.
    */
-  constructor(stateDir: string, blocked: string | null = null) {
+  /** `accountBlocked`: why account records cannot be trusted here (a sibling dir's tombstones that could not be merged). */
+  constructor(stateDir: string, blocked: string | null = null, accountBlocked: string | null = null) {
     this.path = join(stateDir, "devices.json");
     this.tombstonePath = join(stateDir, "account-tombstones.json");
     this.pendingTombstonePath = join(stateDir, "account-tombstones.pending.json");
     const tombstones = readTombstones(this.tombstonePath);
     // revokes made while the main file could not be read (tombstone()): kept apart, folded back in below
     const pending = readTombstones(this.pendingTombstonePath) ?? [];
+    if (accountBlocked !== null) this.accountError = accountBlocked;
     if (tombstones === null) {
       this.accountError = `Cannot read ${this.tombstonePath}: account records are refused until it is restored or fixed.`;
       this.tombstones = pending;
@@ -300,8 +308,9 @@ export class DeviceStore {
 
   /** A row whose key was removed at or after the row was made: revoked, whether or not its own write happened yet. */
   private stale(device: StoredDevice): boolean {
+    // a row an add or a remote approval made goes whatever its time, as removeAccountKey takes it
     return device.relay_public_key !== undefined
-      && this.tombstones.some((t) => t.key === device.relay_public_key && t.removed_at >= device.created_at);
+      && this.tombstones.some((t) => t.key === device.relay_public_key && (device.added_by !== undefined || t.removed_at >= device.created_at));
   }
 
   /**
@@ -740,7 +749,7 @@ export class DeviceStore {
     this.assertAccountWritable();
     const device = this.devices.find((d) => d.id === deviceId && d.relay_public_key === oldKey);
     if (!device) return null;
-    const updated: StoredDevice = { ...device, relay_public_key: key, account };
+    const updated: StoredDevice = { ...device, relay_public_key: key, account, linked_at: new Date().toISOString() };
     const next = this.devices.map((d) => d === device ? updated : d);
     this.save(next);
     this.devices = next;
@@ -785,7 +794,8 @@ export class DeviceStore {
  * `onRevoked` is told the id of every device a request revoked, once the registry says so: the
  * cleanup that follows (push subscriptions, page media) works from those ids, never from the path.
  */
-export async function handleDeviceRequest(request: Request, pathname: string, store: DeviceStore, access: Access, onRevoked?: (ids: string[]) => void): Promise<Response> {
+/** `relayKey`: the key a relayed session proved (empty when it never signed in with one), null off the relay. */
+export async function handleDeviceRequest(request: Request, pathname: string, store: DeviceStore, access: Access, relayKey: string | null, onRevoked?: (ids: string[]) => void): Promise<Response> {
   if (store.error !== null) return jsonResponse({ error: { code: "device_store_unavailable", message: access.level === "full" ? store.error : "Device pairing is unavailable; ask the owner to check Settings → Devices on the host." } }, 503);
   const json = async (): Promise<Record<string, unknown> | Response> => {
     try {
@@ -827,7 +837,7 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     // a code admits whoever holds it, so through the relay to a PC in an account only those who may approve a pairing
     // may start one; a PC in no account keeps letting any driving relay device start one, as before
-    if (access.level === "full" && access.via === "relay" && store.account() !== null && !(access.device && store.isAccountApprover(access.device.id))) {
+    if (access.level === "full" && access.via === "relay" && store.account() !== null && !(access.device && store.isAccountApproverSession(access.device.id, relayKey ?? ""))) {
       return jsonResponse({ error: { code: "account_required", message: "Start a pairing on this PC, or from a device linked to your account" } }, 403);
     }
     try {

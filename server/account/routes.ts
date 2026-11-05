@@ -19,18 +19,18 @@ export async function handleAccountRequest(request: Request, pathname: string, c
   const reply = (body: unknown, status = 200) => jsonResponse(body, status, { "cache-control": "no-store" });
   const fail = (code: string, message: string, status: number) => reply({ error: { code, message } }, status);
   const devices = context.services.devices;
+  const peer = context.peer;
+  // the one route a watching device may use: its own introduction, over its own session
+  if (pathname === "/api/account/introduction" && request.method === "GET") {
+    setRequestRoute(pathname);
+    const pcs = peer.kind === "relay" ? context.services.accountIntroductions.get(peer.key) : null;
+    return pcs ? reply({ pcs }) : fail("introduction_none", "No introduction waits for this device", 404);
+  }
   if (access.level !== "full" || access.role !== "drive") return fail("read_only", "this device can only watch", 403);
   if (pathname === "/api/account/status" && request.method === "GET") {
     setRequestRoute(pathname);
     const mailbox = context.services.accountMailbox;
     return reply({ account: devices.account(), ...devices.accountRows(), mailbox: { last_pull_at: mailbox.lastPullAt, error: mailbox.error } });
-  }
-  const peer = context.peer;
-  if (pathname === "/api/account/introduction" && request.method === "GET") {
-    setRequestRoute(pathname);
-    // only over the new device's own session: the PCs are for the key it signed in with
-    const pcs = peer.kind === "relay" ? context.services.accountIntroductions.get(peer.key) : null;
-    return pcs ? reply({ pcs }) : fail("introduction_none", "No introduction waits for this device", 404);
   }
   if (request.method !== "POST") return fail("method_not_allowed", "use POST", 405);
   if (!sameOrigin(request) || request.headers.get("x-herdr-machine") !== "1") return fail("invalid_origin", "Manage the account from this app", 403);

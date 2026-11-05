@@ -15,6 +15,12 @@ import { applyAccountRecords } from "./records.ts";
 export const MAILBOX_PULL_MS = 5 * 60_000;
 /** How old an admission may be for the PC to take an account join outside the pairing window. */
 export const ADMISSION_TTL_MS = 10 * 60_000;
+/** The least time between two pulls a join that missed asks for. */
+const ASKED_PULL_MS = 10_000;
+
+function scope(account: string, serverId: string, key: string): string {
+  return `${account}\0${serverId}\0${key}`;
+}
 /** Pages one pull reads at most; the rest waits for the next pull. */
 const MAX_PAGES = 20;
 
@@ -36,8 +42,9 @@ export interface AccountMailboxOptions {
 
 export class AccountMailbox {
   lastPullAt: string | null = null;
-  /** The account's admissions for this PC the last pull saw, by the waiting device's key: when each was made. */
+  /** The admissions the last pull saw, by account, PC and waiting device's key (`scope`): when each was made. */
   private admissions = new Map<string, number>();
+  private lastAskedPull = Number.NEGATIVE_INFINITY;
   error: string | null = null;
   private timer: ReturnType<typeof setInterval> | undefined;
   private pulling: Promise<number> | undefined;
@@ -57,11 +64,26 @@ export class AccountMailbox {
     this.timer.unref?.();
   }
 
-  /** Whether the account service has a fresh admission (at most 10 minutes old) naming `key`; pulls once if not yet seen. */
-  async admitted(key: string, now = Date.now()): Promise<boolean> {
-    const fresh = () => { const at = this.admissions.get(key); return at !== undefined && now - at < ADMISSION_TTL_MS && at <= now + 60_000; };
+  /**
+   * Whether the account service has an admission at most 10 minutes old naming `key` for this PC's
+   * current account and relay identity. A miss pulls again, at most once every 10 seconds, so refused
+   * requests cannot make the PC call the service at will.
+   */
+  async admitted(key: string): Promise<boolean> {
+    const fresh = () => {
+      const account = this.options.devices.account();
+      const identity = this.options.identity();
+      if (account === null || !identity) return false;
+      const at = this.admissions.get(scope(account, identity.server_id, key));
+      const now = Date.now();
+      return at !== undefined && now - at < ADMISSION_TTL_MS && at <= now + 60_000;
+    };
     if (fresh()) return true;
-    await this.pull();
+    if (this.pulling) await this.pulling;
+    else if (Date.now() - this.lastAskedPull >= ASKED_PULL_MS) {
+      this.lastAskedPull = Date.now();
+      await this.pull();
+    }
     return fresh();
   }
 
@@ -81,14 +103,32 @@ export class AccountMailbox {
     let ack: number | null = null;
     try {
       const admissions = new Map<string, number>();
+      // refused because their signer was not a member yet: a later add in the same pull may make it one
+      const early: unknown[] = [];
       for (let page = 0; ; page++) {
         // past the last page read, one more call only acknowledges it; what it returns waits for the next pull
         const { entries, waiting } = await this.page(identity, account, ack);
-        for (const admission of waiting) admissions.set(admission.key, Date.parse(admission.at));
+        for (const admission of waiting) admissions.set(scope(account, identity.server_id, admission.key), Date.parse(admission.at));
         if (entries.length === 0 || page === MAX_PAGES) break;
         for (let start = 0; start < entries.length; start += ACCOUNT_RECORDS_MAX) {
-          const outcomes = await applyAccountRecords(this.options.devices, entries.slice(start, start + ACCOUNT_RECORDS_MAX).map(({ record }) => record), identity.server_id);
+          const batch = entries.slice(start, start + ACCOUNT_RECORDS_MAX).map(({ record }) => record);
+          const outcomes = await applyAccountRecords(this.options.devices, batch, identity.server_id);
           applied += outcomes.filter(({ outcome }) => outcome === "applied").length;
+          outcomes.forEach((outcome, index) => { if (outcome.outcome === "refused" && outcome.code === "signer_not_member") early.push(batch[index]); });
+        }
+        // before this page is acknowledged (with the next request), retry what waited on a signer, until nothing more applies:
+        // a chain of adds read in any order still reaches the remove at its end
+        for (let progress = true; progress && early.length;) {
+          progress = false;
+          const retried = early.splice(0);
+          for (let start = 0; start < retried.length; start += ACCOUNT_RECORDS_MAX) {
+            const batch = retried.slice(start, start + ACCOUNT_RECORDS_MAX);
+            const outcomes = await applyAccountRecords(this.options.devices, batch, identity.server_id);
+            outcomes.forEach((outcome, index) => {
+              if (outcome.outcome === "refused" && outcome.code === "signer_not_member") early.push(batch[index]);
+              else { progress = true; if (outcome.outcome === "applied") applied += 1; }
+            });
+          }
         }
         // every record read is acknowledged, refused ones too, so a refused one cannot hold the rest back
         ack = Math.max(...entries.map(({ seq }) => seq));

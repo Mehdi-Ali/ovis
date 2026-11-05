@@ -318,7 +318,7 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
       // driving, direct to this PC, and not a Portal visitor
       const approver = access.level === "full" && access.role === "drive" && access.via !== "open" && access.via !== "relay" && access.via !== "portal";
       // and through the relay to a drive account member, with three candidates instead of the digits (docs/account.md)
-      const remoteApprover = access.level === "full" && access.via === "relay" && deviceId !== undefined && devices.isAccountApprover(deviceId);
+      const remoteApprover = ctx.peer.kind === "relay" && devices.isAccountApproverSession(ctx.peer.device.id, ctx.peer.key);
       const pairings = { subscribe: (listener: (event: DevicePairedEvent | RelayPairingsEvent | RemotePairingsEvent) => void) => {
         const stopPaired = devices.onPaired((event, origin) => { if (!openAccess && event.device_id !== deviceId && !sameBrowser(origin, keys)) listener(event); });
         // a window that may not approve is told the list is empty, so one that lost the right (drive to watch) drops its prompts
@@ -399,7 +399,7 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
   if (pathname === "/api/devices" || pathname.startsWith("/api/devices/")) {
     try {
       // one device, or all of them: the registry names what was revoked, and the cleanup follows its ids
-      return await handleDeviceRequest(request, pathname, devices, access, (revoked) => {
+      return await handleDeviceRequest(request, pathname, devices, access, ctx.peer.kind === "relay" ? ctx.peer.key : null, (revoked) => {
         for (const id of revoked) {
           // The device registry is the delivery authority even if cleaning the push file fails.
           try { push.revokeDevice(id); } catch (error) { logPushError(error); }
