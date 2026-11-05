@@ -314,6 +314,13 @@ export class FakeAccountService {
       }
       return json({ queued: new Set(body.server_ids).size });
     }
+    if (path === "/v1/admissions" && request.method === "GET") {
+      // what the approving client checks the key PC X shows it against, before it signs an add
+      const admissions = this.admissionList
+        .filter((a) => a.account === account && this.now() - Date.parse(a.at) < ADMISSION_TTL_MS)
+        .map(({ key, label, server_id, at }) => ({ key, label, server_id, at }));
+      return json({ admissions });
+    }
     if (path === "/v1/admissions" && request.method === "POST") {
       const body = await request.json() as { server_id?: unknown; label?: unknown; key?: unknown };
       if (typeof body.server_id !== "string" || !directory.has(body.server_id) || typeof body.label !== "string") return problem(400, "unknown_pc", "List PCs of this account only");

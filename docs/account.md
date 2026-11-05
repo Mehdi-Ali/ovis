@@ -289,6 +289,7 @@ Clients:
 | `PUT /v1/pcs/{server_id}` | `{ "label", "public_key", "relay" }` | `{ "pc": … }`: adds or renames a PC in the directory. 400 `server_key_mismatch` unless `public_key` (X25519, 64 hex) gives `server_id` (`deriveServerId`), 400 `invalid_relay` unless `relay` is a `wss:` origin |
 | `DELETE /v1/pcs/{server_id}` | | `204` |
 | `POST /v1/records` | `{ "server_ids": [...], "record" }` | `{ "queued": n }`: puts a signed record of the caller's account in that account's mailbox for each listed PC; the service checks only its shape and signature. 429 `mailbox_full` past 1000 records waiting for one PC |
+| `GET /v1/admissions` | | `{ "admissions": [{ "key", "label", "server_id", "at" }] }`: this account's admissions of the last 10 minutes. Before it signs an `add` for a device a PC showed it, the approving client checks that PC and key are listed here |
 | `POST /v1/admissions` | `{ "server_id", "label", "key" }` | `{ "id" }`: the signed-in device says it waits at that PC with its account key (`key`); rings the account's other clients (push), and reaches that PC's mailbox for 10 minutes |
 | `POST /v1/signout` | | `204`: ends this sign-in's tokens |
 
@@ -350,8 +351,10 @@ the account service gets an answer the relay refuses.
 
 ## What this does not protect against
 
-- **A compromised PC in the middle of a remote approval** can show the approver another key to sign.
-  It already holds that PC's sessions; the step it adds is reaching the account's other PCs.
+- **A compromised PC in the middle of a remote approval** cannot swap the key on its own any more:
+  the approver signs an `add` only for a key the account service lists as admitted at that PC
+  (`GET /v1/admissions`), which only a device signed in to the account can post. A compromised PC
+  together with a stolen sign-in still could.
 - **A PC that stays off while the account service hides a removal** keeps the removed device until a
   client connects to it and hands over the record directly.
 - **A coding agent on the desktop app's machine** can drive the app's account key (rule 3).
