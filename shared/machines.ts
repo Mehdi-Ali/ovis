@@ -193,6 +193,8 @@ export interface RemotePairingRequest {
   intent: PairingIntent;
   choices: [string, string, string];
   expires_at: string;
+  /** the new device's key (P-256 SPKI, base64url) from PAIR_REQUEST, bound by its commitment and the digits: what the approver signs an `add` for */
+  key: string;
 }
 
 export type MachineEvent = { type: "machines"; machines: Machine[] } | { type: "machine-message"; machine_id: string; message: ServerMessage }

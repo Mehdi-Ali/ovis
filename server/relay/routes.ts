@@ -30,9 +30,13 @@ export async function handleRelayRequest(request: Request, pathname: string, con
       return fail("invalid_relay_pairing", "Send the pairing's id, a decision of approve or decline, and the digits the new device shows.", 400);
     }
     const outcome = service.approvals.decideRemote(body.id, body.decision === "approve", typeof body.digits === "string" ? body.digits : "", remoteApprover);
-    if (outcome === "gone") return fail("relay_pairing_gone", "That device is no longer waiting: it left, was decided, or its time ran out.", 404);
-    if (outcome === "wrong_digits") return fail("wrong_digits", "Those are not the digits the new device shows; it was not let in.", 409);
-    return reply({ ok: true });
+    if (outcome.outcome !== "decided") {
+      return outcome.outcome === "gone"
+        ? fail("relay_pairing_gone", "That device is no longer waiting: it left, was decided, or its time ran out.", 404)
+        : fail("wrong_digits", "Those are not the digits the new device shows; it was not let in.", 409);
+    }
+    // the id the new device's row takes once its person confirms too: what the approver's add record and introductions name
+    return reply(body.decision === "approve" ? { ok: true, device_id: outcome.device_id } : { ok: true });
   }
   if (!updateRequestAllowed(request)) return fail("invalid_relay_request", "Use the relay controls from this app.", 403);
   // A relayed session would hold the relay it runs on; Portal visitors are refused in dispatch.ts (owner_only).

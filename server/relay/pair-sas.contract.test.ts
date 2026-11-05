@@ -10,6 +10,7 @@ import type { MuxClock } from "../../shared/relay-mux-engine.ts";
 import { fromBase64Url, PAIR_APPROVAL_MS, pairCommitment, pairDigits, randomPairNonce, toBase64Url } from "../../shared/relay-pair-sas.ts";
 import type { RelayPairingRequest, RemotePairingRequest } from "../../shared/machines.ts";
 import { readDeviceRegistry } from "../devices.ts";
+import { accountDeviceId } from "../../shared/account-records.ts";
 import { RelaySession } from "./session.ts";
 import { bounded, deferred, relayAccountFixture, relayConnection, relayDevice, relayFixture, TestClock } from "./test-helpers.ts";
 
@@ -485,7 +486,7 @@ async function post(link: Link, target: string, body: unknown) {
   const request = link.open(target, { method: "POST", headers: guard, body: "stream" });
   void request.stream.sendBody(new Response(JSON.stringify(body)).body ?? new ReadableStream()).catch(() => {});
   const response = await request.response;
-  return { status: response.status, body: await response.json() as { error?: { code: string } } };
+  return { status: response.status, body: await response.json() as { error?: { code: string }; ok?: boolean; device_id?: string } };
 }
 
 async function remoteList(link: Link) {
@@ -524,9 +525,13 @@ test("a drive account member through the relay admits a device by picking its di
   expect(new Set(remote?.choices)).toEqual(new Set([digits, ...remote!.choices.filter((choice) => choice !== digits)]));
   expect(new Set(remote?.choices).size).toBe(3);
 
-  expect((await post(link, "/api/relay/pairing", { id: request.id, decision: "approve", digits })).status).toBe(200);
+  expect(remote?.key).toBe(p.publicKey);
+  const approved = await post(link, "/api/relay/pairing", { id: request.id, decision: "approve", digits });
+  const deviceId = accountDeviceId("0123456789abcdef0123456789abcdef", p.publicKey);
+  expect(approved.body).toEqual({ ok: true, device_id: deviceId });
   await confirm(p);
-  expect((await p.inbox.next()).type).toBe(FrameType.AUTH_OK);
+  const admitted = await p.inbox.next();
+  expect(admitted.type === FrameType.AUTH_OK && admitted.payload.device_id).toBe(deviceId);
   const registry = readDeviceRegistry(join(f.stateDir, "devices.json"));
   expect(registry.kind === "ok" && registry.devices.find((device) => device.label === "New phone")?.added_by).toBe(member.id);
 });

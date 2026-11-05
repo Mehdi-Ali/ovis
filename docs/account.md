@@ -124,9 +124,12 @@ One rule for every way in: a pairing code, comparing digits, and joining through
 
 `GET /api/relay/pairings` lists the waiting requests: with their `digits` on the PC itself, and with
 `choices` (three sets of digits, no `digits`) for an account member through the relay, which also
-hears of every change as `remote-pairings` on its event stream. That member answers with
-`POST /api/relay/pairing` `{ "id", "decision", "digits" }`; `digits` is required to approve, and a
-wrong pick answers 409 `wrong_digits` and ends the request.
+hears of every change as `remote-pairings` on its event stream; each entry also carries `key`, the
+new device's P-256 key from its `PAIR_REQUEST`, bound by the commitment and the digits. That member
+answers with `POST /api/relay/pairing` `{ "id", "decision", "digits" }`; `digits` is required to
+approve, and a wrong pick answers 409 `wrong_digits` and ends the request. An approval answers
+`{ "ok": true, "device_id" }`: the id the new device's row takes once its person confirms too,
+`accountDeviceId(server_id, key)`, as every row a comparison makes.
 
 At most three requests wait for approval at once on a PC. A wrong pick ends that request and counts
 as a failed pairing.

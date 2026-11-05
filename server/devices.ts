@@ -360,13 +360,15 @@ export class DeviceStore {
    * A pairing by comparing digits that was approved (server/relay/session.ts): on this PC, or by the
    * account member `addedBy` through the relay. No code is spent.
    */
-  pairRelayApproved(label: string, publicKey: string, approval: { path: PairingPath; addedBy?: string }, now = Date.now()): { device: DeviceMatch } | null {
+  pairRelayApproved(label: string, publicKey: string, approval: { path: PairingPath; addedBy?: string; id?: string }, now = Date.now()): { device: DeviceMatch } | null {
     this.assertRelayPairing(approval.path, now);
     if (!isRelayPublicKey(publicKey)) { this.noteRelayFailure(approval.path, now); return null; }
     // an approver revoked or demoted while the device waited approves nothing
     if (approval.addedBy !== undefined && !this.isAccountApprover(approval.addedBy)) { this.noteRelayFailure(approval.path, now); return null; }
+    // the id an approver was told is the one the row takes; a row already holding it (the same key) is not made twice
+    if (approval.id !== undefined && this.has(approval.id)) { this.noteRelayFailure(approval.path, now); return null; }
     // no code was used, so one still showing on the PC keeps working
-    return this.enrollRelay(label, publicKey, now, false, approval.addedBy);
+    return this.enrollRelay(label, publicKey, now, false, approval.addedBy, approval.id);
   }
 
   /** The account of this PC's members (docs/account.md: a PC belongs to at most one), or null. */
@@ -380,9 +382,9 @@ export class DeviceStore {
     return device !== undefined && device.role === "drive" && device.account !== undefined && device.relay_public_key !== undefined;
   }
 
-  private enrollRelay(label: string, publicKey: string, now: number, codeSpent: boolean, addedBy?: string): { device: DeviceMatch } {
+  private enrollRelay(label: string, publicKey: string, now: number, codeSpent: boolean, addedBy?: string, id = randomBytes(8).toString("hex")): { device: DeviceMatch } {
     const device: StoredDevice = {
-      id: randomBytes(8).toString("hex"), label: normalizeLabel(label, "Device"), role: "drive",
+      id, label: normalizeLabel(label, "Device"), role: "drive",
       token_hash: hash(randomBytes(32).toString("hex")), relay_public_key: publicKey,
       created_at: new Date(now).toISOString(), last_seen_at: null,
       ...(addedBy === undefined ? {} : { added_by: addedBy }),
