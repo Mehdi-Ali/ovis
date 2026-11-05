@@ -105,7 +105,7 @@ export interface ServerContext {
   upgrade(request: Request, options: { headers?: HeadersInit; data: SocketData }): boolean;
   readonly port: number | undefined;
   /** `serverId`: the relay identity the device signed in to, which a `link` must name (docs/account.md). */
-  readonly peer: { kind: "socket" } | { kind: "relay"; device: DeviceMatch; sessionId: string; serverId: string };
+  readonly peer: { kind: "socket" } | { kind: "relay"; device: DeviceMatch; sessionId: string; serverId: string; key: string };
   readonly services: RequestServices;
   readonly relayBodyBudget?: EventStreamBudget;
 }
@@ -247,6 +247,11 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
   );
   // pairing without a code ends in an approval only a window that hears of it can give (relay-pairings below):
   // an ungated LAN window never does, so it neither makes such a link nor answers one
+  // the account's members are standing access, like devices: never a Portal visitor's or an open LAN window's
+  if (access.level === "full" && (access.via === "open" || access.via === "portal") && pathname.startsWith("/api/account/")) {
+    setRequestRoute("owner-refusal");
+    return jsonResponse({ error: { code: "owner_only", message: "Manage the account from this PC itself, or from a paired device." } }, 403);
+  }
   // the list of waiting pairings shows their digits, so it goes only where the approval may come from
   if (access.level === "full" && (access.via === "open" || access.via === "portal") && pathname === "/api/relay/pairings") {
     setRequestRoute("owner-refusal");

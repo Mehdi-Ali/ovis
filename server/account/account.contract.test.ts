@@ -1,12 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { exportAccountKey, newRecordId, signAccountRecord, type AccountRecord, type UnsignedAccountRecord } from "../../shared/account-records.ts";
 import { FakeAccountService } from "../../shared/account-service-fake.ts";
 import { ACCOUNT_FEATURE, FrameType } from "../../shared/relay-mux.ts";
-import { readDeviceRegistry } from "../devices.ts";
+import { DeviceStore, mergeAccountTombstones, readDeviceRegistry } from "../devices.ts";
 import { rotateRelayIdentity } from "../relay/identity.ts";
 import { bounded, relayConnection, relayDevice, relayFixture } from "../relay/test-helpers.ts";
 import { AccountMailbox } from "./mailbox.ts";
+import { applyAccountRecords } from "./records.ts";
 
 type Fixture = ReturnType<typeof relayFixture>;
 type Link = Awaited<ReturnType<typeof relayConnection>>;
@@ -225,4 +228,118 @@ test("a new relay identity leaves the account: its members go with the relay pai
   const mailbox = new AccountMailbox({ devices: f.app.context.services.devices, identity: () => f.app.context.services.relay.currentIdentity(), service: "https://account.test", fetch: service.fetch });
   expect(await mailbox.pull()).toBe(0);
   expect(service.requests).toEqual([]);
+});
+
+test("a revoke on this PC wins over the account: the device's signed add replayed is refused", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const record = await add(key, (await accountKey()).spki);
+  await post(link, "/api/account/records", { records: [record] });
+  f.app.context.services.devices.revoke(f.app.context.services.devices.list(null).find((row) => row.label === "Mac app")!.id);
+  expect((await post(link, "/api/account/records", { records: [record] })).body.results?.[0]).toMatchObject({ outcome: "refused", code: "tombstoned" });
+});
+
+test("a code started through the relay does not let a removed key back in", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const removed = await accountKey();
+  await post(link, "/api/account/records", { records: [await remove(key, removed.spki)] });
+  const code = (await post(link, "/api/devices/pair/start", {})).body as unknown as { code: string };
+  await expect((await relayConnection(f)).pair(code.code, removed.spki)).rejects.toThrow();
+  expect(f.app.context.services.devices.isTombstoned(removed.spki)).toBe(true);
+});
+
+test("a session signed in with a row's old key cannot move the row on to a key of its choosing", async () => {
+  const f = fixture();
+  const legacy = await relayDevice(f);
+  const oldSession = await signedIn(f, legacy);
+  const current = await accountKey();
+  expect((await post(oldSession, "/api/account/link", { record: await linkRecord(legacy, current) })).status).toBe(200);
+  const takeover = await linkRecord(legacy, await accountKey(), { old_key: current.spki });
+  expect((await post(oldSession, "/api/account/link", { record: takeover })).body.error?.code).toBe("link_not_owner");
+  expect(registryRow(f, legacy.id)?.relay_public_key).toBe(current.spki);
+});
+
+test("a link cannot give a row the key another row holds, not even the key it signed in with", async () => {
+  const f = fixture();
+  const first = await member(f);
+  const store = f.app.context.services.devices;
+  const duplicate = store.pairRelay(store.startPairing().code, "Duplicate", first.key.spki)!.device;
+  const twin = { id: duplicate.id, keys: first.key.keys, publicKey: first.key.spki };
+  const session = await signedIn(f, twin);
+  expect((await post(session, "/api/account/link", { record: await linkRecord(twin, first.key) })).body.error?.code).toBe("key_in_use");
+});
+
+test("a remove signed before this PC paired the key again leaves the new pairing be", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const lost = await accountKey();
+  const removal = await remove(key, lost.spki);
+  await post(link, "/api/account/records", { records: [removal] });
+  expect((await (await relayConnection(f)).pair(f.app.context.services.devices.startPairing().code, lost.spki)).role).toBe("drive");
+  expect((await post(link, "/api/account/records", { records: [removal] })).body.results?.[0]?.outcome).toBe("unchanged");
+  expect(f.app.context.services.devices.hasKey(lost.spki)).toBe(true);
+});
+
+/** A state dir as a stop between two writes leaves it: one relay row and a tombstone for its key. */
+async function interrupted(rowCreated: string, removed: string) {
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-account-interrupted-"));
+  const key = (await accountKey()).spki;
+  const row = { id: "00112233445566aa", label: "Phone", role: "drive", token_hash: "0".repeat(64), relay_public_key: key, account: ACCOUNT, created_at: rowCreated, last_seen_at: null };
+  writeFileSync(join(stateDir, "devices.json"), JSON.stringify({ gate_closed_at: rowCreated, devices: [row] }), { mode: 0o600 });
+  writeFileSync(join(stateDir, "account-tombstones.json"), JSON.stringify({ v: 1, tombstones: [{ key, account: ACCOUNT, record_id: "r", removed_at: removed }] }), { mode: 0o600 });
+  return { stateDir, key, store: () => new DeviceStore(stateDir) };
+}
+
+test("a removal cut off between its two writes is finished when the PC starts", async () => {
+  const state = await interrupted("2026-11-01T00:00:00.000Z", "2026-11-02T00:00:00.000Z");
+  try {
+    const store = state.store();
+    expect(store.error).toBeNull();
+    expect(store.hasKey(state.key)).toBe(false);
+    expect(store.isTombstoned(state.key)).toBe(true);
+    expect(store.list(null)).toEqual([]);
+  } finally { rmSync(state.stateDir, { recursive: true, force: true }); }
+});
+
+test("a pairing on this PC cut off before it cleared the tombstone keeps its device when the PC starts", async () => {
+  const state = await interrupted("2026-11-03T00:00:00.000Z", "2026-11-02T00:00:00.000Z");
+  try {
+    const store = state.store();
+    expect(store.hasKey(state.key)).toBe(true);
+    expect(store.isTombstoned(state.key)).toBe(false);
+  } finally { rmSync(state.stateDir, { recursive: true, force: true }); }
+});
+
+test("an unreadable tombstone file refuses every account way in, and the mailbox collects nothing until it is fixed", async () => {
+  const f = fixture();
+  const { device, key } = await member(f);
+  writeFileSync(join(f.stateDir, "account-tombstones.json"), "{not json", { mode: 0o600 });
+  const store = new DeviceStore(f.stateDir);
+  expect(store.accountError).not.toBeNull();
+  expect((await applyAccountRecords(store, [await remove(key, (await accountKey()).spki)]))[0]).toMatchObject({ outcome: "refused", code: "account_unavailable" });
+  expect(store.pairRelayApproved("Phone", (await accountKey()).spki, { path: "account", addedBy: device.id })).toBeNull();
+  const service = new FakeAccountService();
+  const mailbox = new AccountMailbox({ devices: store, identity: () => rotateRelayIdentity(f.stateDir), service: "https://account.test", fetch: service.fetch });
+  expect(await mailbox.pull()).toBe(0);
+  expect(mailbox.error).not.toBeNull();
+  expect(service.requests).toEqual([]);
+});
+
+test("two state dirs end with every tombstone of both", () => {
+  const [a, b] = [mkdtempSync(join(tmpdir(), "ovis-account-a-")), mkdtempSync(join(tmpdir(), "ovis-account-b-"))];
+  try {
+    const key = "a-removed-key";
+    writeFileSync(join(a, "account-tombstones.json"), JSON.stringify({ v: 1, tombstones: [{ key, account: ACCOUNT, record_id: "r", removed_at: "2026-11-02T00:00:00.000Z" }] }));
+    mergeAccountTombstones(a, b);
+    expect(new DeviceStore(b).isTombstoned(key)).toBe(true);
+  } finally { for (const dir of [a, b]) rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a bad account service address shows as the mailbox's error instead of stopping the PC", async () => {
+  const f = fixture();
+  await member(f);
+  const mailbox = new AccountMailbox({ devices: f.app.context.services.devices, identity: () => rotateRelayIdentity(f.stateDir), service: new Error("The account service must be https") });
+  expect(await mailbox.pull()).toBe(0);
+  expect(mailbox.error).toBe("The account service must be https");
 });

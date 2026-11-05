@@ -29,7 +29,7 @@ function apply(store: DeviceStore, record: AccountRecord, now: number): RecordOu
   if (account !== null && account !== record.account) return refused("account_mismatch");
   const signer = store.accountSigner(record.signer, record.account);
   if (!signer) return refused("signer_not_member");
-  if (record.kind === "remove") return { id: record.id, outcome: store.removeAccountKey(record.key, record.account, record.id, now) ? "applied" : "unchanged" };
+  if (record.kind === "remove") return { id: record.id, outcome: store.removeAccountKey(record.key, record.account, { id: record.id, issuedAt: record.issued_at }, now) ? "applied" : "unchanged" };
   if (store.isTombstoned(record.key)) return refused("tombstoned");
   if (store.hasKey(record.key)) return { id: record.id, outcome: "unchanged" };
   store.addAccountDevice({ key: record.key, label: record.label, role: record.role, account: record.account, addedBy: signer.id }, now);
@@ -53,17 +53,19 @@ export type LinkRefusal = RecordRefusal | "key_in_use";
  * A `link` from the device `deviceId` over its own session to the PC `serverId`. It needs no
  * member: the session is its authority, which is how a PC gets its first one.
  */
-export async function applyLink(store: DeviceStore, value: unknown, deviceId: string, serverId: string): Promise<{ device: PairedDevice } | { refused: LinkRefusal }> {
+export async function applyLink(store: DeviceStore, value: unknown, session: { deviceId: string; serverId: string; sessionKey: string }): Promise<{ device: PairedDevice } | { refused: LinkRefusal }> {
+  const { deviceId, serverId, sessionKey } = session;
   const record = await read(value);
   if ("refused" in record) return { refused: record.refused };
   if (record.kind !== "link") return { refused: "record_invalid" };
   const link: LinkRecord = record;
-  if (link.server_id !== serverId || link.device_id !== deviceId) return { refused: "link_not_owner" };
+  // a session signed in with an older key of the row cannot move it on: only the key it proved may be replaced
+  if (link.server_id !== serverId || link.device_id !== deviceId || link.old_key !== sessionKey) return { refused: "link_not_owner" };
   if (store.accountError !== null) return { refused: "account_unavailable" };
   const account = store.account();
   if (account !== null && account !== link.account) return { refused: "account_mismatch" };
   if (store.isTombstoned(link.key)) return { refused: "tombstoned" };
-  if (link.key !== link.old_key && store.hasKey(link.key)) return { refused: "key_in_use" };
+  if (store.keyHeldByOther(link.key, deviceId)) return { refused: "key_in_use" };
   const device = store.linkAccountKey(deviceId, link.old_key, link.key, link.account);
   return device ? { device } : { refused: "link_not_owner" };
 }

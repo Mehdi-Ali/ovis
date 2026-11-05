@@ -27,7 +27,8 @@ export interface AccountMailboxOptions {
   readonly devices: DeviceStore;
   /** This PC's relay identity, when it has one; its `server_id` names the mailbox. */
   readonly identity: () => RelayIdentity | undefined;
-  readonly service: string;
+  /** The account service's origin, or why none can be used (a bad OVIS_ACCOUNT_SERVICE_URL), shown as the mailbox's error. */
+  readonly service: string | Error;
   readonly fetch?: (request: Request) => Promise<Response>;
 }
 
@@ -61,12 +62,16 @@ export class AccountMailbox {
     const account = this.options.devices.account();
     const identity = this.options.identity();
     if (account === null || !identity) return 0;
+    if (this.options.service instanceof Error) { this.error = this.options.service.message; return 0; }
+    // a removal refused for a local reason would be acknowledged and lost: collect nothing until it is fixed
+    if (this.options.devices.accountError !== null) { this.error = this.options.devices.accountError; return 0; }
     let applied = 0;
     let ack: number | null = null;
     try {
-      for (let page = 0; page < MAX_PAGES; page++) {
+      for (let page = 0; ; page++) {
+        // past the last page read, one more call only acknowledges it; what it returns waits for the next pull
         const entries = await this.page(identity, account, ack);
-        if (entries.length === 0) break;
+        if (entries.length === 0 || page === MAX_PAGES) break;
         for (let start = 0; start < entries.length; start += ACCOUNT_RECORDS_MAX) {
           const outcomes = await applyAccountRecords(this.options.devices, entries.slice(start, start + ACCOUNT_RECORDS_MAX).map(({ record }) => record));
           applied += outcomes.filter(({ outcome }) => outcome === "applied").length;
@@ -84,7 +89,7 @@ export class AccountMailbox {
 
   private async page(identity: RelayIdentity, account: string, ack: number | null): Promise<{ seq: number; record: unknown }[]> {
     const call = async (path: string, body: unknown) => {
-      const response = await (this.options.fetch ?? fetch)(new Request(this.options.service + path, {
+      const response = await (this.options.fetch ?? fetch)(new Request(String(this.options.service) + path, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
       }));
       if (!response.ok) throw new Error(`The account service answered ${response.status} to ${path}`);

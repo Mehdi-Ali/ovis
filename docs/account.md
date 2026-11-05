@@ -186,8 +186,9 @@ answers every outcome, never failing the whole batch for one record:
 { "results": [{ "id": "…", "outcome": "applied" }, { "id": "…", "outcome": "refused", "code": "tombstoned" }] }
 ```
 
-Outcomes: `applied`, `unchanged` (an `add` for a key already present, a `remove` for a key not
-present) and `refused` with a code.
+Outcomes: `applied`, `unchanged` (an `add` for a key already present; a `remove` for a key already
+removed and absent, or signed before this PC paired the key again) and `refused` with a code. A
+`remove` for a key this PC never had still leaves its tombstone, so the key cannot be added later.
 
 `POST /api/account/enroll` `{ "account": "acct_1", "records": [<add>, …] }`: what a member sends a
 PC it just paired. The request's own device must already be a member of `account` (it links itself
@@ -219,16 +220,28 @@ refuses it.
 - Membership lives on the rows of `devices.json` (`account`, `added_by`); the PC's account is the
   account of its members. Tombstones live beside it, in `account-tombstones.json` (readable by your
   user only). A tombstone file that will not parse is not an empty one: account records are then
-  refused (`account_unavailable`) until it is restored, and nothing else changes.
-- A `remove` writes its tombstone before it revokes the device, so a stop between the two leaves
-  the key refused. The device's relay connections close at once (`auth_revoked`).
-- A pairing made on this PC (a code, or a comparison approved here) clears that key's tombstone. A
-  comparison an account member approves remotely is refused for a tombstoned key.
+  refused (`account_unavailable`) until it is restored, and so are a code started through the relay
+  and a remote approval; the mailbox collects nothing meanwhile, so no removal is acknowledged
+  unapplied. Pairing on the PC itself and signing in are unchanged.
+- A `remove` writes its tombstone before it revokes the device; the device's relay connections
+  close at once (`auth_revoked`). A `remove` signed before this PC paired the key again leaves that
+  pairing be (`unchanged`), so a late or replayed one cannot undo it.
+- **Revoke** and **Revoke all** on the PC leave a tombstone too, so no record brings the key back.
+- A pairing made on this PC (a code started on the PC, or a comparison approved here) clears that
+  key's tombstone, after its row is written. A code started through the relay, or a comparison an
+  account member approves remotely, is refused for a tombstoned key.
+- A stop between two such writes leaves a row and a tombstone for one key. On start the PC tells them
+  apart by time: a row made before the key's removal is revoked, one made after it keeps its device
+  and the tombstone goes. Until then no such row signs in, signs or approves.
+- Where two state dirs share one device list, their tombstones are merged too.
 - **Reset relay identity** removes every relay device, members included, so the PC leaves the
   account; a client adds it again by pairing with its new identity, after the client's usual "this
   PC's identity changed" notice.
 - The PC collects its mailbox from `OVIS_ACCOUNT_SERVICE_URL` (https, or http on loopback only;
-  `https://account.ovis.sh` when unset), only while it has members and a relay identity.
+  `https://account.ovis.sh` when unset), only while it has members and its relay is on. An address
+  it cannot use shows as the mailbox's error in `/api/account/status`.
+- `/api/account/*` is refused to Portal visitors and open LAN windows (`owner_only`), and a `link`
+  must start from the key its own session signed in with.
 
 ## Account service API
 

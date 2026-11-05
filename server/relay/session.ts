@@ -81,6 +81,8 @@ export class RelaySession {
     phoneConfirmed: boolean; approved: boolean; approvedBy?: string; ended: boolean; withdraw?: () => void; cancelDeadline?: () => void; stopRevokeAll?: () => void; stopApprover?: () => void;
   } | undefined;
   private device: DeviceMatch | undefined;
+  /** The key this session's device signed in or paired with: a `link` must start from it (docs/account.md). */
+  private key = "";
   private unwatch: (() => void) | undefined;
   private sourceBytes = 0;
   private readonly clock: MuxClock;
@@ -322,6 +324,7 @@ export class RelaySession {
       return;
     }
     this.device = Object.freeze(device);
+    this.key = devices.relayKeyOf(device.id) ?? "";
     // The commit callback runs before the sink: synchronous carriers can immediately OPEN.
     // Until then OPEN is still unauthenticated, even while AUTH_OK waits behind receipt credit.
     this.mux.enqueueControl({
@@ -373,7 +376,7 @@ export class RelaySession {
     relayBodyBudget?: EventStreamBudget): ServerContext {
     return {
       services: this.options.services, port: this.options.port, requestIP: () => null, timeout, upgrade,
-      peer: { kind: "relay", device, sessionId: this.sessionId, serverId: this.options.serverId }, relayBodyBudget,
+      peer: { kind: "relay", device, sessionId: this.sessionId, serverId: this.options.serverId, key: this.key }, relayBodyBudget,
     };
   }
 

@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import type { PendingMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { isLoopbackBind, lanExposed } from "./access.ts";
-import { DeviceStore } from "./devices.ts";
+import { DeviceStore, mergeAccountTombstones } from "./devices.ts";
 import { PreferenceStore } from "./preferences.ts";
 import { SeenStore } from "./seen.ts";
 import { TailnetIdentitySource } from "./tailscale.ts";
@@ -225,6 +225,10 @@ export function createServer(
   const stateDir = options.stateDir ?? defaultStateDir();
   const ovisRelay = options.relay ?? new RelayService({ stateDir });
   const merge = options.siblingStateDir ? mergeSiblingState(stateDir, options.siblingStateDir) : null;
+  if (options.siblingStateDir) {
+    try { mergeAccountTombstones(stateDir, options.siblingStateDir); }
+    catch (error) { console.error(`cannot merge the account tombstones of ${options.siblingStateDir}: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const devices = new DeviceStore(stateDir, merge?.devicesBlocked ?? null);
   const preferences = new PreferenceStore(stateDir);
   // Chat's own rewind (#1500, never released) kept its rewinds here; nothing reads them since #1577
@@ -334,7 +338,7 @@ export function createServer(
   const requestLog = new RequestLog(stateDir);
   const accountMailbox = new AccountMailbox({
     devices, identity: () => ovisRelay.currentIdentity(),
-    service: accountServiceUrl(options.accountService?.url), ...(options.accountService?.fetch ? { fetch: options.accountService.fetch } : {}),
+    service: (() => { try { return accountServiceUrl(options.accountService?.url); } catch (error) { return error instanceof Error ? error : new Error(String(error)); } })(), ...(options.accountService?.fetch ? { fetch: options.accountService.fetch } : {}),
   });
   const services: RequestServices = {
     options, relay: ovisRelay, hostname, token, bridgeToken, bootId, devices, accountMailbox, preferences, herdrSidebar, identityOf, serveOnly, portalGuards, shellAgents, agentDetector, agentOffered, agentInstaller, openCodeState, cliProxyRoutes, usageLogin, usage, usageAccounts, voice, browserSnapshot, core, seen, piReader, orderSequence, clientConnectionLog, requestLog, portalStartup,
