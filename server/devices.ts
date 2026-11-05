@@ -662,6 +662,9 @@ export class DeviceStore {
   /** Whether `key` is a P-256 key devices.json accepts (readDeviceRegistry checks every row's). */
   acceptsRelayKey(key: string): boolean { return isRelayPublicKey(key); }
 
+  /** Whether a row an account member added (an `add` or a remote approval) holds `key`: what an introduction is for. */
+  wasAddedByMember(key: string): boolean { return this.devices.some((d) => d.relay_public_key === key && d.added_by !== undefined && !this.stale(d)); }
+
   /** Whether a row other than `id` holds `key`. */
   keyHeldByOther(key: string, id: string): boolean { return this.devices.some((d) => d.relay_public_key === key && d.id !== id); }
 
@@ -669,11 +672,13 @@ export class DeviceStore {
   relayKeyOf(id: string): string | undefined { return this.devices.find((d) => d.id === id)?.relay_public_key; }
 
   /** An `add` that verified: a new member row, announced like any other enrollment. Never for a tombstoned key. */
-  addAccountDevice(entry: { key: string; label: string; role: DeviceRole; account: string; addedBy: string }, now = Date.now()): DeviceMatch {
+  addAccountDevice(entry: { id: string; key: string; label: string; role: DeviceRole; account: string; addedBy: string }, now = Date.now()): DeviceMatch {
     this.assertAccountWritable();
     if (this.isTombstoned(entry.key)) throw new Error("tombstoned key");
+    // an id another row holds would merge two devices' authority; a derived id collides only for the same key
+    if (this.has(entry.id)) throw new Error("device id in use");
     const device: StoredDevice = {
-      id: randomBytes(8).toString("hex"), label: normalizeLabel(entry.label, "Device"), role: entry.role,
+      id: entry.id, label: normalizeLabel(entry.label, "Device"), role: entry.role,
       token_hash: hash(randomBytes(32).toString("hex")), relay_public_key: entry.key,
       created_at: new Date(now).toISOString(), last_seen_at: null, account: entry.account, added_by: entry.addedBy,
     };

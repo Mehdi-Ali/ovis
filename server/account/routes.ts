@@ -3,6 +3,7 @@ import type { Access } from "../access.ts";
 import type { ServerContext } from "../dispatch.ts";
 import { jsonResponse, readJsonObject, setRequestRoute } from "../http.ts";
 import { sameOrigin } from "../machine-security.ts";
+import { parseIntroducedPcs } from "./introductions.ts";
 import { applyAccountRecords, applyLink, type LinkRefusal } from "./records.ts";
 
 const LINK_STATUS: Record<LinkRefusal, number> = {
@@ -24,12 +25,29 @@ export async function handleAccountRequest(request: Request, pathname: string, c
     const mailbox = context.services.accountMailbox;
     return reply({ account: devices.account(), ...devices.accountRows(), mailbox: { last_pull_at: mailbox.lastPullAt, error: mailbox.error } });
   }
+  const peer = context.peer;
+  if (pathname === "/api/account/introduction" && request.method === "GET") {
+    setRequestRoute(pathname);
+    // only over the new device's own session: the PCs are for the key it signed in with
+    const pcs = peer.kind === "relay" ? context.services.accountIntroductions.get(peer.key) : null;
+    return pcs ? reply({ pcs }) : fail("introduction_none", "No introduction waits for this device", 404);
+  }
   if (request.method !== "POST") return fail("method_not_allowed", "use POST", 405);
   if (!sameOrigin(request) || request.headers.get("x-herdr-machine") !== "1") return fail("invalid_origin", "Manage the account from this app", 403);
   const body = await readJsonObject(request);
   if (body instanceof Response) return body;
-  const peer = context.peer;
+  const serverId = peer.kind === "relay" ? peer.serverId : context.services.relay.currentIdentity()?.server_id ?? null;
   switch (pathname) {
+    case "/api/account/introduce": {
+      setRequestRoute(pathname);
+      const caller = peer.kind === "relay" ? peer.device.id : access.device?.id;
+      if (caller === undefined || !devices.isAccountApprover(caller)) return fail("account_required", "Introduce devices from a device linked to the account", 403);
+      if (typeof body.key !== "string" || !devices.wasAddedByMember(body.key)) return fail("introduction_unknown_key", "No account member added that device here", 404);
+      const pcs = parseIntroducedPcs(body.pcs);
+      if (!pcs) return fail("introduction_invalid", "List at most 32 PCs, each with a server_id its key derives", 400);
+      context.services.accountIntroductions.set(body.key, pcs);
+      return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+    }
     case "/api/account/link": {
       setRequestRoute(pathname);
       // a link proves the key of the row whose session sends it, and only the relay carries a row's key
@@ -53,7 +71,7 @@ export async function handleAccountRequest(request: Request, pathname: string, c
           return fail("record_invalid", "An enrollment carries add records only", 400);
         }
       }
-      return reply({ results: await applyAccountRecords(devices, records) });
+      return reply({ results: await applyAccountRecords(devices, records, serverId) });
     }
     default: return fail("not_found", "Unknown account action", 404);
   }

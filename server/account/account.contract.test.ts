@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { exportAccountKey, newRecordId, signAccountRecord, type AccountRecord, type UnsignedAccountRecord } from "../../shared/account-records.ts";
+import { accountDeviceId, exportAccountKey, newRecordId, signAccountRecord, type AccountRecord, type UnsignedAccountRecord } from "../../shared/account-records.ts";
 import { FakeAccountService } from "../../shared/account-service-fake.ts";
 import { ACCOUNT_FEATURE, FrameType } from "../../shared/relay-mux.ts";
 import { DeviceStore, mergeAccountTombstones, readDeviceRegistry } from "../devices.ts";
@@ -10,6 +10,9 @@ import { mergeRegistries } from "../state-merge.ts";
 import { rotateRelayIdentity } from "../relay/identity.ts";
 import { bounded, relayConnection, relayDevice, relayFixture } from "../relay/test-helpers.ts";
 import { AccountMailbox } from "./mailbox.ts";
+import { AccountIntroductions, INTRODUCTION_TTL_MS } from "./introductions.ts";
+import { exportPublicKey, generateKeyPair } from "../../shared/relay-e2ee.ts";
+import { deriveServerId } from "../../shared/relay-server-proof.ts";
 import { applyAccountRecords } from "./records.ts";
 
 type Fixture = ReturnType<typeof relayFixture>;
@@ -318,7 +321,7 @@ test("an unreadable tombstone file refuses every account way in, and the mailbox
   writeFileSync(join(f.stateDir, "account-tombstones.json"), "{not json", { mode: 0o600 });
   const store = new DeviceStore(f.stateDir);
   expect(store.accountError).not.toBeNull();
-  expect((await applyAccountRecords(store, [await remove(key, (await accountKey()).spki)]))[0]).toMatchObject({ outcome: "refused", code: "account_unavailable" });
+  expect((await applyAccountRecords(store, [await remove(key, (await accountKey()).spki)], SERVER_ID))[0]).toMatchObject({ outcome: "refused", code: "account_unavailable" });
   expect(store.pairRelayApproved("Phone", (await accountKey()).spki, { path: "account", addedBy: device.id })).toBeNull();
   const service = new FakeAccountService();
   const mailbox = new AccountMailbox({ devices: store, identity: () => rotateRelayIdentity(f.stateDir), service: "https://account.test", fetch: service.fetch });
@@ -396,7 +399,7 @@ test("a revoke while the tombstone file cannot be read still keeps the key out o
   const fixed = new DeviceStore(f.stateDir);
   expect(fixed.accountError).toBeNull();
   expect(fixed.isTombstoned(extra.spki)).toBe(true);
-  expect((await applyAccountRecords(fixed, [record]))[0]).toMatchObject({ outcome: "refused", code: "tombstoned" });
+  expect((await applyAccountRecords(fixed, [record], SERVER_ID))[0]).toMatchObject({ outcome: "refused", code: "tombstoned" });
 });
 
 test("merging two state dirs keeps a link done in either", () => {
@@ -420,4 +423,57 @@ test("on a PC in no account a code a relay device started still pairs a new devi
   const starter = await signedIn(f, await relayDevice(f));
   const code = (await post(starter, "/api/devices/pair/start", {})).body as unknown as { code: string };
   expect((await (await relayConnection(f)).pair(code.code, (await accountKey()).spki)).role).toBe("drive");
+});
+
+test("a device an add puts on this PC has the id both ends derive, and signs in with it", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const joining = await accountKey();
+  await post(link, "/api/account/records", { records: [await add(key, joining.spki)] });
+  const id = accountDeviceId(SERVER_ID, joining.spki);
+  expect(registryRow(f, id)?.relay_public_key).toBe(joining.spki);
+  expect((await (await relayConnection(f)).auth({ keys: joining.keys, publicKey: joining.spki, id })).device_id).toBe(id);
+});
+
+function introducedPc(name = "nuc") {
+  const keys = generateKeyPair();
+  return { server_id: deriveServerId(keys.publicKey), server_public_key: exportPublicKey(keys.publicKey), relay: "wss://relay.ovis.sh", name };
+}
+
+test("a member introduces the account's PCs to a device it added, which reads them over its own session only", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const joining = await accountKey();
+  await post(link, "/api/account/records", { records: [await add(key, joining.spki)] });
+  const pcs = [introducedPc(), introducedPc("laptop")];
+  const introduced = link.open("/api/account/introduce", { method: "POST", headers: guard, body: "stream" });
+  void introduced.stream.sendBody(new Response(JSON.stringify({ key: joining.spki, pcs })).body!).catch(() => {});
+  expect((await introduced.response).status).toBe(204);
+  const joined = await relayConnection(f);
+  await joined.auth({ keys: joining.keys, publicKey: joining.spki, id: accountDeviceId(SERVER_ID, joining.spki) });
+  expect(await (await joined.open("/api/account/introduction").response).json()).toEqual({ pcs });
+  // the member's own session has no introduction of its own
+  expect((await link.open("/api/account/introduction").response).status).toBe(404);
+});
+
+test("an introduction is refused from a non-member, for a device no member added, or with a PC whose id is not its key's", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const plain = await relayDevice(f);
+  const outsider = await signedIn(f, plain);
+  const joining = await accountKey();
+  await post(link, "/api/account/records", { records: [await add(key, joining.spki)] });
+  expect((await post(outsider, "/api/account/introduce", { key: joining.spki, pcs: [introducedPc()] })).body.error?.code).toBe("account_required");
+  expect((await post(link, "/api/account/introduce", { key: plain.publicKey, pcs: [introducedPc()] })).body.error?.code).toBe("introduction_unknown_key");
+  expect((await post(link, "/api/account/introduce", { key: joining.spki, pcs: [{ ...introducedPc(), server_id: "f".repeat(32) }] })).body.error?.code).toBe("introduction_invalid");
+});
+
+test("an introduction lasts ten minutes", () => {
+  let now = 0;
+  const introductions = new AccountIntroductions(() => now);
+  introductions.set("k", [introducedPc()]);
+  now = INTRODUCTION_TTL_MS - 1;
+  expect(introductions.get("k")).not.toBeNull();
+  now = INTRODUCTION_TTL_MS;
+  expect(introductions.get("k")).toBeNull();
 });

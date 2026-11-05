@@ -3,7 +3,7 @@
  * "Records"). The device list stays the only authority: a record changes it only when its signer is
  * a drive member of this PC's account, and never lets a removed key back in.
  */
-import { AccountRecordError, ACCOUNT_RECORDS_MAX, parseAccountRecord, verifyAccountRecord, type AccountRecord, type LinkRecord } from "../../shared/account-records.ts";
+import { accountDeviceId, AccountRecordError, ACCOUNT_RECORDS_MAX, parseAccountRecord, verifyAccountRecord, type AccountRecord, type LinkRecord } from "../../shared/account-records.ts";
 import type { DeviceStore } from "../devices.ts";
 import type { PairedDevice } from "../../shared/protocol.ts";
 
@@ -21,7 +21,7 @@ async function read(value: unknown): Promise<AccountRecord | { refused: RecordRe
 }
 
 /** One `add` or `remove`, after its signature held. A `link` never applies here: only its own row's session sends it. */
-function apply(store: DeviceStore, record: AccountRecord, now: number): RecordOutcome {
+function apply(store: DeviceStore, record: AccountRecord, serverId: string | null, now: number): RecordOutcome {
   const refused = (code: RecordRefusal): RecordOutcome => ({ id: record.id, outcome: "refused", code });
   if (record.kind === "link") return refused("link_not_owner");
   if (store.accountError !== null) return refused("account_unavailable");
@@ -34,17 +34,21 @@ function apply(store: DeviceStore, record: AccountRecord, now: number): RecordOu
   if (!store.acceptsRelayKey(record.key)) return refused("record_invalid");
   if (store.isTombstoned(record.key)) return refused("tombstoned");
   if (store.hasKey(record.key)) return { id: record.id, outcome: "unchanged" };
-  store.addAccountDevice({ key: record.key, label: record.label, role: record.role, account: record.account, addedBy: signer.id }, now);
+  // the new row's id is derived from this PC's relay id (docs/account.md), so without one there is no row to make
+  if (serverId === null) return refused("account_unavailable");
+  const id = accountDeviceId(serverId, record.key);
+  if (store.has(id)) return refused("record_invalid");
+  store.addAccountDevice({ id, key: record.key, label: record.label, role: record.role, account: record.account, addedBy: signer.id }, now);
   return { id: record.id, outcome: "applied" };
 }
 
 /** Every record of a batch, in order; one refusal never fails the rest. At most ACCOUNT_RECORDS_MAX. */
-export async function applyAccountRecords(store: DeviceStore, values: readonly unknown[], now = Date.now()): Promise<RecordOutcome[]> {
+export async function applyAccountRecords(store: DeviceStore, values: readonly unknown[], serverId: string | null, now = Date.now()): Promise<RecordOutcome[]> {
   if (values.length > ACCOUNT_RECORDS_MAX) throw new RangeError(`At most ${ACCOUNT_RECORDS_MAX} records at once`);
   const outcomes: RecordOutcome[] = [];
   for (const value of values) {
     const record = await read(value);
-    outcomes.push("refused" in record ? { id: record.id, outcome: "refused", code: record.refused } : apply(store, record, now));
+    outcomes.push("refused" in record ? { id: record.id, outcome: "refused", code: record.refused } : apply(store, record, serverId, now));
   }
   return outcomes;
 }

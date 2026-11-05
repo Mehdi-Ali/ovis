@@ -37,6 +37,7 @@ import { handlePortalRequest } from "./portal.ts";
 import { handleRelayRequest } from "./relay/routes.ts";
 import { handleAccountRequest } from "./account/routes.ts";
 import type { AccountMailbox } from "./account/mailbox.ts";
+import type { AccountIntroductions } from "./account/introductions.ts";
 import type { RelayService } from "./relay/service.ts";
 import { handleTelemetryRequest, visitSurface } from "./telemetry.ts";
 import type { TelemetryIngress } from "../shared/telemetry.ts";
@@ -72,6 +73,7 @@ export interface RequestServices {
   readonly bootId: string;
   readonly devices: DeviceStore;
   readonly accountMailbox: AccountMailbox;
+  readonly accountIntroductions: AccountIntroductions;
   readonly preferences: PreferenceStore;
   readonly herdrSidebar: HerdrSidebarConfig;
   readonly identityOf: (grantPath: boolean, host: string | null) => Promise<TailnetIdentity>;

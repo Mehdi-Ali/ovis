@@ -73,7 +73,7 @@ export class AccountMailbox {
         const entries = await this.page(identity, account, ack);
         if (entries.length === 0 || page === MAX_PAGES) break;
         for (let start = 0; start < entries.length; start += ACCOUNT_RECORDS_MAX) {
-          const outcomes = await applyAccountRecords(this.options.devices, entries.slice(start, start + ACCOUNT_RECORDS_MAX).map(({ record }) => record));
+          const outcomes = await applyAccountRecords(this.options.devices, entries.slice(start, start + ACCOUNT_RECORDS_MAX).map(({ record }) => record), identity.server_id);
           applied += outcomes.filter(({ outcome }) => outcome === "applied").length;
         }
         // every record read is acknowledged, refused ones too, so a refused one cannot hold the rest back

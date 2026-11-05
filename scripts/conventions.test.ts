@@ -130,6 +130,8 @@ describe("demo transport", () => {
    */
   const DEMO_404: Record<string, string> = {
     "/api/account/enroll": "account linking: no screen of the app asks for it yet (the account screens come with their own demo answers)",
+    "/api/account/introduce": "account linking: no screen of the app asks for it yet (the account screens come with their own demo answers)",
+    "/api/account/introduction": "account linking: no screen of the app asks for it yet (the account screens come with their own demo answers)",
     "/api/account/link": "account linking: no screen of the app asks for it yet (the account screens come with their own demo answers)",
     "/api/account/records": "account linking: no screen of the app asks for it yet (the account screens come with their own demo answers)",
     "/api/account/status": "account linking: no screen of the app asks for it yet (the account screens come with their own demo answers)",
