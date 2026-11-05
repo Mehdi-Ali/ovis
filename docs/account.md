@@ -276,6 +276,9 @@ is what authenticates the PC.
 - **Reset relay identity** removes every relay device, members included, so the PC leaves the
   account; a client adds it again by pairing with its new identity, after the client's usual "this
   PC's identity changed" notice.
+- A record refused only because its signer is not a member yet (a `remove` that arrived before its
+  signer's own `add`) is kept in `account-pending.json` and tried again on every pull, a restart
+  included, until it applies; at most 1000 wait, the oldest dropped first.
 - The PC collects its mailbox from `OVIS_ACCOUNT_SERVICE_URL` (https, or http on loopback only;
   `https://account.ovis.sh` when unset), only while it has members and a relay identity (one on disk counts, the relay on or off; none is ever made for it). An address
   it cannot use shows as the mailbox's error in `/api/account/status`.

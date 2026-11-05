@@ -695,3 +695,25 @@ test("a watching device is not told of removals", async () => {
   expect(await events.until('"type":"device-paired"')).not.toContain("device-removed");
   await events.close();
 });
+
+test("a remove that reaches the PC a pull before its signer's own add still applies, even after a restart", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const identity = rotateRelayIdentity(f.stateDir);
+  const service = new FakeAccountService();
+  const token = service.issueToken(ACCOUNT);
+  await service.fetch(new Request(`https://account.test/v1/pcs/${identity.server_id}`, { method: "PUT", headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ label: "PC", public_key: bytesToHex(importPublicKey(identity.public_key)), relay: "wss://relay.ovis.sh" }) }));
+  const [b, c] = [await accountKey(), await accountKey()];
+  await post(link, "/api/account/records", { records: [await add(key, c.spki)] });
+  const queue = async (record: AccountRecord) => service.fetch(new Request("https://account.test/v1/records", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ server_ids: [identity.server_id], record }) }));
+  const options = { devices: f.app.context.services.devices, identity: () => identity, service: "https://account.test", fetch: service.fetch, pendingPath: join(f.stateDir, "account-pending.json") };
+  await queue(await remove(b, c.spki));
+  await new AccountMailbox(options).pull();
+  expect(f.app.context.services.devices.hasKey(c.spki)).toBe(true);
+  await queue(await add(key, b.spki));
+  // a new mailbox, as after a restart, finds the waiting remove on disk
+  await new AccountMailbox(options).pull();
+  expect(f.app.context.services.devices.hasKey(b.spki)).toBe(true);
+  expect(f.app.context.services.devices.hasKey(c.spki)).toBe(false);
+});
