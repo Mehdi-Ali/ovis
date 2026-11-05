@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import nacl from "tweetnacl";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { exportAccountKey, newRecordId, signAccountRecord, type AccountRecord } from "./account-records.ts";
-import { FakeAccountService, MAILBOX_TTL_MS } from "./account-service-fake.ts";
+import { FakeAccountService, MAILBOX_TTL_MS, type FakePc } from "./account-service-fake.ts";
 import { answerServerChallenge, deriveServerId, serverChallenge, verifyServerProof, type ProofRoute } from "./relay-server-proof.ts";
 
 const BASE = "https://account.test";
@@ -26,10 +26,10 @@ async function removeRecord(account: string, signer: Awaited<ReturnType<typeof c
   return signAccountRecord({ v: 1, kind: "remove", account, key, issued_at: new Date().toISOString(), id: newRecordId(), signer: signer.spki }, signer.pair.privateKey);
 }
 
-async function pull(service: FakeAccountService, machine: ReturnType<typeof pc>, ack: number | null, role: ProofRoute["role"] = "account") {
+async function pull(service: FakeAccountService, machine: ReturnType<typeof pc>, ack: number | null, role: ProofRoute["role"] = "account", account = "acct_1") {
   const challenge = await (await service.fetch(post("/v1/pc/challenge", { server_id: machine.serverId, public_key: machine.publicKey }))).json() as { challenge_id: string; frame: string };
   const proof = answerServerChallenge(challenge.frame, machine.keys.secretKey, { server_id: machine.serverId, role, connection_id: challenge.challenge_id });
-  const response = await service.fetch(post("/v1/pc/mailbox", { server_id: machine.serverId, challenge_id: challenge.challenge_id, proof, ack }));
+  const response = await service.fetch(post("/v1/pc/mailbox", { server_id: machine.serverId, challenge_id: challenge.challenge_id, proof, ack, account }));
   return { status: response.status, body: await response.json() as { records?: { seq: number; record: AccountRecord }[]; error?: { code: string } }, challenge, proof };
 }
 
@@ -48,7 +48,7 @@ describe("the fake account service", () => {
     expect(first.body.records?.map((entry) => entry.record)).toEqual([record]);
     const second = await pull(service, a, first.body.records![0]!.seq);
     expect(second.body.records).toEqual([]);
-    expect(service.mailbox(b.serverId)).toEqual([record]);
+    expect(service.mailbox(b.serverId, "acct_1")).toEqual([record]);
   });
 
   test("a client cannot queue a forged record, another account's record, or one for a PC outside its directory", async () => {
@@ -66,7 +66,7 @@ describe("the fake account service", () => {
       [post("/v1/records", { server_ids: [machine.serverId], record }), "unauthorized"],
     ];
     for (const [request, code] of cases) expect(((await (await service.fetch(request)).json()) as { error: { code: string } }).error.code).toBe(code);
-    expect(service.mailbox(machine.serverId)).toEqual([]);
+    expect(service.mailbox(machine.serverId, "acct_1")).toEqual([]);
   });
 
   test("a mailbox opens only to a proof with the account role, once per challenge", async () => {
@@ -75,11 +75,29 @@ describe("the fake account service", () => {
     expect((await pull(service, machine, null, "control")).status).toBe(401);
     const ok = await pull(service, machine, null);
     expect(ok.status).toBe(200);
-    const replay = await service.fetch(post("/v1/pc/mailbox", { server_id: machine.serverId, challenge_id: ok.challenge.challenge_id, proof: ok.proof, ack: null }));
+    const replay = await service.fetch(post("/v1/pc/mailbox", { server_id: machine.serverId, challenge_id: ok.challenge.challenge_id, proof: ok.proof, ack: null, account: "acct_1" }));
     expect(replay.status).toBe(401);
     const stranger = pc();
     const refused = await service.fetch(post("/v1/pc/challenge", { server_id: machine.serverId, public_key: stranger.publicKey }));
     expect(refused.status).toBe(401);
+  });
+
+  test("another account that lists a PC can neither fill its account's mailbox nor see it come by", async () => {
+    const service = new FakeAccountService();
+    const owner = service.issueToken("acct_1");
+    const attacker = service.issueToken("acct_evil");
+    const machine = pc();
+    for (const token of [owner, attacker]) await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc" }), headers: { authorization: `Bearer ${token}` } }));
+    const evil = await client();
+    for (let index = 0; index < 5; index++) await service.fetch(post("/v1/records", { server_ids: [machine.serverId], record: await removeRecord("acct_evil", evil, (await client()).spki) }, attacker));
+    const phone = await client();
+    const removal = await removeRecord("acct_1", phone, (await client()).spki);
+    await service.fetch(post("/v1/records", { server_ids: [machine.serverId], record: removal }, owner));
+
+    const pulled = await pull(service, machine, null);
+    expect(pulled.body.records?.map((entry) => entry.record)).toEqual([removal]);
+    const seen = await (await service.fetch(new Request(`${BASE}/v1/pcs`, { headers: { authorization: `Bearer ${attacker}` } }))).json() as { pcs: FakePc[] };
+    expect(seen.pcs[0]?.last_seen_at).toBeNull();
   });
 
   test("an answer given for the account role does not open a relay route", () => {

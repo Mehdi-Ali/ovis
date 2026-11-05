@@ -68,8 +68,9 @@ const checks: Record<string, (value: unknown) => boolean> = {
   signer: isAccountKey,
   old_key: isAccountKey,
   // the form normalizeLabel (server/devices.ts) leaves, so a PC stores exactly what was signed
+  // a lone surrogate encodes as U+FFFD, so two labels would share one signature
   label: (v) => typeof v === "string" && v.length >= 1 && v.length <= ACCOUNT_LABEL_MAX
-    && !/\p{Cc}/u.test(v) && v === v.replace(/\s+/g, " ").trim(),
+    && !/[\p{Cc}\p{Cs}]/u.test(v) && v === v.replace(/\s+/g, " ").trim(),
   role: (v) => v === "drive" || v === "watch",
   server_id: (v) => typeof v === "string" && /^[0-9a-f]{32}$/.test(v),
   device_id: (v) => typeof v === "string" && /^[0-9a-f]{16}$/.test(v),

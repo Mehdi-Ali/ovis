@@ -66,7 +66,7 @@ describe("account records", () => {
     const bad: unknown[] = [
       null, [], "add", { ...add, v: 2 }, { ...add, kind: "rename" }, { ...add, extra: 1 }, missingLabel,
       { ...add, key: add.key.slice(0, -1) }, { ...add, key: toBase64Url(flipped) }, { ...add, key: `${add.key}=` },
-      { ...add, label: "" }, { ...add, label: " Mac" }, { ...add, label: "Mac  app" }, { ...add, label: "Mac\u0007" }, { ...add, label: "x".repeat(49) },
+      { ...add, label: "" }, { ...add, label: " Mac" }, { ...add, label: "Mac  app" }, { ...add, label: "Mac\u0007" }, { ...add, label: "Mac\ud800" }, { ...add, label: "x".repeat(49) },
       { ...add, role: "owner" }, { ...add, account: "acct 1" }, { ...add, account: "a".repeat(65) },
       { ...add, issued_at: "2026-11-05T01:02:03Z" }, { ...add, issued_at: "2026-02-30T01:02:03.000Z" },
       { ...add, id: "A".repeat(32) }, { ...add, signature: "A".repeat(85) }, { ...add, signer: add.key },

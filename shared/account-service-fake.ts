@@ -11,6 +11,8 @@ import { deriveServerId, proofKey, serverChallenge, verifyServerProof } from "./
 export const CHALLENGE_TTL_MS = 60_000;
 export const MAILBOX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAILBOX_PAGE = 100;
+/** Records one account may hold for one PC at once; past it, `/v1/records` answers 429 `mailbox_full`. */
+export const MAILBOX_MAX = 1000;
 
 export interface FakePc { server_id: string; label: string; added_at: string; last_seen_at: string | null }
 export interface FakeAdmission { id: string; server_id: string; label: string; at: string }
@@ -42,15 +44,16 @@ export class FakeAccountService {
 
   admissions(): readonly FakeAdmission[] { return this.admissionList; }
 
-  /** What a PC would still get from its mailbox, for assertions; the service hiding a record is `drop`. */
-  mailbox(serverId: string): AccountRecord[] {
+  /** What a PC would still get from `account`'s mailbox for it, for assertions; the service hiding a record is `drop`. */
+  mailbox(serverId: string, account: string): AccountRecord[] {
     this.expire();
-    return (this.mailboxes.get(serverId) ?? []).map(({ record }) => record);
+    return (this.mailboxes.get(box(serverId, account)) ?? []).map(({ record }) => record);
   }
 
   /** A misbehaving service: removes queued records it should have delivered. */
-  drop(serverId: string, predicate: (record: AccountRecord) => boolean): void {
-    this.mailboxes.set(serverId, (this.mailboxes.get(serverId) ?? []).filter(({ record }) => !predicate(record)));
+  drop(serverId: string, account: string, predicate: (record: AccountRecord) => boolean): void {
+    const key = box(serverId, account);
+    this.mailboxes.set(key, (this.mailboxes.get(key) ?? []).filter(({ record }) => !predicate(record)));
   }
 
   /** Answers like the service: pass it as the PC's or app's `fetch`. */
@@ -95,10 +98,13 @@ export class FakeAccountService {
       const record = await readAccountRecord(body.record);
       if (!record) return problem(400, "signature_invalid", "The signature does not hold");
       if (record.account !== account) return problem(403, "account_mismatch", "The record is for another account");
-      for (const id of new Set(body.server_ids as string[])) {
-        const box = this.mailboxes.get(id) ?? [];
-        box.push({ seq: ++this.seq, record, at: this.now() });
-        this.mailboxes.set(id, box);
+      const targets = [...new Set(body.server_ids as string[])];
+      this.expire();
+      if (targets.some((id) => (this.mailboxes.get(box(id, account))?.length ?? 0) >= MAILBOX_MAX)) return problem(429, "mailbox_full", "That PC has not collected its records");
+      for (const id of targets) {
+        const queue = this.mailboxes.get(box(id, account)) ?? [];
+        queue.push({ seq: ++this.seq, record, at: this.now() });
+        this.mailboxes.set(box(id, account), queue);
       }
       return json({ queued: new Set(body.server_ids).size });
     }
@@ -129,15 +135,16 @@ export class FakeAccountService {
       if (!challenge || challenge.server_id !== body.server_id || this.now() > challenge.expires || !verifyServerProof(body.proof, challenge.expected)) {
         return problem(401, "proof_invalid", "Ask for a new challenge and answer it");
       }
+      if (typeof body.account !== "string") return problem(400, "invalid_account", "Name the account this PC belongs to");
       this.expire();
-      const box = this.mailboxes.get(challenge.server_id) ?? [];
+      const key = box(challenge.server_id, body.account);
+      const queue = this.mailboxes.get(key) ?? [];
       const ack = typeof body.ack === "number" ? body.ack : null;
-      const rest = ack === null ? box : box.filter(({ seq }) => seq > ack);
-      this.mailboxes.set(challenge.server_id, rest);
-      for (const directory of this.directories.values()) {
-        const entry = directory.get(challenge.server_id);
-        if (entry) entry.last_seen_at = this.iso();
-      }
+      const rest = ack === null ? queue : queue.filter(({ seq }) => seq > ack);
+      this.mailboxes.set(key, rest);
+      // only the account the PC says it belongs to learns that it came by
+      const entry = this.directories.get(body.account)?.get(challenge.server_id);
+      if (entry) entry.last_seen_at = this.iso();
       return json({ records: rest.slice(0, MAILBOX_PAGE).map(({ seq, record }) => ({ seq, record })), more: rest.length > MAILBOX_PAGE });
     }
     return problem(404, "not_found", "Unknown request");
@@ -149,6 +156,11 @@ export class FakeAccountService {
   }
 
   private iso(): string { return new Date(this.now()).toISOString(); }
+}
+
+/** One mailbox per PC and account: another account's records can neither fill nor hide this account's. */
+function box(serverId: string, account: string): string {
+  return `${serverId}\0${account}`;
 }
 
 function json(body: unknown, status = 200): Response {

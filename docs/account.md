@@ -24,8 +24,9 @@ are ([Ovis Mux v1](relay.md#ovis-mux-v1)).
    app is both a PC and a client, so an agent on that machine could drive the app's key: that risk is
    known, and every admission is announced on every device so it shows.
 4. **Records are signed one by one.** `add`, `remove` and `link` each carry their own signature;
-   there is no chain, order or first record. A PC applies a record only when its signer is a current
-   account member with drive access in that PC's `devices.json`.
+   there is no chain, order or first record. A PC applies an `add` or `remove` only when its signer
+   is a current account member with drive access in that PC's `devices.json`. A `link` needs no
+   member: it comes over the linked row's own session, which is its authority.
 5. **Removal is permanent until the PC says otherwise.** `remove` revokes the device and leaves a
    tombstone for its key. No account record clears a tombstone; only a pairing or revoke done on
    that PC does. A replayed `add` for a removed key is refused.
@@ -41,8 +42,9 @@ in three ways:
 
 - `add`: a record signed by a member inserts the row, with `account`, `added_by` (the signer's
   device id on this PC) and the role in the record.
-- `link`: a device already paired with this PC (by QR, code or comparing digits) proves its account
-  key over its own session, and its row takes the account key and `account` in one write.
+- `link`: a device already paired with this PC through the relay (by QR, code or comparing digits)
+  proves its account key over its own session, and its row takes the account key and `account` in
+  one write. This is how a PC gets its first member, so it needs no member before it.
 - `enroll`: a member hands a PC it just paired a batch of `add` records for the account's other
   clients. It is a batch of records, nothing more.
 
@@ -50,9 +52,11 @@ A PC belongs to at most one account: the account of its first member. A record f
 is refused (`account_mismatch`). **Revoke all** clears the PC's account with its members; tombstones
 stay.
 
-Rows paired before the account existed and never linked (a PC that was off when the phone moved its
-pairings over) are listed under `unlinked` in [`/api/account/status`](#pc-api) and shown as "not
-covered by account removal". The client links them on its next connection.
+Relay rows paired before the account existed and never linked (a PC that was off when the phone
+moved its pairings over) are listed under `unlinked` in [`/api/account/status`](#pc-api) and shown
+as "not covered by account removal". The client links them on its next connection. A browser paired
+with a code on the PC's own address holds a cookie, not a key: it cannot be linked, stays outside
+the account, and only **Revoke** on the PC removes it.
 
 ## Records
 
@@ -103,7 +107,8 @@ One rule for every way in: a pairing code, comparing digits, and joining through
   asks y/n.
 - **Remote approval:** a client connected through the relay with drive access whose row is an
   account member. It must **pick the new device's digits out of three** (two decoys the PC chose at
-  random) before it can approve, so a tap without looking fails.
+  random) before it can approve. A tap without looking picks right one time in three, and a wrong
+  pick ends the request, so the person has to look again at a new comparison.
 - A pairing code can be started only by the same people: on the PC itself, or by a drive account
   member through the relay (`403 account_required` for any other relay device).
 - **Every admission is announced** on every device connected to the PC: the new device's name and who
@@ -152,7 +157,7 @@ the relay too. Mutations need the app's mutation guard, like the other routes.
 { "account": "acct_1" , "members": 3, "unlinked": ["6a1f0c9e2b7d4a10"], "mailbox": { "last_pull_at": "2026-11-05T01:02:03.000Z", "error": null } }
 ```
 
-`account` is `null` before the first member. `unlinked` lists rows that are not members.
+`account` is `null` before the first member. `unlinked` lists relay rows that are not members.
 
 `POST /api/account/link` `{ "record": <link> }`: the request's own device must be the record's
 `device_id`, with `old_key` its current key, `server_id` this PC's. The row's key becomes `key` and it
@@ -186,7 +191,7 @@ Clients:
 | `GET /v1/pcs` | | `{ "pcs": [{ "server_id", "label", "added_at", "last_seen_at" }] }` |
 | `PUT /v1/pcs/{server_id}` | `{ "label" }` | `{ "pc": … }`: adds or renames a PC in the directory |
 | `DELETE /v1/pcs/{server_id}` | | `204` |
-| `POST /v1/records` | `{ "server_ids": [...], "record" }` | `{ "queued": n }`: puts a signed record in each listed PC's mailbox; the service checks only its shape and signature |
+| `POST /v1/records` | `{ "server_ids": [...], "record" }` | `{ "queued": n }`: puts a signed record of the caller's account in that account's mailbox for each listed PC; the service checks only its shape and signature. 429 `mailbox_full` past 1000 records waiting for one PC |
 | `POST /v1/admissions` | `{ "server_id", "label" }` | `{ "id" }`: rings the account's other clients (push) that a device waits at that PC |
 
 The PC, by server proof:
@@ -194,15 +199,19 @@ The PC, by server proof:
 | request | body | answer |
 |---|---|---|
 | `POST /v1/pc/challenge` | `{ "server_id", "public_key" }` | `{ "challenge_id", "frame" }` |
-| `POST /v1/pc/mailbox` | `{ "server_id", "challenge_id", "proof", "ack" }` | `{ "records": [{ "seq", "record" }], "more" }` |
+| `POST /v1/pc/mailbox` | `{ "server_id", "challenge_id", "proof", "account", "ack" }` | `{ "records": [{ "seq", "record" }], "more" }` |
 
 `public_key` is the PC's relay key (64 hex); the service refuses it unless it gives `server_id`
 (`deriveServerId`). `frame` is a `server_challenge` (`serverChallenge` in
 [`shared/relay-server-proof.ts`](../shared/relay-server-proof.ts)) for the route `{ server_id, role:
 "account", connection_id: challenge_id }`; `proof` is the PC's `server_proof` answer for that same
-route. A challenge is good for 60 seconds and one answer. `ack` is the highest `seq` the PC applied
-(or `null`); the service deletes those records before answering, and deletes any record after 30
-days. The PC pulls when it starts and every five minutes while it belongs to an account.
+route. A challenge is good for 60 seconds and one answer. Anyone can list any `server_id` in their
+directory, so mailboxes are kept per PC **and account**: the PC asks only for its own account's
+(`account`), and another account's records can neither fill nor hide them. `last_seen_at` moves
+only in that account's directory. `ack` is the highest `seq` the PC processed, whatever the
+outcome, refused included (or `null`); the service deletes those records before answering, and
+deletes any record after 30 days. The PC pulls when it starts and every five minutes while it
+belongs to an account.
 
 The `account` role keeps the two proofs apart: the relay verifies `control` and `data` only, so an
 answer the PC gave the account service is no use to the relay, and a relay's challenge passed on by
