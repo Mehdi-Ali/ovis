@@ -5,7 +5,7 @@
  * caller's directory, server proof with the `account` role), so tests fail where a PC or app relies
  * on something the service would refuse.
  */
-import { ACCOUNT_RECORDS_MAX, AccountRecordError, readAccountRecord, type AccountRecord } from "./account-records.ts";
+import { ACCOUNT_RECORDS_MAX, AccountRecordError, isAccountKey, readAccountRecord, type AccountRecord } from "./account-records.ts";
 import { isWssOrigin } from "./relay-offer.ts";
 import { deriveServerId, proofKey, serverChallenge, verifyServerProof } from "./relay-server-proof.ts";
 
@@ -57,7 +57,10 @@ interface Session { account: string; provider: SignInProvider | "test"; family: 
 
 /** `public_key`: the PC's relay key (X25519, 64 hex), from which `server_id` derives; `relay`: the wss origin it is reached through. */
 export interface FakePc { server_id: string; label: string; public_key: string; relay: string; added_at: string; last_seen_at: string | null }
-export interface FakeAdmission { id: string; server_id: string; label: string; at: string }
+/** `key`: the waiting device's account key, which the PC matches against the comparison it is asked for. */
+export interface FakeAdmission { id: string; server_id: string; account: string; label: string; key: string; at: string }
+/** How long an admission reaches its PC's mailbox: the PC lets a waiting account device compare digits only within it. */
+export const ADMISSION_TTL_MS = 10 * 60_000;
 
 interface Mail { seq: number; record: AccountRecord; at: number }
 
@@ -312,10 +315,11 @@ export class FakeAccountService {
       return json({ queued: new Set(body.server_ids).size });
     }
     if (path === "/v1/admissions" && request.method === "POST") {
-      const body = await request.json() as { server_id?: unknown; label?: unknown };
+      const body = await request.json() as { server_id?: unknown; label?: unknown; key?: unknown };
       if (typeof body.server_id !== "string" || !directory.has(body.server_id) || typeof body.label !== "string") return problem(400, "unknown_pc", "List PCs of this account only");
+      if (!isAccountKey(body.key)) return problem(400, "invalid_key", "Name the waiting device's account key");
       if (!this.spend(`admissions:${account}`, ADMISSIONS_PER_WINDOW)) return problem(429, "too_many_admissions", "Too many requests; try again later");
-      const admission = { id: randomHex(16), server_id: body.server_id, label: body.label, at: this.iso() };
+      const admission = { id: randomHex(16), server_id: body.server_id, account, label: body.label, key: body.key, at: this.iso() };
       this.admissionList.push(admission);
       this.ring(account, session.family);
       return json({ id: admission.id });
@@ -350,7 +354,11 @@ export class FakeAccountService {
       // only the account the PC says it belongs to learns that it came by
       const entry = this.directories.get(body.account)?.get(challenge.server_id);
       if (entry) entry.last_seen_at = this.iso();
-      return json({ records: rest.slice(0, MAILBOX_PAGE).map(({ seq, record }) => ({ seq, record })), more: rest.length > MAILBOX_PAGE });
+      // the account's admissions for this PC in the last ten minutes, every pull until they age out
+      const admissions = this.admissionList
+        .filter((a) => a.server_id === challenge.server_id && a.account === body.account && this.now() - Date.parse(a.at) < ADMISSION_TTL_MS)
+        .map(({ key, label, at }) => ({ key, label, at }));
+      return json({ records: rest.slice(0, MAILBOX_PAGE).map(({ seq, record }) => ({ seq, record })), more: rest.length > MAILBOX_PAGE, admissions });
     }
     return problem(404, "not_found", "Unknown request");
   }

@@ -134,6 +134,23 @@ approve, and a wrong pick answers 409 `wrong_digits` and ends the request. An ap
 `{ "ok": true, "device_id" }`: the id the new device's row takes once its person confirms too,
 `accountDeviceId(server_id, key)`, as every row a comparison makes.
 
+
+**Joining through the account (design 5.3).** A comparison is otherwise taken only while the owner
+has the pairing window open on the PC (a link without a code asked for in the last 10 minutes,
+[relay.md](relay.md#who-gets-in)). A comparison with `pair-intent-account` is also taken without
+it, only when all of these hold:
+
+1. the PC belongs to an account;
+2. that account's mailbox, pulled with the PC's server proof, holds an admission at most 10 minutes
+   old naming exactly the key of this `PAIR_REQUEST`: the account service has seen this device
+   signed in to the same account;
+3. the PC has at least one drive account member to approve it.
+
+Such a comparison is shown only to the account's members through the relay (`remote-pairings`,
+digits picked out of three, as always), never to the PC's own windows, and never approved by itself.
+Anything else is refused before any prompt and not counted as a failed pairing. A PC takes at most 5
+such requests a minute.
+
 At most three requests wait for approval at once on a PC. A wrong pick ends that request and counts
 as a failed pairing.
 
@@ -333,7 +350,7 @@ Clients:
 | `PUT /v1/pcs/{server_id}` | `{ "label", "public_key", "relay" }` | `{ "pc": … }`: adds or renames a PC in the directory. 400 `server_key_mismatch` unless `public_key` (X25519, 64 hex) gives `server_id` (`deriveServerId`), 400 `invalid_relay` unless `relay` is a `wss:` origin |
 | `DELETE /v1/pcs/{server_id}` | | `204` |
 | `POST /v1/records` | `{ "server_ids": [...], "record" }` | `{ "queued": n }`: puts a signed record of the caller's account in that account's mailbox for each listed PC; the service checks only its shape and signature. 429 `mailbox_full` past 1000 records waiting for one PC |
-| `POST /v1/admissions` | `{ "server_id", "label" }` | `{ "id" }`: rings the account's other clients (push) that a device waits at that PC |
+| `POST /v1/admissions` | `{ "server_id", "label", "key" }` | `{ "id" }`: the signed-in device says it waits at that PC with its account key (`key`); rings the account's other clients (push), and reaches that PC's mailbox for 10 minutes |
 | `POST /v1/signout` | | `204`: ends this sign-in's tokens |
 
 Push (the doorbell), per signed-in device:
@@ -358,7 +375,7 @@ The PC, by server proof:
 | request | body | answer |
 |---|---|---|
 | `POST /v1/pc/challenge` | `{ "server_id", "public_key" }` | `{ "challenge_id", "frame" }` |
-| `POST /v1/pc/mailbox` | `{ "server_id", "challenge_id", "proof", "account", "ack" }` | `{ "records": [{ "seq", "record" }], "more" }` |
+| `POST /v1/pc/mailbox` | `{ "server_id", "challenge_id", "proof", "account", "ack" }` | `{ "records": [{ "seq", "record" }], "more", "admissions": [{ "key", "label", "at" }] }`: `admissions` lists that account's admissions for this PC made in the last 10 minutes, on every pull until they age out |
 
 `public_key` is the PC's relay key (64 hex); the service refuses it unless it gives `server_id`
 (`deriveServerId`). `frame` is a `server_challenge` (`serverChallenge` in
