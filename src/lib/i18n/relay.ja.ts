@@ -76,4 +76,6 @@ export const RELAY_JA: Record<string, string> = {
   "Update Ovis on it": "Ovis の更新が必要",
   "To add a PC, sign in on it or scan its QR code.": "PC を追加するには、その PC でサインインするか QR コードをスキャンします。",
   "If they match, approve this phone on {name}.": "一致したら {name} でこのスマホを承認してください。",
+  "{name} is not taking new phones right now": "{name} は今は新しいスマートフォンを受け付けていません",
+  "Its link may have run out (it works for 10 minutes), or it may be paused after too many tries or busy with other phones. Copy a new link on the PC, or wait a few minutes.": "リンクの有効期限が切れた(10 分間有効)か、試行が多すぎて一時停止しているか、ほかのスマートフォンの対応中かもしれません。PC で新しいリンクをコピーするか、数分待ってください。",
 };

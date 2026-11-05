@@ -95,14 +95,14 @@ export function relayFixture(serveOnly = false, options: NonNullable<Parameters<
  * A PC whose devices.json already holds one account member (docs/account.md, "Account members"),
  * written before the server starts, as a PC that an account device linked to would hold it.
  */
-export async function relayAccountFixture(role: "drive" | "watch" = "drive", account = "acct_1") {
+export async function relayAccountFixture(role: "drive" | "watch" = "drive", account = "acct_1", options: NonNullable<Parameters<typeof createServer>[0]> = {}) {
   const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
   const publicKey = Buffer.from(await crypto.subtle.exportKey("spki", keys.publicKey)).toString("base64url");
   const stateDir = mkdtempSync(join(tmpdir(), "ovis-relay-account-"));
   const member = { id: randomBytes(8).toString("hex"), label: "Account phone", role, token_hash: randomBytes(32).toString("hex"),
     relay_public_key: publicKey, account, created_at: new Date().toISOString(), last_seen_at: null };
   writeFileSync(join(stateDir, "devices.json"), JSON.stringify({ gate_closed_at: member.created_at, devices: [member] }), { mode: 0o600 });
-  const fixture = relayFixture(false, { stateDir });
+  const fixture = relayFixture(false, { ...options, stateDir });
   return { fixture, member: { keys, publicKey, id: member.id } };
 }
 
