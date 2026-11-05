@@ -561,12 +561,49 @@ describe("bridgePins", () => {
       core.tell({ type: "status", terminal: "t1", data: { status: null } });
       gate.resolve();
       await pins.idle();
+      // a restart from here still finds the change
+      expect(JSON.parse(readFileSync(join(dir, "herdr-core-pins.json"), "utf8")).pending).toEqual(["c1/t1"]);
       mode.now = "pass";
       core.tell({ type: "status", terminal: "t1", data: { status: AGENT } });
       await pins.idle();
       expect(preferences.get().pins).toEqual([]);
       expect(terminals[0]!.labels).toEqual({});
       expect(core.written).toEqual([{ terminal: "t1", labels: { "herdr.pinned": "" } }]);
+    });
+  }
+
+  for (const quit of ["after", "before"] as const) {
+    it(`keeps a pin the Herdr app made again after an Ovis unpin that landed while Ovis stopped, with the agent quitting ${quit} Ovis stopped`, async () => {
+      const dir = stateDir();
+      const preferences = store(dir, ["local:t1"]);
+      const terminals: Held[] = [{ address: "t1", state: "live", labels: { "herdr.pinned": "1" } }];
+      const first = fakeCore(terminals);
+      const reached = Promise.withResolvers<void>();
+      const hc = first.hc as unknown as { call: (method: string, params: unknown) => Promise<unknown> };
+      const call = hc.call;
+      const hanging = { on: false };
+      hc.call = async (method, params) => {
+        if (!hanging.on) return call(method, params);
+        reached.resolve();
+        return new Promise(() => {});
+      };
+      const earlier = bridge(first, preferences, dir);
+      await first.opened();
+      await earlier.idle();
+      // Ovis unpins t1 and stops before hc answers; the unpin lands, and the Herdr app pins t1 again
+      hanging.on = true;
+      preferences.set({ settings: {}, pins: [] });
+      await reached.promise;
+      if (quit === "before") first.tell({ type: "status", terminal: "t1", data: { status: null } });
+      earlier.stop();
+      terminals[0]!.status = null;
+      const core = fakeCore(terminals);
+      const pins = bridge(core, new PreferenceStore(dir), dir);
+      await core.opened();
+      core.tell({ type: "status", terminal: "t1", data: { status: AGENT } });
+      await pins.idle();
+      expect(new PreferenceStore(dir).get().pins).toEqual(["local:t1"]);
+      expect(core.written).toEqual([]);
     });
   }
 

@@ -55,6 +55,11 @@ export function bridgePins(hc: Hc, store: PinStore, machineId: string, stateDir:
   const leftOut = new Set<string>();
   /** the agreed pins on disk are behind memory: the next agreement writes them, even an unchanged one */
   let unsaved = false;
+  /**
+   * pending marks whose label write has not answered yet: kept off disk until it fails, as such a write
+   * may still land, and a restart could not tell that from an app change made since
+   */
+  const sending = new Set<string>();
   let core = "";
   const keyOf = (address: string) => `${machineId}:${address}`;
   const agreedKey = (address: string) => `${core}/${address}`;
@@ -65,7 +70,7 @@ export function bridgePins(hc: Hc, store: PinStore, machineId: string, stateDir:
 
   const saveAgreed = () => {
     try {
-      writeStateDocument(agreedPath, `${JSON.stringify({ ...Object.fromEntries(agreed), [SHELLS]: [...shells], [PENDING]: [...pending] })}\n`, false);
+      writeStateDocument(agreedPath, `${JSON.stringify({ ...Object.fromEntries(agreed), [SHELLS]: [...shells], [PENDING]: [...pending].filter((key) => !sending.has(key)) })}\n`, false);
       unsaved = false;
     } catch (error) {
       unsaved = true;
@@ -132,7 +137,7 @@ export function bridgePins(hc: Hc, store: PinStore, machineId: string, stateDir:
       const key = agreedKey(address);
       if (agreed.has(key) && agreed.get(key) !== pinned && !pending.has(key)) {
         pending.add(key);
-        saveAgreed();
+        sending.add(key);
       }
       // hc tells every label write back as a labels event, in order: that one is ours, not the app's
       const queued = echoes.get(address) ?? [];
@@ -141,6 +146,7 @@ export function bridgePins(hc: Hc, store: PinStore, machineId: string, stateDir:
       echoes.set(address, queued);
       try {
         await hc.call("terminal.label", { terminal: address, labels: { [PINNED_LABEL]: pinned ? "1" : "" } });
+        sending.delete(key);
         echo.answered = true;
         // once its event came, that event and any after it (the app's) already say what the label is
         if (!echo.heard) {
@@ -155,9 +161,9 @@ export function bridgePins(hc: Hc, store: PinStore, machineId: string, stateDir:
         // a write hc refused sends no event back
         const index = queued.indexOf(echo);
         if (index >= 0) queued.splice(index, 1);
-        // the mark stays as the write's start and Ovis's list since left it; saved again while an
-        // earlier save failed, so a restart still finds it
-        if (unsaved) saveAgreed();
+        // the mark stays as the write's start and Ovis's list since left it: saved now the write failed,
+        // and again while an earlier save failed, so a restart still finds it
+        if (sending.delete(key) || unsaved) saveAgreed();
         retry(address);
       }
     });
@@ -259,7 +265,7 @@ export function bridgePins(hc: Hc, store: PinStore, machineId: string, stateDir:
       const key = agreedKey(address);
       if (!agents.has(address) || !agreed.has(key)) continue;
       if (listed(address) === agreed.get(key)) marked = pending.delete(key) || marked;
-      else if (writes.has(address) && !refused.has(address) && !pending.has(key)) { pending.add(key); marked = true; }
+      else if (writes.has(address) && !refused.has(address) && !pending.has(key)) { pending.add(key); sending.add(key); }
     }
     if (marked) saveAgreed();
     for (const address of live.keys()) writeLabel(address);
