@@ -258,7 +258,7 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
     || pathname === "/api/alerts/webhook" || pathname === "/api/alerts/webhook/test"
   );
   // a scheduled message is typed long after its visitor may have lost access, which nothing records to check then (#2919)
-  if (access.level === "full" && access.via === "portal" && (pathname === "/api/scheduled" || pathname.startsWith("/api/scheduled/"))) {
+  if (access.level === "full" && (access.via === "open" || access.via === "portal") && (pathname === "/api/scheduled" || pathname.startsWith("/api/scheduled/"))) {
     setRequestRoute("owner-refusal");
     return jsonResponse({ error: { code: "owner_only", message: "Schedule messages from this PC itself, or from a paired device." } }, 403);
   }

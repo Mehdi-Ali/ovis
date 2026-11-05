@@ -61,7 +61,7 @@ export type PendingOwner = Client | FirstMessageOwner;
  * finds more prompts than the true width would (secretPrompt joins a row that long), never fewer.
  */
 const widestRow = (screen: string): number => Math.max(0, ...screen.split(/\r?\n/).map((row) => row.trimEnd().length));
-interface Sender { owner: Client | null; authorize(): void; cols(screen: string): number | undefined }
+interface Sender { owner: Client | null; authorize(): void; cols(screen: string): number | undefined; widthKnown?: boolean }
 const isClient = (owner: PendingOwner): owner is Client => owner !== FIRST_MESSAGE_OWNER;
 /** a first message's lease is the delivering connection's, taken at each attempt: none is kept on the record */
 type PendingItem = PendingRecord<PendingOwner, PendingLease | null>;
@@ -113,7 +113,7 @@ const FIRST_MESSAGE_RECEIPTS = 8;
  * connections and the status hub, which are built after this (they take its store), so they are
  * called through: only a frame or a turn calls them, after `createServer` has returned.
  */
-export function createPendingDelivery({ options, clients, attachments, sight, serialize, lastTyped, submitText, authorizeSocket, clientSnapshot, omo, queueHeld = () => false, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, TYPED_SETTLE_MS }: {
+export function createPendingDelivery({ options, clients, attachments, sight, serialize, lastTyped, submitText, authorizeSocket, clientSnapshot, omo, queueHeld = () => false, scheduledUncertain = () => false, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, TYPED_SETTLE_MS }: {
   options: { pendingStartTimeoutMs?: number; piReceiptLimit?: number; submitDeadlineMs?: number; submitDelayMs?: number; openCodeStateDir?: string };
   clients: Set<Client>;
   attachments: ReadonlyMap<string, AttachmentView>;
@@ -126,6 +126,8 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
   omo: Pick<OmoStatus, "sessionOf">;
   /** a pane shown at rest whose queue a busy signal still holds (server/core/status.ts queueStatus): no automatic send */
   queueHeld?: (paneId: string) => boolean;
+  /** a pane holding a scheduled message that may sit typed in its input (server/scheduled-messages.ts): no automatic send */
+  scheduledUncertain?: (paneId: string) => boolean;
   SUBMIT_DEADLINE_MS: number;
   SUBMIT_DELAY_MS: number;
   TYPED_SETTLE_MS: number;
@@ -556,7 +558,9 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     // the live screen, not the viewport: a pane scrolled into its history still draws its next
     // menu or password prompt at the bottom (server/prompt.ts liveScreen)
     const screen = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-    if (secretPrompt(screen, sender.cols(screen)) !== null) {
+    // with no width known, a wrapped row is read both as the widest row and one column more (a final space trimmed), so
+    // a prompt cut mid-word or at a space is found either way
+    if (secretPrompt(screen, sender.cols(screen)) !== null || (sender.widthKnown === false && secretPrompt(screen, sender.cols(screen)! - 1) !== null)) {
       throw new HerdrError("agent_blocked", "The terminal is waiting for masked input; answer it with the secret-input form first");
     }
     const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);
@@ -795,6 +799,8 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       const bound = await bindLaunched(item);
       if (bound === "wait") return;
       if (bound === "ended") { holdFor(item, LAUNCH_GONE); drainAgain.add(paneId); return; }
+      // a scheduled paste may sit in the input: the queue waits for the user to send or discard that one (#2919)
+      if (scheduledUncertain(paneId)) return;
       if (!pending.claim(item, true)) return;
       dispatched = true;
       await dispatchPending(item, true, arrivedAt, false, by);
@@ -1274,7 +1280,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
         return { ok: false, code: "pending_wait", message: "The pane's queued messages, or the turn the last one started, go first" };
       }
       const id = `scheduled:${crypto.randomUUID()}`;
-      return dispatchPendingText({ owner: null, authorize, cols: (screen) => attachments.get(paneId)?.cols ?? widestRow(screen) + 1 }, paneId, pendingText(text), identity,
+      return dispatchPendingText({ owner: null, authorize, cols: (screen) => attachments.get(paneId)?.cols ?? widestRow(screen) + 1, widthKnown: attachments.has(paneId) }, paneId, pendingText(text), identity,
         automatic, Date.now(), (working, restarting) => pending.committingUnrecorded(paneId, id, working, restarting), !automatic, 0, true);
     });
 

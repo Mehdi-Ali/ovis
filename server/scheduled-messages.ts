@@ -78,6 +78,11 @@ export class ScheduledMessages {
     for (const entry of this.load()) this.entries.set(entry.message.id, entry);
   }
 
+  /** whether one of the pane's messages may sit typed in its input: the pending queue sends nothing there on its own */
+  uncertainIn(paneId: string): boolean {
+    return [...this.entries.values()].some((entry) => entry.message.pane_id === paneId && entry.message.state === "uncertain");
+  }
+
   list(): ScheduledMessage[] {
     return [...this.entries.values()].map((entry) => ({ ...entry.message, ...(entry.message.error ? { error: { ...entry.message.error } } : {}) }))
       .sort((a, b) => Date.parse(a.send_at) - Date.parse(b.send_at));
@@ -155,7 +160,7 @@ export class ScheduledMessages {
 
   /** an event of the pane (a turn ended, input became ready): its due messages are tried again */
   paneEvent(paneId: string): void {
-    this.holdBehindUncertain();
+    try { this.holdBehindUncertain(); } catch (error) { console.error(`scheduled messages: ${error instanceof Error ? error.message : String(error)}`); }
     for (const entry of this.entries.values()) {
       if (entry.message.pane_id === paneId && this.due(entry)) this.run(entry);
     }
@@ -165,7 +170,8 @@ export class ScheduledMessages {
   paneMoved(from: string, to: string): void {
     let moved = false;
     for (const entry of this.entries.values()) if (entry.message.pane_id === from) { entry.message.pane_id = to; moved = true; }
-    if (moved) this.commit();
+    // a move that cannot be written is logged: the terminals' own move after this hook still runs
+    if (moved) try { this.commit(); } catch (error) { console.error(`scheduled messages: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
   start(): void {
@@ -251,8 +257,8 @@ export class ScheduledMessages {
 
   /** saves, tells every connection (unless nothing they see changed), and sets the timer for the next due message */
   private commit(quiet = false): void {
-    this.save();
-    if (quiet) this.arm(); else this.announce();
+    // the timer is set again whatever the write does: a failed save never strands the next due message
+    try { this.save(); } finally { if (quiet) this.arm(); else this.announce(); }
   }
 
   /** tells every connection to read the list again, and sets the timer for the next due message */
@@ -276,7 +282,8 @@ export class ScheduledMessages {
     if (next === Infinity) return;
     this.timer = setTimeout(() => {
       this.timer = null;
-      this.holdBehindUncertain();
+      // a hold that cannot be written costs this round, never the server: the next event or timer tries again
+      try { this.holdBehindUncertain(); } catch (error) { console.error(`scheduled messages: ${error instanceof Error ? error.message : String(error)}`); }
       for (const entry of this.entries.values()) if (this.due(entry) && (entry.triedAt === undefined || entry.triedAt + retry <= this.now())) this.run(entry);
       this.arm();
     }, Math.min(MAX_TIMER_MS, Math.max(0, next - this.now())));

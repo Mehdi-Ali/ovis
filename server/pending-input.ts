@@ -62,6 +62,8 @@ export class PendingInputs<Owner, Lease> {
   private readonly gates = new Map<string, TurnGate>();
   /** panes whose turn gate ran out unconfirmed, until their next status event: a message with no record here is held for them (`turnUnconfirmed`) */
   private readonly unconfirmed = new Set<string>();
+  /** panes whose uncertain record went with its closed owner, until their status changes: its paste may still sit in the input (`uncertainIn`) */
+  private readonly stranded = new Set<string>();
   private readonly closed = new Map<Owner, number>();
   /** sends on their way when their pane moved (`move`) */
   private readonly movedInFlight = new WeakSet<PendingRecord<Owner, Lease>>();
@@ -263,9 +265,9 @@ export class PendingInputs<Owner, Lease> {
 
   /** A status event from the collector. */
   status(paneId: string, status: AgentStatus): void {
+    // only a change says the pane moved on: a snapshot read since (observe), or a baseline that repeats the status, never lifts it
+    if (this.statuses.get(paneId) !== status) { this.unconfirmed.delete(paneId); this.stranded.delete(paneId); }
     this.events.set(paneId, this.mark(paneId) + 1);
-    // only an event says the pane moved on: a snapshot read since (observe) never lifts it
-    this.unconfirmed.delete(paneId);
     this.apply(paneId, status);
   }
 
@@ -284,7 +286,7 @@ export class PendingInputs<Owner, Lease> {
 
   /** Whether a delivery to the pane may sit in its input: a scheduled message is then never typed on its own (#2919). */
   uncertainIn(paneId: string): boolean {
-    return [...this.records.values()].some((item) => item.paneId === paneId && item.message.state === "uncertain");
+    return this.stranded.has(paneId) || [...this.records.values()].some((item) => item.paneId === paneId && item.message.state === "uncertain");
   }
 
   /** Whether the pane's last turn gate ran out with no status since: such a message is held for review, as `expire` holds the records. */
@@ -304,7 +306,7 @@ export class PendingInputs<Owner, Lease> {
   }
 
   /** The pane ended: its held messages stay with their owners, its status and turn gate go. */
-  forget(paneId: string): void { this.statuses.delete(paneId); this.events.delete(paneId); this.gates.delete(paneId); this.unconfirmed.delete(paneId); }
+  forget(paneId: string): void { this.statuses.delete(paneId); this.events.delete(paneId); this.gates.delete(paneId); this.unconfirmed.delete(paneId); this.stranded.delete(paneId); }
 
   private apply(paneId: string, status: AgentStatus): void {
     this.statuses.set(paneId, status);
@@ -396,7 +398,7 @@ export class PendingInputs<Owner, Lease> {
     }
     for (const [owner, closedAt] of this.closed) if (this.now() - closedAt >= CLOSED_RETENTION_MS) {
       for (const [id, item] of this.records) if (item.owner === owner && !item.inFlight) {
-        if (item.message.state === "uncertain") this.finish(item, "dismissed");
+        if (item.message.state === "uncertain") { this.stranded.add(item.paneId); this.finish(item, "dismissed"); }
         else this.records.delete(id);
       }
       if (![...this.records.values()].some((item) => item.owner === owner)) {

@@ -1,6 +1,7 @@
 import { afterEach, expect, it, mock, spyOn } from "bun:test";
 import * as herdr from "../herdr/client.ts";
 import * as processStart from "../process-start.ts";
+import { connectionData } from "./connections.ts";
 import { createPendingDelivery, FIRST_MESSAGE_OWNER } from "./pending.ts";
 
 afterEach(() => mock.restore());
@@ -109,4 +110,58 @@ it("asks for the user's OK, typing nothing, while a queued message to the pane m
   d.pending.pending.settle(queued, { code: "submit_changed", message: "not confirmed" }, true);
   expect(await d.pending.sendScheduled("p", "continue", identity, true, () => {})).toMatchObject({ ok: false, code: "needs_ok" });
   expect(d.writes).toEqual([]);
+});
+
+it("keeps the unconfirmed turn through a baseline that repeats the pane's status", async () => {
+  const d = delivery("idle", 0);
+  const identity = await d.pending.scheduledIdentity("p");
+  d.pending.pending.status("p", "idle");
+  expect(await d.pending.sendScheduled("p", "first", identity, true, () => {})).toEqual({ ok: true });
+  d.pending.pending.expire();
+  d.pending.pending.status("p", "idle");
+  expect(await d.pending.sendScheduled("p", "second", identity, true, () => {})).toMatchObject({ ok: false, code: "pending_turn_unconfirmed" });
+  d.pending.pending.status("p", "working");
+  d.pending.pending.status("p", "idle");
+  expect(await d.pending.sendScheduled("p", "second", identity, true, () => {})).toEqual({ ok: true });
+});
+
+it("types nothing into a password prompt that wrapped mid-word, with no client to tell the pane's width", async () => {
+  const d = delivery("idle");
+  const identity = await d.pending.scheduledIdentity("p");
+  d.shown.screen = "Enter passphras\ne: ";
+  expect((await d.pending.sendScheduled("p", "continue", identity, true, () => {})).ok).toBe(false);
+  expect(d.writes).toEqual([]);
+});
+
+it("lets no queued message of a connection go on its own while a scheduled one may sit in the pane's input", async () => {
+  const writes: string[] = [];
+  spyOn(herdr, "paneProcessInfo").mockImplementation(async () =>
+    ({ pane_id: "p", shell_pid: 41000, foreground_processes: [{ pid: 41001, name: "codex", argv: ["codex"] }] }) as Awaited<ReturnType<typeof herdr.paneProcessInfo>>);
+  spyOn(processStart, "processStartedAtAsync").mockResolvedValue(1000);
+  spyOn(herdr, "paneRead").mockImplementation(async () => ({ text: "› Ask Codex to do anything\n" }) as Awaited<ReturnType<typeof herdr.paneRead>>);
+  spyOn(herdr, "paneSendText").mockImplementation(async (_pane, text) => { writes.push(text); });
+  spyOn(herdr, "paneSendKeys").mockImplementation(async (_pane, keys) => { writes.push(keys.join(",")); });
+  const owner = { data: connectionData({ deviceId: undefined, readOnly: false }), getBufferedAmount: () => 0, send: () => 1 };
+  owner.data.attached.set("p", { keepSize: false });
+  const pane = { pane_id: "p", terminal_id: "p", workspace_id: "w", tab_id: "t", agent: "codex", agent_status: "working", focused: false, revision: 0 };
+  const facts = { attached: true, origin: true, sameAttachment: true, samePty: true, sameClaim: true, claimed: true, member: true, ready: true, held: false, currentHeld: false, mirror: false, cols: 80 };
+  let tail: Promise<unknown> = Promise.resolve();
+  const serialize = <T,>(_pane: string, run: () => T | Promise<T>): Promise<T> => { const next = tail.catch(() => {}).then(run); tail = next; return next; };
+  let uncertain = true;
+  const delivery = createPendingDelivery({
+    options: { submitDelayMs: 0 }, clients: new Set([owner]), attachments: new Map(), sight: () => ({ facts: () => facts, write: () => {} }), serialize,
+    lastTyped: new Map(), submitText: async () => {}, authorizeSocket: () => {}, clientSnapshot: async () => ({ panes: [pane] }), omo: { sessionOf: () => null },
+    scheduledUncertain: () => uncertain, SUBMIT_DEADLINE_MS: 1000, SUBMIT_DELAY_MS: 0, TYPED_SETTLE_MS: 0,
+  } as unknown as Parameters<typeof createPendingDelivery>[0]);
+  await delivery.pendingFrames.submit(owner as never, { type: "submit", id: 1, pane_id: "p", text: "queued", payload: "unused", delivery: "queue" } as never);
+  pane.agent_status = "idle";
+  delivery.pending.status("p", "idle");
+  delivery.drainPending("p");
+  await serialize("p", () => {});
+  expect(writes).toEqual([]);
+  uncertain = false;
+  delivery.drainPending("p");
+  await serialize("p", () => {});
+  await serialize("p", () => {});
+  expect(writes).toEqual(["\u001b[200~queued\u001b[201~", "Enter"]);
 });
