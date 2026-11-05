@@ -6,6 +6,7 @@
  * on something the service would refuse.
  */
 import { ACCOUNT_RECORDS_MAX, AccountRecordError, readAccountRecord, type AccountRecord } from "./account-records.ts";
+import { isWssOrigin } from "./relay-offer.ts";
 import { deriveServerId, proofKey, serverChallenge, verifyServerProof } from "./relay-server-proof.ts";
 
 export const CHALLENGE_TTL_MS = 60_000;
@@ -39,7 +40,8 @@ const PKCE = /^[A-Za-z0-9._~-]{43,128}$/;
 
 interface Session { account: string; provider: SignInProvider | "test"; family: string; expires: number }
 
-export interface FakePc { server_id: string; label: string; added_at: string; last_seen_at: string | null }
+/** `public_key`: the PC's relay key (X25519, 64 hex), from which `server_id` derives; `relay`: the wss origin it is reached through. */
+export interface FakePc { server_id: string; label: string; public_key: string; relay: string; added_at: string; last_seen_at: string | null }
 export interface FakeAdmission { id: string; server_id: string; label: string; at: string }
 
 interface Mail { seq: number; record: AccountRecord; at: number }
@@ -194,9 +196,13 @@ export class FakeAccountService {
     if (path === "/v1/pcs" && request.method === "GET") return json({ pcs: [...directory.values()] });
     const pc = /^\/v1\/pcs\/([0-9a-f]{32})$/.exec(path)?.[1];
     if (pc !== undefined && request.method === "PUT") {
-      const body = await request.json() as { label?: unknown };
+      const body = await request.json() as { label?: unknown; public_key?: unknown; relay?: unknown };
       if (typeof body.label !== "string" || body.label.length < 1 || body.label.length > 48) return problem(400, "invalid_label", "Name the PC");
-      const entry = { server_id: pc, label: body.label, added_at: directory.get(pc)?.added_at ?? this.iso(), last_seen_at: directory.get(pc)?.last_seen_at ?? null };
+      // the key is stored, but it cannot be forged: it must give this server_id
+      const key = proofKey(body.public_key);
+      if (!key || deriveServerId(key) !== pc) return problem(400, "server_key_mismatch", "That key does not give that server_id");
+      if (typeof body.relay !== "string" || !isWssOrigin(body.relay)) return problem(400, "invalid_relay", "Give the relay's wss origin");
+      const entry = { server_id: pc, label: body.label, public_key: body.public_key as string, relay: body.relay, added_at: directory.get(pc)?.added_at ?? this.iso(), last_seen_at: directory.get(pc)?.last_seen_at ?? null };
       directory.set(pc, entry);
       return json({ pc: entry });
     }

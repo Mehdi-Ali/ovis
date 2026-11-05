@@ -40,7 +40,7 @@ describe("the fake account service", () => {
     const phone = await client();
     const lost = await client();
     const [a, b] = [pc(), pc()];
-    for (const machine of [a, b]) await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc" }), headers: { authorization: `Bearer ${token}` } }));
+    for (const machine of [a, b]) await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" }), headers: { authorization: `Bearer ${token}` } }));
     const record = await removeRecord("acct_1", phone, lost.spki);
     expect((await service.fetch(post("/v1/records", { server_ids: [a.serverId, b.serverId], record }, token))).status).toBe(200);
 
@@ -56,7 +56,7 @@ describe("the fake account service", () => {
     const token = service.issueToken("acct_1");
     const phone = await client();
     const machine = pc();
-    await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc" }), headers: { authorization: `Bearer ${token}` } }));
+    await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" }), headers: { authorization: `Bearer ${token}` } }));
     const record = await removeRecord("acct_1", phone, (await client()).spki);
     const cases: [Request, string][] = [
       [post("/v1/records", { server_ids: [machine.serverId], record: { ...record, issued_at: "2026-11-05T00:00:00.000Z" } }, token), "signature_invalid"],
@@ -87,7 +87,7 @@ describe("the fake account service", () => {
     const owner = service.issueToken("acct_1");
     const attacker = service.issueToken("acct_evil");
     const machine = pc();
-    for (const token of [owner, attacker]) await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc" }), headers: { authorization: `Bearer ${token}` } }));
+    for (const token of [owner, attacker]) await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" }), headers: { authorization: `Bearer ${token}` } }));
     const evil = await client();
     for (let index = 0; index < 5; index++) await service.fetch(post("/v1/records", { server_ids: [machine.serverId], record: await removeRecord("acct_evil", evil, (await client()).spki) }, attacker));
     const phone = await client();
@@ -98,6 +98,18 @@ describe("the fake account service", () => {
     expect(pulled.body.records?.map((entry) => entry.record)).toEqual([removal]);
     const seen = await (await service.fetch(new Request(`${BASE}/v1/pcs`, { headers: { authorization: `Bearer ${attacker}` } }))).json() as { pcs: FakePc[] };
     expect(seen.pcs[0]?.last_seen_at).toBeNull();
+  });
+
+  test("the address book keeps a PC's key and relay only when the key gives its server_id", async () => {
+    const service = new FakeAccountService();
+    const token = service.issueToken("acct_1");
+    const machine = pc();
+    const put = (body: unknown) => service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify(body), headers: { authorization: `Bearer ${token}` } }));
+    expect((await put({ label: "pc", public_key: pc().publicKey, relay: "wss://relay.ovis.sh" })).status).toBe(400);
+    expect((await put({ label: "pc", public_key: machine.publicKey, relay: "https://relay.ovis.sh" })).status).toBe(400);
+    expect((await put({ label: "pc", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" })).status).toBe(200);
+    const listed = await (await service.fetch(new Request(`${BASE}/v1/pcs`, { headers: { authorization: `Bearer ${token}` } }))).json() as { pcs: FakePc[] };
+    expect(listed.pcs).toEqual([expect.objectContaining({ server_id: machine.serverId, public_key: machine.publicKey, relay: "wss://relay.ovis.sh" })]);
   });
 
   test("an answer given for the account role does not open a relay route", () => {
@@ -115,7 +127,7 @@ describe("the fake account service", () => {
     const token = service.issueToken("acct_1");
     const phone = await client();
     const machine = pc();
-    await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc" }), headers: { authorization: `Bearer ${token}` } }));
+    await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" }), headers: { authorization: `Bearer ${token}` } }));
     await service.fetch(post("/v1/records", { server_ids: [machine.serverId], record: await removeRecord("acct_1", phone, (await client()).spki) }, token));
     now += MAILBOX_TTL_MS + 1;
     expect((await pull(service, machine, null)).body.records).toEqual([]);

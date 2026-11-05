@@ -207,6 +207,10 @@ member sent. It already holds X's sessions; what it gains is the new device tryi
 PC then still admits it only by its own `devices.json`, and a PC the device has never been added to
 refuses it.
 
+The directory's `public_key` is stored but cannot be forged: it is bound to `server_id`, and a client
+derives the `server_id` from it again before using it. Its `relay` is only a route; comparing digits
+is what authenticates the PC.
+
 ## Account service API
 
 The service the apps and PCs call; a self-hosted install can point both at its own. Clients
@@ -257,8 +261,8 @@ Clients:
 
 | request | body | answer |
 |---|---|---|
-| `GET /v1/pcs` | | `{ "pcs": [{ "server_id", "label", "added_at", "last_seen_at" }] }` |
-| `PUT /v1/pcs/{server_id}` | `{ "label" }` | `{ "pc": … }`: adds or renames a PC in the directory |
+| `GET /v1/pcs` | | `{ "pcs": [{ "server_id", "label", "public_key", "relay", "added_at", "last_seen_at" }] }` |
+| `PUT /v1/pcs/{server_id}` | `{ "label", "public_key", "relay" }` | `{ "pc": … }`: adds or renames a PC in the directory. 400 `server_key_mismatch` unless `public_key` (X25519, 64 hex) gives `server_id` (`deriveServerId`), 400 `invalid_relay` unless `relay` is a `wss:` origin |
 | `DELETE /v1/pcs/{server_id}` | | `204` |
 | `POST /v1/records` | `{ "server_ids": [...], "record" }` | `{ "queued": n }`: puts a signed record of the caller's account in that account's mailbox for each listed PC; the service checks only its shape and signature. 429 `mailbox_full` past 1000 records waiting for one PC |
 | `POST /v1/admissions` | `{ "server_id", "label" }` | `{ "id" }`: rings the account's other clients (push) that a device waits at that PC |
