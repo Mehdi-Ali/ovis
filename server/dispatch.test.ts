@@ -133,3 +133,22 @@ it("refuses pairing without a code to an open LAN window, which never hears of a
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+it("lets a tmux copy's hook on this PC in without a token, and no one else", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-dispatch-tmux-"));
+  const app = createServer({ port: 0, hostname: "127.0.0.1", stateDir, token: "secret-token", tailscaleOwner: null, machines: false, sidecar: false });
+  try {
+    const at = (address: string): ServerContext => ({ ...app.context, requestIP: () => ({ address }), timeout: () => {}, upgrade: () => false });
+    const copied = (headers: Record<string, string>) => new Request(`http://127.0.0.1:${app.port}/api/tmux/copied`, {
+      method: "POST", headers: { host: `127.0.0.1:${app.port}`, ...headers }, body: new URLSearchParams({ socket: "relative", pane: "%0" }),
+    });
+    // the hook's request reaches the route (which refuses the relative socket), with no token
+    expect((await handleRequest(copied({ "x-ovis-tmux-hook": "1" }), at("127.0.0.1")))?.status).toBe(400);
+    for (const [headers, address] of [[{}, "127.0.0.1"], [{ "x-ovis-tmux-hook": "1" }, "192.168.1.50"], [{ "x-ovis-tmux-hook": "1", origin: "http://evil.example" }, "127.0.0.1"]] as const) {
+      expect((await handleRequest(copied(headers), at(address)))?.status).toBe(404);
+    }
+  } finally {
+    app.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});

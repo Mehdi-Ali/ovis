@@ -4,6 +4,7 @@ import { connectionData, type createCore, type SocketData } from "./core/index.t
 import type { ClientConnectionLog } from "./client-connection-log.ts";
 import type { RequestLog } from "./request-log.ts";
 import { handlePaneRequest } from "./pane-routes.ts";
+import { fromTmuxHook, handleTmuxCopied, TMUX_COPIED_PATH } from "./tmux-clipboard.ts";
 import { handleIntegrationsRequest } from "./integrations-routes.ts";
 import type { OrderSequence } from "./order-sequence.ts";
 import type { DevicePairedEvent, DeviceRemovedEvent, HealthAuth, RelayPairingsEvent, RemotePairingsEvent, SecuritySummary, SessionSnapshot } from "../shared/protocol.ts";
@@ -28,7 +29,7 @@ import { type AgentInstaller, INSTALL_PATH, SIGN_IN_PATH } from "./agent-catalog
 import { forgetPageMedia } from "./file-view.ts";
 import { handleFileRequest } from "./file-routes.ts";
 import { BACKGROUND_AGENT_PATH, handleBackgroundAgentRequest } from "./background-agent.ts";
-import { paneGet, ping } from "./herdr/client.ts";
+import { paneGet, paneProcessInfo, ping } from "./herdr/client.ts";
 import { handlePushRequest } from "./push.ts";
 import { handlePromptRequest, type OpenCodePromptState } from "./prompt.ts";
 import { attachableIdentity } from "./pty/sidecar.ts";
@@ -143,6 +144,19 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
   const ip = relayPeer === undefined ? ctx.requestIP(request) : null;
   const loopback = ip !== null && isLoopbackAddress(ip.address);
   const forwarded = relayPeer === undefined && cameThroughProxy(request.headers);
+  // a tmux copy's hook on this PC (server/tmux-clipboard.ts) states no token: it is let in only as itself
+  if (pathname === TMUX_COPIED_PATH) {
+    setRequestRoute(pathname);
+    if (relayPeer !== undefined || !fromTmuxHook(request, ip?.address ?? null)) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
+    return handleTmuxCopied(request, {
+      shownPanes: core.paneClipboard.shownPanes,
+      panePids: async (paneId) => {
+        const info = await paneProcessInfo(paneId);
+        return [info?.shell_pid, ...(info?.foreground_processes ?? []).map((process) => process.pid)].filter((pid): pid is number => typeof pid === "number");
+      },
+      copy: core.paneClipboard.copy,
+    });
+  }
   const funnel = relayPeer === undefined && request.headers.has("tailscale-funnel-request");
   const tailscaleLogin = relayPeer === undefined ? request.headers.get("tailscale-user-login") : null;
   const forwardedFor = relayPeer === undefined ? request.headers.get("x-forwarded-for") : null;
