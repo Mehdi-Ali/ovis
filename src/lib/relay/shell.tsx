@@ -323,6 +323,8 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
       const status = await pcAccountStatus(fetch);
       const linking = needsLink(status, device, session.account);
       if (linking) device = await linkThisDevice({ fetch, device, key, account: session.account, store });
+      // the app's session proved the old key, or none: it signs in again with the account key, so this device can approve
+      if (linking || fresh) opened.renew();
       // a PC of another account is not this account's to list or introduce from
       if (device.public_spki !== key.public_spki || (!linking && status.account !== session.account)) return;
       const publicKey = Array.from(importPublicKey(device.server_public_key), (byte) => byte.toString(16).padStart(2, "0")).join("");

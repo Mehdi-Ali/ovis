@@ -118,23 +118,12 @@ it("brings an approved device into every PC of the account: the add waits in an 
   await connect(y, onY);
 });
 
-/** The fake account service with the recent admissions an account member reads (GET /v1/admissions). */
-function serviceWithAdmissions(fake: FakeAccountService, account: string) {
-  return async (input: Request | string | URL, init?: RequestInit): Promise<Response> => {
-    const request = input instanceof Request ? input : new Request(input, init);
-    if (new URL(request.url).pathname === "/v1/admissions" && request.method === "GET") {
-      return Response.json({ admissions: fake.admissions().filter((entry) => entry.account === account).map(({ key, label, server_id, at }) => ({ key, label, server_id, at })) });
-    }
-    return fake.fetch(request);
-  };
-}
-
 describe("approving a device that asks to join the account", () => {
   async function setUp() {
     const fake = new FakeAccountService();
     const store = memoryAccountStore();
     await store.set("session", { service: SERVICE, account: ACCOUNT, provider: "github", access_token: fake.issueToken(ACCOUNT), refresh_token: "r", expires_at: Date.now() + 3600_000 });
-    const service = new AccountService({ store, fetch: serviceWithAdmissions(fake, ACCOUNT) });
+    const service = new AccountService({ store, fetch: fake.fetch });
     const pcKey = generateKeyPair().publicKey;
     const X = deriveServerId(pcKey);
     await service.putPc(X, { label: "p620", public_key: Array.from(pcKey, (byte) => byte.toString(16).padStart(2, "0")).join(""), relay: "wss://relay.example" });
