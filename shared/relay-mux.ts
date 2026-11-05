@@ -34,6 +34,11 @@ export type FrameType = typeof FrameType[keyof typeof FrameType];
  * digits (shared/relay-pair-sas.ts): PAIR_REQUEST, PAIR_CHALLENGE, PAIR_REVEAL and PAIR_CONFIRM.
  */
 export const PAIR_SAS_FEATURE = "pair-sas";
+/** The PC has `/api/account/*` and applies account records (docs/account.md, "Negotiation"). */
+export const ACCOUNT_FEATURE = "account";
+/** What a comparison asks for, offered with `pair-sas` (at most one) and shown in the approval prompt. */
+export const PAIR_INTENT_PC = "pair-intent-pc";
+export const PAIR_INTENT_ACCOUNT = "pair-intent-account";
 export const HTTP_END_FLAGS = { STOPPED: 0x0001 } as const;
 export const WS_DATA_FLAGS = { START: 0x0001, END: 0x0002, TEXT: 0x0004 } as const;
 
