@@ -103,17 +103,25 @@ export class AccountMailbox {
     let ack: number | null = null;
     try {
       const admissions = new Map<string, number>();
+      // refused because their signer was not a member yet: a later add in the same pull may make it one
+      const early: unknown[] = [];
       for (let page = 0; ; page++) {
         // past the last page read, one more call only acknowledges it; what it returns waits for the next pull
         const { entries, waiting } = await this.page(identity, account, ack);
         for (const admission of waiting) admissions.set(scope(account, identity.server_id, admission.key), Date.parse(admission.at));
         if (entries.length === 0 || page === MAX_PAGES) break;
         for (let start = 0; start < entries.length; start += ACCOUNT_RECORDS_MAX) {
-          const outcomes = await applyAccountRecords(this.options.devices, entries.slice(start, start + ACCOUNT_RECORDS_MAX).map(({ record }) => record), identity.server_id);
+          const batch = entries.slice(start, start + ACCOUNT_RECORDS_MAX).map(({ record }) => record);
+          const outcomes = await applyAccountRecords(this.options.devices, batch, identity.server_id);
           applied += outcomes.filter(({ outcome }) => outcome === "applied").length;
+          outcomes.forEach((outcome, index) => { if (outcome.outcome === "refused" && outcome.code === "signer_not_member") early.push(batch[index]); });
         }
         // every record read is acknowledged, refused ones too, so a refused one cannot hold the rest back
         ack = Math.max(...entries.map(({ seq }) => seq));
+      }
+      for (let start = 0; start < early.length; start += ACCOUNT_RECORDS_MAX) {
+        const outcomes = await applyAccountRecords(this.options.devices, early.slice(start, start + ACCOUNT_RECORDS_MAX), identity.server_id);
+        applied += outcomes.filter(({ outcome }) => outcome === "applied").length;
       }
       this.admissions = admissions;
       this.lastPullAt = new Date().toISOString();
