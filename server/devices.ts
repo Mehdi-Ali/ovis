@@ -191,8 +191,10 @@ export function mergeAccountTombstones(active: string, sibling: string): void {
   const paths = [join(active, "account-tombstones.json"), join(sibling, "account-tombstones.json")];
   const read = paths.map(readTombstones);
   if (read.some((list) => list === null)) return;
+  // revokes either dir made while its file could not be read (DeviceStore.tombstone) count as well
+  const pending = [active, sibling].flatMap((dir) => readTombstones(join(dir, "account-tombstones.pending.json")) ?? []);
   const merged = new Map<string, AccountTombstone>();
-  for (const tombstone of read.flatMap((list) => list ?? [])) {
+  for (const tombstone of [...read.flatMap((list) => list ?? []), ...pending]) {
     const kept = merged.get(tombstone.key);
     if (!kept || tombstone.removed_at > kept.removed_at) merged.set(tombstone.key, tombstone);
   }
@@ -208,8 +210,11 @@ export class DeviceStore {
   private devices: StoredDevice[] = [];
   /** when the first device was paired: from then on, only this PC, the owner's login, a device or the token get in */
   private gateClosedAt: string | null = null;
-  /** `startedBy`: the account member that started it through the relay; such a code never lets a removed key back in */
-  private pending: { code: string; expires: number; attempts: number; startedBy: string | null } | null = null;
+  /**
+   * `remote`: started through the relay, so it never lets a removed key back in; `startedBy`: the account
+   * member that started it there, whose addition the new device then is
+   */
+  private pending: { code: string; expires: number; attempts: number; remote: boolean; startedBy: string | null } | null = null;
   private codeIssues: number[] = [];
   private readonly relayFailures: Record<PairingPath, { at: number[]; blockedUntil: number }> = {
     code: { at: [], blockedUntil: 0 }, account: { at: [], blockedUntil: 0 },
@@ -365,14 +370,14 @@ export class DeviceStore {
   }
 
   /** A fresh six-digit code, replacing any code still pending. */
-  startPairing(now = Date.now(), startedBy: string | null = null): PairingCode {
+  startPairing(now = Date.now(), from: { remote: boolean; startedBy: string | null } = { remote: false, startedBy: null }): PairingCode {
     this.assertWritable();
     this.pruneUnconfirmedFirstPairs(now);
     this.codeIssues = this.codeIssues.filter((at) => now - at < PAIRING_WINDOW_MS);
     if (this.codeIssues.length >= 10) throw new PairingRateLimitedError(Math.ceil(((this.codeIssues[0] ?? now) + PAIRING_WINDOW_MS - now) / 1000));
     this.codeIssues.push(now);
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-    this.pending = { code, expires: now + CODE_TTL_MS, attempts: 0, startedBy };
+    this.pending = { code, expires: now + CODE_TTL_MS, attempts: 0, ...from };
     return { code, expires_at: new Date(this.pending.expires).toISOString() };
   }
 
@@ -381,6 +386,9 @@ export class DeviceStore {
     this.assertWritable();
     this.pruneUnconfirmedFirstPairs(now);
     if (!this.checkPairingCode(code, now)) return null;
+    // a member's code goes with the member here too (pairRelay)
+    const startedBy = this.pending?.startedBy ?? null;
+    if (startedBy !== null && !this.isAccountApprover(startedBy)) return null;
     const token = randomBytes(32).toString("hex");
     const device: StoredDevice = { id: randomBytes(8).toString("hex"), label, role, token_hash: hash(token), created_at: new Date(now).toISOString(), last_seen_at: null };
     if (!this.gated) {
@@ -426,12 +434,16 @@ export class DeviceStore {
       return null;
     }
     // a code started through the relay is not a pairing made on this PC (docs/account.md, rule 5)
+    const remote = this.pending?.remote ?? false;
     const startedBy = this.pending?.startedBy ?? null;
-    // a member's code goes with the member: one revoked or demoted since lets nobody in
-    if (startedBy !== null && (this.accountError !== null || this.isTombstoned(publicKey) || !this.isAccountApprover(startedBy))) { this.noteRelayFailure("code", now); return null; }
+    // a code started through the relay is not a pairing made on this PC; a member's code goes with the member
+    if ((remote && (this.accountError !== null || this.isTombstoned(publicKey))) || (startedBy !== null && !this.isAccountApprover(startedBy))) {
+      this.noteRelayFailure("code", now);
+      return null;
+    }
     // a device let in by a member's code is that member's addition, not a pairing made on this PC (removeAccountKey)
     const paired = this.enrollRelay(label, publicKey, now, true, startedBy ?? undefined);
-    if (startedBy === null) this.clearTombstone(publicKey);
+    if (!remote) this.clearTombstone(publicKey);
     return paired;
   }
 
@@ -775,7 +787,9 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
       return jsonResponse({ error: { code: "account_required", message: "Start a pairing on this PC, or from a device linked to your account" } }, 403);
     }
     try {
-      return jsonResponse(store.startPairing(Date.now(), access.level === "full" && access.via === "relay" ? access.device?.id ?? null : null), 200, { "cache-control": "no-store" });
+      const remote = access.level === "full" && access.via === "relay";
+      const member = remote && access.device && store.isAccountApprover(access.device.id) ? access.device.id : null;
+      return jsonResponse(store.startPairing(Date.now(), { remote, startedBy: member }), 200, { "cache-control": "no-store" });
     } catch (error) {
       if (error instanceof PairingRateLimitedError) return jsonResponse({ error: { code: error.code, message: error.message } }, 429, { "retry-after": String(error.retryAfter), "cache-control": "no-store" });
       throw error;

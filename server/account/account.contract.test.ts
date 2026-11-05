@@ -332,8 +332,10 @@ test("two state dirs end with every tombstone of both", () => {
   try {
     const key = "a-removed-key";
     writeFileSync(join(a, "account-tombstones.json"), JSON.stringify({ v: 1, tombstones: [{ key, account: ACCOUNT, record_id: "r", removed_at: "2026-11-02T00:00:00.000Z" }] }));
+    writeFileSync(join(b, "account-tombstones.pending.json"), JSON.stringify({ v: 1, tombstones: [{ key: "a-pending-key", account: "", record_id: "local", removed_at: "2026-11-03T00:00:00.000Z" }] }));
     mergeAccountTombstones(a, b);
     expect(new DeviceStore(b).isTombstoned(key)).toBe(true);
+    expect(new DeviceStore(a).isTombstoned("a-pending-key")).toBe(true);
   } finally { for (const dir of [a, b]) rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -411,4 +413,11 @@ test("a member's relay code lets nobody in once the member is revoked", async ()
   const code = (await post(starter.link, "/api/devices/pair/start", {})).body as unknown as { code: string };
   f.app.context.services.devices.revoke(starter.device.id);
   await expect((await relayConnection(f)).pair(code.code, (await accountKey()).spki)).rejects.toThrow();
+});
+
+test("on a PC in no account a code a relay device started still pairs a new device", async () => {
+  const f = fixture();
+  const starter = await signedIn(f, await relayDevice(f));
+  const code = (await post(starter, "/api/devices/pair/start", {})).body as unknown as { code: string };
+  expect((await (await relayConnection(f)).pair(code.code, (await accountKey()).spki)).role).toBe("drive");
 });
