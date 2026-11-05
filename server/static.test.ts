@@ -95,7 +95,7 @@ describe("the hosted shell's policy", () => {
     expect([...hosted.keys()]).toEqual([...app.keys()]);
     const changed = [...app.keys()].filter((name) => app.get(name) !== hosted.get(name));
     expect(changed).toEqual(["connect-src", "media-src", "frame-src"]);
-    expect(hosted.get("connect-src")).toBe("connect-src 'self' wss:");
+    expect(hosted.get("connect-src")).toBe("connect-src 'self' wss: https://account.ovis.sh");
     expect(hosted.get("media-src")).toBe("media-src 'self' blob:");
     expect(hosted.get("frame-src")).toBe("frame-src 'self' blob:");
   });

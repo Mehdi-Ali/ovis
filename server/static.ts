@@ -127,7 +127,8 @@ export const CONTENT_SECURITY_POLICY = CSP_DIRECTIVES.join("; ");
  * 'unsafe-inline'` and `font-src 'self' data:` among them, stays for the reasons given above.
  */
 const SHELL_SOURCES: Record<string, string> = {
-  "connect-src": "'self' wss:",
+  // the account service the shell signs in to (docs/account.md); a self-hosted one is not added yet
+  "connect-src": "'self' wss: https://account.ovis.sh",
   "media-src": "'self' blob:",
   "frame-src": "'self' blob:",
 };

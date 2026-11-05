@@ -75,8 +75,8 @@ What keeps that in check:
   what `app.ovis.sh` serves with what the tag builds ([Releasing](development.md#releasing)). Your
   browser doesn't make that comparison for you.
 - The app's own pages run scripts from `app.ovis.sh` only. Their Content-Security-Policy is the one
-  the PC's own server sends, with only the relay's `wss:` connections and `blob:` media and frames
-  added (`shellContentSecurityPolicy()` in [`server/static.ts`](../server/static.ts)). A rendered
+  the PC's own server sends, with only the relay's `wss:` connections, the account service (`https://account.ovis.sh`) and
+  `blob:` media and frames added (`shellContentSecurityPolicy()` in [`server/static.ts`](../server/static.ts)). A rendered
   HTML page from the PC runs apart from them, in a sandboxed render host with the PC's own policy
   for rendered pages ([Files](#files)).
 - The host sees requests for static files: the phone's address, and the PC's relay ID in the path

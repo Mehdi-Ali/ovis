@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import nacl from "tweetnacl";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { exportAccountKey, newRecordId, signAccountRecord, type AccountRecord } from "./account-records.ts";
-import { ACCESS_TOKEN_TTL_S, FakeAccountService, isAllowedRedirect, MAILBOX_TTL_MS, type FakePc } from "./account-service-fake.ts";
+import { ACCESS_TOKEN_TTL_S, FakeAccountService, isAllowedRedirect, MAILBOX_TTL_MS, WEB_REDIRECT, type FakePc } from "./account-service-fake.ts";
 import { answerServerChallenge, deriveServerId, serverChallenge, verifyServerProof, type ProofRoute } from "./relay-server-proof.ts";
 
 const BASE = "https://account.test";
@@ -129,12 +129,13 @@ async function pkce() {
   return { verifier, challenge };
 }
 
-async function signIn(service: FakeAccountService, redirect = "https://app.ovis.sh/account/callback") {
+async function signIn(service: FakeAccountService, redirect = WEB_REDIRECT, mode?: string) {
   const { verifier, challenge } = await pkce();
-  const url = `${BASE}/v1/signin/github?redirect_uri=${encodeURIComponent(redirect)}&state=s1&code_challenge=${challenge}&code_challenge_method=S256`;
+  const url = `${BASE}/v1/signin/github?redirect_uri=${encodeURIComponent(redirect)}&state=s1&code_challenge=${challenge}&code_challenge_method=S256${mode ? `&response_mode=${mode}` : ""}`;
   const answer = await service.fetch(new Request(url));
   const back = new URL(answer.headers.get("location") ?? "about:blank");
-  return { answer, back, verifier, redirect, code: back.searchParams.get("code") ?? "" };
+  const params = back.hash ? new URLSearchParams(back.hash.slice(1)) : back.searchParams;
+  return { answer, back, params, verifier, redirect, code: params.get("code") ?? "" };
 }
 
 const token = (service: FakeAccountService, body: unknown) => service.fetch(post("/v1/token", body));
@@ -147,7 +148,9 @@ describe("signing in to the fake account service", () => {
     const flow = await signIn(service);
     expect(flow.answer.status).toBe(302);
     expect(flow.back.origin + flow.back.pathname).toBe(flow.redirect);
-    expect(flow.back.searchParams.get("state")).toBe("s1");
+    // on the web the code comes back in the fragment, which never reaches app.ovis.sh
+    expect(flow.back.search).toBe("");
+    expect(flow.params.get("state")).toBe("s1");
     const wrong = await token(service, { grant_type: "authorization_code", code: flow.code, code_verifier: (await pkce()).verifier, redirect_uri: flow.redirect });
     expect(wrong.status).toBe(400);
     const again = await signIn(service);
@@ -158,8 +161,8 @@ describe("signing in to the fake account service", () => {
   });
 
   test("only the listed redirects are allowed, exactly", () => {
-    for (const ok of ["https://app.ovis.sh/account/callback", "ovis://account/callback", "http://127.0.0.1:53117/callback"]) expect(isAllowedRedirect(ok)).toBe(true);
-    for (const bad of ["https://app.ovis.sh/account/callback/", "https://evil.example/account/callback", "http://localhost:53117/callback",
+    for (const ok of ["https://app.ovis.sh/", "ovis://account/callback", "http://127.0.0.1:53117/callback"]) expect(isAllowedRedirect(ok)).toBe(true);
+    for (const bad of ["https://app.ovis.sh/account/callback", "https://app.ovis.sh", "https://app.ovis.sh/s/x/", "https://evil.example/account/callback", "http://localhost:53117/callback",
       "http://127.0.0.1:53117/other", "http://127.0.0.1:53117/callback/elsewhere", "http://127.0.0.1:99999/callback", "https://app.ovis.sh/account/callback?x=1"]) expect(isAllowedRedirect(bad)).toBe(false);
   });
 
@@ -194,6 +197,18 @@ describe("signing in to the fake account service", () => {
     expect((await token(service, { grant_type: "apple_id_token", id_token: idToken, nonce: "n-2" })).status).toBe(400);
     const other = service.appleIdToken("acct_apple", "n-1");
     expect(await (await token(service, { grant_type: "apple_id_token", id_token: other, nonce: "n-1" })).json()).toMatchObject({ account: "acct_apple", provider: "apple" });
+  });
+
+  test("the loopback redirect takes the code in its query, and the app's own scheme may ask for the fragment", async () => {
+    const service = new FakeAccountService();
+    const loopback = await signIn(service, "http://127.0.0.1:53117/callback");
+    expect(loopback.back.hash).toBe("");
+    expect(loopback.back.searchParams.get("code")).toBe(loopback.code);
+    expect((await signIn(service, "http://127.0.0.1:53117/callback", "fragment")).answer.status).toBe(400);
+    expect((await signIn(service, WEB_REDIRECT, "query")).answer.status).toBe(400);
+    const app = await signIn(service, "ovis://account/callback", "fragment");
+    expect(app.back.search).toBe("");
+    expect(app.params.get("code")).toBe(app.code);
   });
 
   test("a sign-in without S256 PKCE, state, or to another redirect is refused before any code", async () => {

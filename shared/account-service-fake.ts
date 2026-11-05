@@ -18,9 +18,12 @@ export const SIGNIN_CODE_TTL_MS = 60_000;
 
 export type SignInProvider = "github" | "apple";
 
+/** The web app's redirect: the code comes back in the fragment there, so it never reaches the host's logs. */
+export const WEB_REDIRECT = "https://app.ovis.sh/";
+
 /** The only redirects sign-in returns to (docs/account.md, "Signing in"), compared exactly. */
 export function isAllowedRedirect(uri: string): boolean {
-  if (uri === "https://app.ovis.sh/account/callback" || uri === "ovis://account/callback") return true;
+  if (uri === WEB_REDIRECT || uri === "ovis://account/callback") return true;
   const loopback = /^http:\/\/127\.0\.0\.1:([0-9]{1,5})\/callback$/.exec(uri);
   return loopback !== null && Number(loopback[1]) >= 1 && Number(loopback[1]) <= 65535;
 }
@@ -91,14 +94,21 @@ export class FakeAccountService {
     const state = url.searchParams.get("state") ?? "";
     const challenge = url.searchParams.get("code_challenge") ?? "";
     if (!isAllowedRedirect(redirect)) return problem(400, "invalid_redirect_uri", "That redirect is not allowed");
+    // the web redirect always takes the fragment; the app's scheme may ask for it; a loopback server never sees one
+    const mode = url.searchParams.get("response_mode") ?? (redirect === WEB_REDIRECT ? "fragment" : "query");
+    const loopback = redirect.startsWith("http://127.0.0.1:");
+    if ((mode !== "fragment" && mode !== "query") || (redirect === WEB_REDIRECT && mode !== "fragment") || (loopback && mode !== "query")) {
+      return problem(400, "invalid_request", "That response_mode does not go with that redirect");
+    }
     if (url.searchParams.get("code_challenge_method") !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(challenge) || state.length === 0) {
       return problem(400, "invalid_request", "Send state and an S256 code_challenge");
     }
     const code = randomHex(32);
     this.codes.set(code, { account: this.signIns.get(provider) ?? `acct_${provider}`, provider, challenge, redirect, expires: this.now() + SIGNIN_CODE_TTL_MS });
     const back = new URL(redirect);
-    back.searchParams.set("code", code);
-    back.searchParams.set("state", state);
+    const answer = new URLSearchParams({ code, state });
+    if (mode === "fragment") back.hash = answer.toString();
+    else back.search = answer.toString();
     return new Response(null, { status: 302, headers: { location: back.href } });
   }
 

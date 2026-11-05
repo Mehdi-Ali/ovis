@@ -218,9 +218,13 @@ that stays with each PC's `devices.json` ([Rules](#rules)).
 
 OAuth's authorization code flow with PKCE, `S256` only:
 
-1. `GET /v1/signin/{github|apple}?redirect_uri&state&code_challenge&code_challenge_method=S256` sends
-   the browser to the provider's sign-in, then back to `redirect_uri?code&state`. The `code` is
-   good once, for 60 seconds.
+1. `GET /v1/signin/{github|apple}?redirect_uri&state&code_challenge&code_challenge_method=S256[&response_mode]`
+   sends the browser to the provider's sign-in, then back to `redirect_uri` with `code` and
+   `state`: in the fragment (`#code=…&state=…`) for `https://app.ovis.sh/`, always, so the code never
+   reaches that host's request logs; in the query for the loopback redirect, which a local server
+   reads (a server never sees a fragment); and for `ovis://account/callback` in the query, or the
+   fragment with `response_mode=fragment`. Any other pairing answers 400 `invalid_request`. The
+   `code` is good once, for 60 seconds.
 2. `POST /v1/token` `{ "grant_type": "authorization_code", "code", "code_verifier", "redirect_uri" }`
    answers `{ "access_token", "refresh_token", "expires_in", "account", "provider" }`.
    `redirect_uri` must be the one the code was issued for, and `code_verifier` the one whose SHA-256
@@ -233,10 +237,10 @@ OAuth's authorization code flow with PKCE, `S256` only:
    the `nonce` the app asked Apple with.
 5. `POST /v1/signout` (Bearer) answers 204 and ends that sign-in's family.
 
-`redirect_uri` is compared exactly against three forms: `https://app.ovis.sh/account/callback`,
+`redirect_uri` is compared exactly against three forms: `https://app.ovis.sh/`,
 `ovis://account/callback`, and `http://127.0.0.1:<port>/callback` on any port (a loopback redirect
 for the desktop app, RFC 8252). Anything else answers 400 `invalid_redirect_uri` before any
-sign-in. Token errors are 400 `invalid_grant` (a wrong, spent or expired code, verifier, refresh
+sign-in. The hosted shell's Content-Security-Policy lets it reach `https://account.ovis.sh` (`connect-src`), and no other account service yet. Token errors are 400 `invalid_grant` (a wrong, spent or expired code, verifier, refresh
 token or identity token) and 400 `unsupported_grant_type`; an access token that expired or was
 signed out answers 401 `unauthorized` on every other request.
 
