@@ -199,10 +199,11 @@ export class RelaySession {
       case FrameType.HELLO:
         if (this.state !== "hello") { this.close("protocol_error"); return; }
         if (!frame.payload.versions.includes(1)) { this.close("unsupported_version"); return; }
-        if (frame.payload.required_features.length) { this.close("unsupported_extension"); return; }
-        this.state = "auth";
-        // selected only where it can finish: a protected channel to bind the digits to, and the owner's approvals
+        // selected only where it can finish: a protected channel to bind the digits to
         if (frame.payload.features.includes(PAIR_SAS_FEATURE)) this.sasBinding = channelBinding(this.options.channel);
+        // a feature the phone requires has to be one this PC selects on this channel
+        if (frame.payload.required_features.some((feature) => feature !== PAIR_SAS_FEATURE || !this.sasBinding)) { this.close("unsupported_extension"); return; }
+        this.state = "auth";
         // an intent is selected only with pair-sas, and only the one offered (docs/account.md, "Negotiation")
         const intents = frame.payload.features.filter((f) => f === PAIR_INTENT_PC || f === PAIR_INTENT_ACCOUNT);
         if (intents.length > 1) { this.close("protocol_error"); return; }
@@ -231,6 +232,8 @@ export class RelaySession {
       case FrameType.PAIR_REQUEST: {
         if (this.state !== "auth" || !this.sasBinding) { this.close("protocol_error"); return; }
         if (this.options.services.serveOnly) { this.close("auth_failed"); return; }
+        // nobody asked for a link lately: refused before any prompt, and not counted, since no person was asked
+        if (!this.options.services.relay.approvals.windowOpen()) { this.close("auth_failed"); return; }
         this.options.services.devices.assertRelayPairing(this.path);
         this.state = "pair-commit";
         this.sas = {
@@ -285,6 +288,8 @@ export class RelaySession {
   private finishPairing(): void {
     const sas = this.sas;
     if (!sas || !sas.phoneConfirmed || !sas.approved || this.state !== "pair-wait") return;
+    // an answer that lands after the deadline, before its timer ran, makes no device either
+    if (Date.now() > sas.expiresAt) { this.close("timeout"); return; }
     this.state = "verifying";
     let device: DeviceMatch | undefined;
     try { device = this.options.services.devices.pairRelayApproved(sas.label, sas.publicKey, { path: this.path, id: accountDeviceId(this.options.serverId, sas.publicKey), ...(sas.approvedBy === undefined ? {} : { addedBy: sas.approvedBy }) })?.device; }

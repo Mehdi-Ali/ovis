@@ -56,4 +56,6 @@ export const RELAY_JA: Record<string, string> = {
   "ID of the key this link carries": "このリンクの鍵のID",
   "ID of the key this phone saved": "このスマホに保存された鍵のID",
   "Only the PC itself shows its ID, under Settings → Phone & devices. Marked groups differ.": "PCのIDは、PC自身の設定 → スマートフォンとデバイスでだけ確認できます。印の付いたグループが異なる部分です。",
+  "{name} is not taking new phones right now": "{name} は今は新しいスマートフォンを受け付けていません",
+  "Its link may have run out (it works for 10 minutes), or it may be paused after too many tries or busy with other phones. Copy a new link on the PC, or wait a few minutes.": "リンクの有効期限が切れた(10 分間有効)か、試行が多すぎて一時停止しているか、ほかのスマートフォンの対応中かもしれません。PC で新しいリンクをコピーするか、数分待ってください。",
 };
