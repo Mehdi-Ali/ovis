@@ -12,7 +12,7 @@ import type { SecureChannel, Transport } from "../../../shared/relay-e2ee.ts";
 import { decodeFrame, encodeFrame, FrameType, LIMITS_V1, MuxProtocolError } from "../../../shared/relay-mux.ts";
 import type { MuxFrame } from "../../../shared/relay-mux.ts";
 import { MuxEngine } from "../../../shared/relay-mux-engine.ts";
-import { ADMISSION_MS, ASSIGNMENT_MS, openRelayChannel, PC_ANSWER_MS, RelayAdmissionTimeoutError, RelayUnreachableError } from "./channel.ts";
+import { ADMISSION_MS, ASSIGNMENT_MS, openRelayChannel, PC_ANSWER_MS, RelayAdmissionTimeoutError, RelayPcOfflineError, RelayUnreachableError } from "./channel.ts";
 import type { RelaySocket } from "./channel.ts";
 import { failureOf, pairsAgainWithoutKey } from "./shellState.ts";
 import { base64url, getDevice } from "./device.ts";
@@ -280,10 +280,31 @@ it("calls the PC offline when the relay assigned the connection but nothing answ
   await flush();
   // Then the failure is the PC's silence, the screen is pc-offline, and the socket is closed.
   const error = outcome.get()?.error;
+  expect(error).toBeInstanceOf(RelayPcOfflineError);
   expect(error).toBeInstanceOf(MuxProtocolError);
   expect(error).toMatchObject({ code: "timeout" });
   expect(failureOf(error, { code: false, paired: true })).toBe("pc-offline");
   expect(socket.closed).toBe(4000);
+});
+
+it("waits for the PC as long as pcAnswerMs says, for a reconnect behind the app", async () => {
+  // Given a relay that assigns the connection, a PC that never attaches, and a longer wait asked for.
+  jest.useFakeTimers();
+  const socket = new SilentSocket();
+  const created = Promise.withResolvers<void>();
+  const offer = { v: 1 as const, server_id: "12".repeat(16), server_public_key: exportPublicKey(generateKeyPair().publicKey), relay: "wss://relay.example" };
+  const outcome = settled(openRelayChannel(offer, { store: new MemoryDeviceStore(), pcAnswerMs: 25_000, socket: () => { created.resolve(); return socket; } }));
+  await created.promise;
+  socket.deliver(JSON.stringify({ type: "assigned", connection_id: "ef".repeat(16) }));
+  await socket.sent.promise;
+  // When PC_ANSWER_MS passes, then the asked-for wait.
+  jest.advanceTimersByTime(PC_ANSWER_MS);
+  await flush();
+  expect(outcome.get()).toBeNull();
+  jest.advanceTimersByTime(25_000 - PC_ANSWER_MS);
+  await flush();
+  // Then the PC is called offline only at the end of that wait.
+  expect(outcome.get()?.error).toBeInstanceOf(RelayPcOfflineError);
 });
 
 it("calls a PC that answered the handshake but never finished admission unresponsive, not offline", async () => {
@@ -403,6 +424,8 @@ function connectReal(f: ReturnType<typeof relayFixture>, keys: ReturnType<typeof
 async function comparing(compare: (digits: string) => Promise<void>) {
   const f = relayFixture();
   cleanups.push(() => f.close());
+  // as copying a link without a code does
+  f.app.context.services.relay.approvals.openWindow();
   const keys = generateKeyPair();
   const store = new MemoryDeviceStore();
   const offer = { v: 1 as const, server_id: "12".repeat(16), server_public_key: exportPublicKey(keys.publicKey), relay: "wss://relay.example" };
@@ -493,6 +516,7 @@ it("does not take AUTH_OK from a PC before this phone said the digits match", as
 it("a phone the PC removed is refused at sign-in from a link without a code, and pairs by digits once its old key is gone", async () => {
   const f = relayFixture();
   cleanups.push(() => f.close());
+  f.app.context.services.relay.approvals.openWindow();
   const keys = generateKeyPair();
   const store = new MemoryDeviceStore();
   const base = { v: 1 as const, server_id: "12".repeat(16), server_public_key: exportPublicKey(keys.publicKey), relay: "wss://relay.example" };
