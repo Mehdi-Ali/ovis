@@ -116,12 +116,22 @@ export class AccountMailbox {
           applied += outcomes.filter(({ outcome }) => outcome === "applied").length;
           outcomes.forEach((outcome, index) => { if (outcome.outcome === "refused" && outcome.code === "signer_not_member") early.push(batch[index]); });
         }
+        // before this page is acknowledged (with the next request), retry what waited on a signer, until nothing more applies:
+        // a chain of adds read in any order still reaches the remove at its end
+        for (let progress = true; progress && early.length;) {
+          progress = false;
+          const retried = early.splice(0);
+          for (let start = 0; start < retried.length; start += ACCOUNT_RECORDS_MAX) {
+            const batch = retried.slice(start, start + ACCOUNT_RECORDS_MAX);
+            const outcomes = await applyAccountRecords(this.options.devices, batch, identity.server_id);
+            outcomes.forEach((outcome, index) => {
+              if (outcome.outcome === "refused" && outcome.code === "signer_not_member") early.push(batch[index]);
+              else { progress = true; if (outcome.outcome === "applied") applied += 1; }
+            });
+          }
+        }
         // every record read is acknowledged, refused ones too, so a refused one cannot hold the rest back
         ack = Math.max(...entries.map(({ seq }) => seq));
-      }
-      for (let start = 0; start < early.length; start += ACCOUNT_RECORDS_MAX) {
-        const outcomes = await applyAccountRecords(this.options.devices, early.slice(start, start + ACCOUNT_RECORDS_MAX), identity.server_id);
-        applied += outcomes.filter(({ outcome }) => outcome === "applied").length;
       }
       this.admissions = admissions;
       this.lastPullAt = new Date().toISOString();
