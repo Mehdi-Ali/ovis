@@ -26,6 +26,8 @@ import { RELAY_JA } from "./i18n/relay.ja.ts";
  * in English. Placeholders in braces keep their English names.
  */
 const BASE: Record<string, string> = {
+  "Only for {pc}": "{pc} のみ",
+  "Could not verify this device. It was declined: approve only a device you are signing in yourself.": "このデバイスを確認できなかったため拒否しました。自分でサインインしているデバイスだけを承認してください。",
   "Add {device}?": "{device} を追加しますか？",
   "Through {pc} · joins your {n} PCs": "{pc} 経由 · {n} 台の PC に参加します",
   "Pick the number on {device}": "{device} に表示されている数字を選んでください",

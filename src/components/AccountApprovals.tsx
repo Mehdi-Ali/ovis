@@ -7,7 +7,8 @@
 import { useEffect, useState } from "react";
 
 import type { RemotePairingRequest } from "../../shared/protocol.ts";
-import { admitToAccount } from "../lib/account/join.ts";
+import { admitToAccount, approveJoin, UnverifiedJoinError } from "../lib/account/join.ts";
+import { useT } from "../lib/i18n.ts";
 import { accountServiceOf, AccountService } from "../lib/account/service.ts";
 import { indexedAccountStore } from "../lib/account/store.ts";
 import { decideRelayPairing } from "../lib/api.ts";
@@ -17,6 +18,7 @@ import { getTransport } from "../lib/transport.ts";
 import { AccountApprovalPrompt } from "./AccountApprovalPrompt.tsx";
 
 export function AccountApprovals({ pairings }: { pairings: readonly RemotePairingRequest[] }) {
+  const t = useT();
   const request = pairings[0];
   const serverId = serverIdOfPath(window.location.pathname);
   const [where, setWhere] = useState<{ pcName: string; pcCount: number }>({ pcName: "", pcCount: 1 });
@@ -41,17 +43,26 @@ export function AccountApprovals({ pairings }: { pairings: readonly RemotePairin
   if (request === undefined || serverId === null) return null;
 
   const decide = async (decision: "approve" | "decline", digits?: string): Promise<void> => {
-    await decideRelayPairing(request.id, decision, digits);
-    if (decision !== "approve") return;
+    if (decision === "decline" || digits === undefined) { await decideRelayPairing(request.id, "decline"); return; }
     const service = new AccountService({ store: indexedAccountStore });
     const session = await service.session();
-    if (session === undefined) return;
+    // signed out here: answered on this PC only, never added to the account
+    if (session === undefined || request.intent !== "account") { await decideRelayPairing(request.id, "approve", digits); return; }
     const transport = getTransport();
-    await admitToAccount({
-      fetch: (path, init) => transport.fetch(path, init), service, key: await indexedAccountStore.key(), account: session.account,
-      joining: { key: request.key, label: request.label }, through: serverId, paired: await indexedDeviceStore.list(),
-      directory: (await service.listPcs()).map((pc) => pc.server_id),
-    });
+    try {
+      await approveJoin({
+        request, digits, through: serverId, service,
+        decide: (answer, picked) => decideRelayPairing(request.id, answer, picked),
+        admit: async () => admitToAccount({
+          fetch: (path, init) => transport.fetch(path, init), service, key: await indexedAccountStore.key(), account: session.account,
+          joining: { key: request.key, label: request.label }, through: serverId, paired: await indexedDeviceStore.list(),
+          directory: (await service.listPcs()).map((pc) => pc.server_id),
+        }),
+      });
+    } catch (error) {
+      if (error instanceof UnverifiedJoinError) throw new Error(t("Could not verify this device. It was declined: approve only a device you are signing in yourself."));
+      throw error;
+    }
   };
 
   return <AccountApprovalPrompt key={request.id} request={request} pcName={where.pcName} pcCount={where.pcCount} onDecide={decide} />;

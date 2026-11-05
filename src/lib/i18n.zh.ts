@@ -28,6 +28,8 @@ import { RELAY_ZH } from "./i18n/relay.zh.ts";
  * Placeholders in braces keep their English names.
  */
 const BASE: Record<string, string> = {
+  "Only for {pc}": "仅限 {pc}",
+  "Could not verify this device. It was declined: approve only a device you are signing in yourself.": "无法验证此设备，已拒绝。请只批准你自己正在登录的设备。",
   "Add {device}?": "添加 {device}？",
   "Through {pc} · joins your {n} PCs": "经由 {pc} · 将加入你的 {n} 台 PC",
   "Pick the number on {device}": "选择 {device} 上显示的数字",

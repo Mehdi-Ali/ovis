@@ -8,6 +8,7 @@
 import { accountDeviceId, newRecordId, signAccountRecord } from "../../../shared/account-records.ts";
 import type { AddRecord, LinkRecord } from "../../../shared/account-records.ts";
 import { isWssOrigin } from "../../../shared/relay-offer.ts";
+import type { RemotePairingRequest } from "../../../shared/protocol.ts";
 import type { RelayDevice, RelayDeviceStore } from "../relay/device.ts";
 import { keyIdOf } from "../relay/shellState.ts";
 import type { AccountService } from "./service.ts";
@@ -77,12 +78,18 @@ export async function linkThisDevice(options: { fetch: PcFetch; device: RelayDev
   }, key.private_key);
   await post(options.fetch, "/api/account/link", { record });
   return options.store.update(device.server_id, (current) => {
-    if (current === undefined) throw new TypeError("This PC was forgotten meanwhile");
+    // only the pairing the link was signed for takes the key: one changed meanwhile is left as it is
+    if (current === undefined || current.device_id !== device.device_id || current.public_spki !== device.public_spki || current.server_public_key !== device.server_public_key) {
+      throw new TypeError("This PC's pairing changed while it was being linked");
+    }
     return { ...current, private_key: key.private_key, public_spki: key.public_spki };
   });
 }
 
 export interface IntroducedPc { readonly server_id: string; readonly server_public_key: string; readonly relay: string; readonly name: string }
+
+/** At most this many PCs come in one introduction (docs/account.md, "Introductions"). */
+export const INTRODUCTION_MAX = 32;
 
 /** Only an introduction whose id is its key's (server/relay/identity.ts) and whose relay is a wss origin. */
 function parseIntroduced(value: unknown): IntroducedPc | null {
@@ -96,14 +103,16 @@ function parseIntroduced(value: unknown): IntroducedPc | null {
 /**
  * After a remote approval on PC X: the account's other PCs as the approver checked them, saved so
  * this device signs in to each with the account key and the id the `add` gave it there. A PC this
- * device already has is left as it is. Returns the PCs saved.
+ * device already has is left as it is. X passes the list on, so only PCs on X's own relay are kept:
+ * a list that names another relay would route this device through one X chose. Returns the PCs saved.
  */
-export async function takeIntroduction(options: { fetch: PcFetch; key: AccountKey; label: string; store: RelayDeviceStore }): Promise<RelayDevice[]> {
+export async function takeIntroduction(options: { fetch: PcFetch; key: AccountKey; label: string; store: RelayDeviceStore; relay: string }): Promise<RelayDevice[]> {
   const response = await options.fetch("/api/account/introduction");
   if (response.status === 404) return [];
   if (!response.ok) throw await refusal(response);
   const body = await response.json() as { pcs?: unknown };
-  const pcs = (Array.isArray(body.pcs) ? body.pcs : []).map(parseIntroduced).filter((pc): pc is IntroducedPc => pc !== null);
+  const pcs = (Array.isArray(body.pcs) ? body.pcs.slice(0, INTRODUCTION_MAX) : []).map(parseIntroduced)
+    .filter((pc): pc is IntroducedPc => pc !== null && pc.relay === options.relay);
   const saved: RelayDevice[] = [];
   for (const pc of pcs) {
     if (await options.store.get(pc.server_id) !== undefined) continue;
@@ -115,25 +124,77 @@ export async function takeIntroduction(options: { fetch: PcFetch; key: AccountKe
   return saved;
 }
 
+/** The account service saw no device of this account ask to join at this PC with that key. */
+export class UnverifiedJoinError extends Error {
+  readonly code = "unverified_device";
+  constructor() {
+    super("Could not verify this device");
+    this.name = "UnverifiedJoinError";
+  }
+}
+
+/** An admission counts for this long after the device rang (docs/account.md, "Joining through the account"). */
+export const ADMISSION_MS = 10 * 60_000;
+
 /**
- * On the approving client, once PC X let the new device in: an `add` for its key, put in the
- * mailbox of every other PC of the account, and an introduction to the PCs this client checked
- * itself, handed to X for the new device to collect.
+ * A member's answer to a device asking through PC X. A request to join the account is approved,
+ * and the device added everywhere, only when the account service itself (not X) saw a device of
+ * this account ring at X with that key in the last 10 minutes: a PC that shows another key than
+ * the one that rang is refused, and declined on X. A request for X alone is just answered on X.
+ */
+export async function approveJoin(options: {
+  request: RemotePairingRequest; digits: string; through: string; service: AccountService;
+  decide: (decision: "approve" | "decline", digits?: string) => Promise<void>; admit: () => Promise<unknown>; now?: () => number;
+}): Promise<void> {
+  const { request } = options;
+  if (request.intent !== "account") { await options.decide("approve", options.digits); return; }
+  const now = (options.now ?? Date.now)();
+  const vouched = (await options.service.recentAdmissions()).some((admission) => admission.server_id === options.through
+    && admission.key === request.key && now - Date.parse(admission.at) <= ADMISSION_MS);
+  if (!vouched) {
+    await options.decide("decline");
+    throw new UnverifiedJoinError();
+  }
+  await options.decide("approve", options.digits);
+  await options.admit();
+}
+
+/** How long the approver waits for PC X to let the new device in once both sides said yes. */
+export const ADMITTED_MS = 120_000;
+const ADMITTED_POLL_MS = 2_000;
+
+/**
+ * On the approving client, once this client approved on PC X: first the introduction to the PCs
+ * this client checked itself, handed to X, which X takes only once the new device's row exists
+ * (the new device confirmed too); only then an `add` for its key, put in the mailbox of every other
+ * PC of the account. A device that never finishes joining X reaches no other PC.
  */
 export async function admitToAccount(options: {
   fetch: PcFetch; service: AccountService; key: AccountKey; account: string;
   joining: { key: string; label: string }; through: string; paired: readonly RelayDevice[]; directory: readonly string[]; now?: () => number;
+  wait?: (ms: number) => Promise<void>;
 }): Promise<AddRecord> {
+  const now = options.now ?? Date.now;
+  // fixed wait: the pause between tries of a poll bounded by ADMITTED_MS
+  const wait = options.wait ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
+  const pcs = options.paired
+    .filter((device) => device.device_id !== null && device.server_id !== options.through && keyIdOf(device.server_public_key) === device.server_id)
+    .slice(0, INTRODUCTION_MAX)
+    .map((device) => ({ server_id: device.server_id, server_public_key: device.server_public_key, relay: device.relay, name: (device.name ?? device.server_id.slice(0, 8)).slice(0, 48) }));
+  const deadline = now() + ADMITTED_MS;
+  for (;;) {
+    try { await post(options.fetch, "/api/account/introduce", { key: options.joining.key, pcs }); break; }
+    catch (error) {
+      // no row for that key on X yet: the new device has not confirmed its digits
+      if (!(error instanceof AccountPcError) || error.code !== "introduction_unknown_key" || now() > deadline) throw error;
+      await wait(ADMITTED_POLL_MS);
+    }
+  }
   const add: AddRecord = await signAccountRecord({
     v: 1, kind: "add", account: options.account, key: options.joining.key, label: options.joining.label, role: "drive",
-    issued_at: new Date((options.now ?? Date.now)()).toISOString(), id: newRecordId(), signer: options.key.public_spki,
+    issued_at: new Date(now()).toISOString(), id: newRecordId(), signer: options.key.public_spki,
   }, options.key.private_key);
   const others = options.directory.filter((serverId) => serverId !== options.through);
   for (let start = 0; start < others.length; start += 32) await options.service.postRecord(others.slice(start, start + 32), add);
-  const pcs = options.paired
-    .filter((device) => device.device_id !== null && device.server_id !== options.through && keyIdOf(device.server_public_key) === device.server_id)
-    .slice(0, 32)
-    .map((device) => ({ server_id: device.server_id, server_public_key: device.server_public_key, relay: device.relay, name: (device.name ?? device.server_id.slice(0, 8)).slice(0, 48) }));
-  await post(options.fetch, "/api/account/introduce", { key: options.joining.key, pcs });
   return add;
 }

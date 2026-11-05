@@ -1,14 +1,15 @@
-import { afterEach, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { AccountMailbox } from "../../../server/account/mailbox.ts";
 import { rotateRelayIdentity } from "../../../server/relay/identity.ts";
 import type { RelayIdentity } from "../../../server/relay/identity.ts";
 import { relayConnection, relayDevice, relayFixture } from "../../../server/relay/test-helpers.ts";
 import { accountDeviceId, exportAccountKey } from "../../../shared/account-records.ts";
 import { FakeAccountService } from "../../../shared/account-service-fake.ts";
-import { importPublicKey } from "../../../shared/relay-e2ee.ts";
+import { generateKeyPair, importPublicKey } from "../../../shared/relay-e2ee.ts";
+import { deriveServerId } from "../../../shared/relay-server-proof.ts";
 import type { RelayDevice } from "../relay/device.ts";
 import { MemoryDeviceStore } from "../relay/device.test.ts";
-import { admitToAccount, linkThisDevice, needsLink, pcAccountStatus, takeIntroduction } from "./join.ts";
+import { admitToAccount, approveJoin, linkThisDevice, needsLink, pcAccountStatus, takeIntroduction, UnverifiedJoinError } from "./join.ts";
 import { myPcs } from "./myPcs.ts";
 import { AccountService } from "./service.ts";
 import { memoryAccountStore } from "./store.ts";
@@ -73,7 +74,8 @@ it("moves QR pairings into the account one PC at a time, and calls a PC it has n
   expect(await pcAccountStatus(pcFetch(link))).toEqual({ account: ACCOUNT, unlinked: [] });
   // the linked pairing signs in with the account key from now on
   await connect(a, linked);
-  const rows = myPcs([], await store.list(), { now: Date.now(), accountKey: key.public_spki });
+  const listed = [a, b].map((at) => ({ server_id: at.identity.server_id, label: "pc", added_at: new Date().toISOString(), last_seen_at: null, public_key: null, relay: null }));
+  const rows = myPcs(listed, await store.list(), { now: Date.now(), accountKey: key.public_spki });
   expect(rows.map(({ name, linked: covered }) => [name, covered])).toEqual([["nuc", false], ["p620", true]]);
   expect(b.f.app.context.services.devices.accountRows().unlinked).toHaveLength(1);
 });
@@ -109,9 +111,93 @@ it("brings an approved device into every PC of the account: the add waits in an 
   // the Mac learns PC Y from X and signs in there with the account key alone
   const macStore = new MemoryDeviceStore();
   const onXForMac = await macStore.update(x.identity.server_id, () => ({ server_id: x.identity.server_id, server_public_key: x.identity.public_key, relay: "wss://relay.example", device_id: admitted.id, private_key: mac.private_key, public_spki: mac.public_spki, label: "Mac app" }));
-  const introduced = await takeIntroduction({ fetch: pcFetch(await connect(x, onXForMac)), key: mac, label: "Mac app", store: macStore });
+  const introduced = await takeIntroduction({ fetch: pcFetch(await connect(x, onXForMac)), key: mac, label: "Mac app", store: macStore, relay: onXForMac.relay });
   expect(introduced.map((device) => [device.server_id, device.device_id])).toEqual([[y.identity.server_id, accountDeviceId(y.identity.server_id, mac.public_spki)]]);
   const onY = await macStore.get(y.identity.server_id);
   if (!onY) throw new Error("no introduction for Y");
   await connect(y, onY);
+});
+
+/** The fake account service with the recent admissions an account member reads (GET /v1/admissions). */
+function serviceWithAdmissions(fake: FakeAccountService, account: string) {
+  return async (input: Request | string | URL, init?: RequestInit): Promise<Response> => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    if (new URL(request.url).pathname === "/v1/admissions" && request.method === "GET") {
+      return Response.json({ admissions: fake.admissions().filter((entry) => entry.account === account).map(({ key, label, server_id, at }) => ({ key, label, server_id, at })) });
+    }
+    return fake.fetch(request);
+  };
+}
+
+describe("approving a device that asks to join the account", () => {
+  async function setUp() {
+    const fake = new FakeAccountService();
+    const store = memoryAccountStore();
+    await store.set("session", { service: SERVICE, account: ACCOUNT, provider: "github", access_token: fake.issueToken(ACCOUNT), refresh_token: "r", expires_at: Date.now() + 3600_000 });
+    const service = new AccountService({ store, fetch: serviceWithAdmissions(fake, ACCOUNT) });
+    const pcKey = generateKeyPair().publicKey;
+    const X = deriveServerId(pcKey);
+    await service.putPc(X, { label: "p620", public_key: Array.from(pcKey, (byte) => byte.toString(16).padStart(2, "0")).join(""), relay: "wss://relay.example" });
+    // the new device, signed in to the same account, rang from PC X with its own key
+    const mac = await accountKey();
+    await service.postAdmission(X, "Mac app", mac.public_spki);
+    return { fake, service, mac, X };
+  }
+
+  it("refuses when the PC shows a key the account service never saw join at that PC", async () => {
+    const { fake, service, X } = await setUp();
+    const swapped = await accountKey();
+    const decisions: string[] = [];
+    let admitted = false;
+    const outcome = approveJoin({
+      request: { id: "r1", label: "Mac app", intent: "account", choices: ["111111", "222222", "333333"], expires_at: "", key: swapped.public_spki },
+      digits: "111111", through: X, service,
+      decide: async (decision) => { decisions.push(decision); }, admit: async () => { admitted = true; },
+    });
+    await expect(outcome).rejects.toBeInstanceOf(UnverifiedJoinError);
+    expect(decisions).toEqual(["decline"]);
+    expect(admitted).toBe(false);
+    expect(fake.admissions().length).toBeGreaterThan(0);
+  });
+
+  it("approves and adds the device the account service saw join at that PC", async () => {
+    const { service, mac, X } = await setUp();
+    const decisions: string[] = [];
+    let admitted = false;
+    await approveJoin({
+      request: { id: "r1", label: "Mac app", intent: "account", choices: ["111111", "222222", "333333"], expires_at: "", key: mac.public_spki },
+      digits: "222222", through: X, service,
+      decide: async (decision, digits) => { decisions.push(`${decision}:${digits}`); }, admit: async () => { admitted = true; },
+    });
+    expect(decisions).toEqual(["approve:222222"]);
+    expect(admitted).toBe(true);
+  });
+
+  it("approves a request for this PC only without adding the device to the account", async () => {
+    const { service, X } = await setUp();
+    let admitted = false;
+    await approveJoin({
+      request: { id: "r1", label: "Phone", intent: "pc", choices: ["111111", "222222", "333333"], expires_at: "", key: (await accountKey()).public_spki },
+      digits: "333333", through: X, service, decide: async () => {}, admit: async () => { admitted = true; },
+    });
+    expect(admitted).toBe(false);
+  });
+});
+
+it("links a device that just paired over a connection of its own, as the session that paired cannot yet", async () => {
+  const x = pc();
+  const store = new MemoryDeviceStore();
+  const key = await accountKey();
+  const pairing = await relayConnection(x.f, { serverId: x.identity.server_id });
+  const code = x.f.app.context.services.devices.startPairing().code;
+  const admitted = await pairing.pair(code, key.public_spki);
+  const device = await store.update(x.identity.server_id, () => ({
+    server_id: x.identity.server_id, server_public_key: x.identity.public_key, relay: "wss://relay.example",
+    device_id: admitted.device_id, private_key: key.private_key, public_spki: key.public_spki, label: "Phone",
+  }));
+  // the session that paired has not proved the key: the PC refuses the link there
+  await expect(linkThisDevice({ fetch: pcFetch(pairing), device, key, account: ACCOUNT, store })).rejects.toMatchObject({ code: "link_not_owner" });
+  // a connection that signs in with the saved key links it
+  await linkThisDevice({ fetch: pcFetch(await connect(x, device)), device, key, account: ACCOUNT, store });
+  expect(await pcAccountStatus(pcFetch(await connect(x, device)))).toEqual({ account: ACCOUNT, unlinked: [] });
 });

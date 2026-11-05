@@ -65,6 +65,10 @@ export interface RelayShellMount {
 
 declare const __APP_VERSION__: string;
 
+/** How long a device that just paired looks for its introduction, and how often. */
+const INTRODUCTION_WAIT_MS = 60_000;
+const INTRODUCTION_POLL_MS = 3_000;
+
 /** How long a PC's update may take, from the install request to the restarted server: a build on a slow PC included. */
 const UPDATE_MS = 15 * 60_000;
 /** How often the shell reads the PC's update status while it installs. */
@@ -96,6 +100,8 @@ interface Attempt {
   codeless?: boolean;
   /** a saved key the PC refused was already dropped for this link (shellState.ts pairsAgainWithoutKey) */
   refreshed?: boolean;
+  /** this attempt paired just now: the PC has not seen the key prove itself on this session yet */
+  fresh?: boolean;
 }
 
 /** Settings' Forget this PC: the phone's key for the PC is gone; the PC lists the device until it is revoked there. */
@@ -189,9 +195,20 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
 
   /** A PC of the account this device is not paired with: compare digits with it, as a link without a code does. */
   const joinPc = (pc: MyPc): void => {
-    if (pc.join === undefined) return;
-    const link = new URL(encodeOffer({ v: 1, server_id: pc.server_id, server_public_key: pc.join.server_public_key, relay: pc.join.relay, name: pc.name }, window.location.origin));
-    navigate(link.pathname + link.hash);
+    const join = pc.join;
+    if (join === undefined) return;
+    void (async () => {
+      // the PC takes a comparison that asks to join the account only after this device rang through the account service
+      try { await account.postAdmission(pc.server_id, label.slice(0, 48), (await accountStore.key()).public_spki); }
+      catch (error) {
+        console.warn("Ovis: the account service did not take the join", error instanceof Error ? error.name : error);
+        accountView = accountView?.kind === "signed-in" ? { ...accountView, error: t("The account service could not be reached. The PCs this device is paired with still work.") } : accountView;
+        await showFront();
+        return;
+      }
+      const link = new URL(encodeOffer({ v: 1, server_id: pc.server_id, server_public_key: join.server_public_key, relay: join.relay, name: pc.name }, window.location.origin));
+      navigate(link.pathname + link.hash);
+    })();
   };
 
   const signIn = (provider: AccountProvider): void => {
@@ -266,7 +283,7 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
     // the PC admitted this phone: a pairing code is spent, and every later attempt (Try again on
     // the update screen included) signs with the saved device key instead of pairing again
     const { code, ...saved } = attempt.offer;
-    const enrolled: Attempt = { offer: saved, code: false, paired: true };
+    const enrolled: Attempt = { offer: saved, code: false, paired: true, ...(attempt.paired ? {} : { fresh: true }) };
     last = enrolled;
     if (code !== undefined && entry.offer !== null) entry = { ...entry, offer: null };
     await admitted(opened, enrolled);
@@ -280,7 +297,7 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
     shell = null;
     app = mount.renderApp();
     registerPending(attempt.offer.server_id);
-    void joinAccount(opened, attempt.offer.server_id);
+    void joinAccount(opened, attempt.offer.server_id, attempt.fresh === true);
   };
 
   /**
@@ -289,25 +306,40 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
    * and an introduction waiting there saves the account's other PCs. A failure leaves the pairing as
    * it was; the next connection tries again.
    */
-  const joinAccount = async (opened: RelayTransport, serverId: string): Promise<void> => {
+  const joinAccount = async (opened: RelayTransport, serverId: string, fresh: boolean): Promise<void> => {
     if (accountService === null || !opened.server?.features?.includes(ACCOUNT_FEATURE)) return;
     const session = await account.session();
     if (session === undefined) return;
-    const fetch = (path: string, init?: RequestInit) => opened.fetch(path, init);
+    // a session that just paired has not proved its key to the PC, which then refuses a link and
+    // keeps an introduction from it: the account's steps take a connection of their own, signed in
+    let own: RelayTransport | null = null;
     try {
       const key = await accountStore.key();
       let device = await store.get(serverId);
       if (device === undefined || device.device_id === null) return;
+      if (fresh) own = await open(offerOf(device), { store, label });
+      const through = own ?? opened;
+      const fetch = (path: string, init?: RequestInit) => through.fetch(path, init);
       const status = await pcAccountStatus(fetch);
-      if (needsLink(status, device, session.account)) device = await linkThisDevice({ fetch, device, key, account: session.account, store });
-      if (device.public_spki !== key.public_spki) return;
+      const linking = needsLink(status, device, session.account);
+      if (linking) device = await linkThisDevice({ fetch, device, key, account: session.account, store });
+      // a PC of another account is not this account's to list or introduce from
+      if (device.public_spki !== key.public_spki || (!linking && status.account !== session.account)) return;
       const publicKey = Array.from(importPublicKey(device.server_public_key), (byte) => byte.toString(16).padStart(2, "0")).join("");
       await account.putPc(serverId, { label: (device.name ?? serverId.slice(0, 8)).slice(0, 48), public_key: publicKey, relay: device.relay });
-      await takeIntroduction({ fetch, key, label, store });
+      // the approver hands the introduction over once this device's row exists, which may be a moment after it
+      const deadline = Date.now() + (fresh ? INTRODUCTION_WAIT_MS : 0);
+      for (;;) {
+        if ((await takeIntroduction({ fetch, key, label, store, relay: device.relay })).length > 0 || Date.now() >= deadline) break;
+        await wait(INTRODUCTION_POLL_MS);
+      }
     } catch (error) {
       console.warn("Ovis: this PC did not join the account yet", error instanceof Error ? error.name : error);
+    } finally {
+      own?.close();
     }
   };
+
 
   /** The PC let this phone in: the version policy (skew.ts) decides between the app, the update screen and a newer shell. */
   const admitted = async (opened: RelayTransport, attempt: Attempt): Promise<void> => {

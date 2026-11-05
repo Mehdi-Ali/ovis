@@ -149,6 +149,22 @@ export class AccountService {
     await this.call("PUT", `/v1/pcs/${serverId}`, entry);
   }
 
+  /**
+   * Says this signed-in device waits at that PC with its account key: the account's other devices
+   * hear of it, and the PC takes a comparison that asks to join the account for 10 minutes.
+   */
+  async postAdmission(serverId: string, label: string, key: string): Promise<void> {
+    await this.call("POST", "/v1/admissions", { server_id: serverId, label, key });
+  }
+
+  /** The account's admissions of the last 10 minutes, straight from the account service: what a PC passes on cannot change them. */
+  async recentAdmissions(): Promise<{ key: string; label: string; server_id: string; at: string }[]> {
+    const body = await this.call("GET", "/v1/admissions");
+    const list = isRecord(body) && Array.isArray(body.admissions) ? body.admissions : [];
+    return list.filter((entry): entry is { key: string; label: string; server_id: string; at: string } => isRecord(entry)
+      && typeof entry.key === "string" && typeof entry.label === "string" && typeof entry.server_id === "string" && typeof entry.at === "string");
+  }
+
   /** Leaves a signed record in the mailbox of each listed PC of the account (at most 32 at a time). */
   async postRecord(serverIds: readonly string[], record: AccountRecord): Promise<number> {
     if (serverIds.length === 0) return 0;

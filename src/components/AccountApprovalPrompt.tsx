@@ -62,7 +62,7 @@ export function AccountApprovalPrompt({ request, pcName, pcCount, onDecide }: Ac
       <div ref={surface} className="modal account-approval" role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} tabIndex={-1} data-testid="account-approval">
         <div className="account-approval-mark" aria-hidden="true"><MonitorSmartphone /></div>
         <h2 className="account-approval-title" id={`${id}-title`}>{t("Add {device}?", { device: asObject })}</h2>
-        <p className="account-approval-via">{t("Through {pc} · joins your {n} PCs", { pc: pcName, n: pcCount })}</p>
+        <p className="account-approval-via">{request.intent === "account" ? t("Through {pc} · joins your {n} PCs", { pc: pcName, n: pcCount }) : t("Only for {pc}", { pc: pcName })}</p>
         <p className="account-approval-ask" id={`${id}-ask`}>{t("Pick the number on {device}", { device: request.label })}</p>
         <div className="account-approval-choices" role="radiogroup" aria-labelledby={`${id}-ask`}>
           {request.choices.map((choice) => (
