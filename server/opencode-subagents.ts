@@ -218,7 +218,11 @@ function parentStep(db: Database, scan: Scan): void {
   const rows = db.query<{ rows: number }, [string, number]>("SELECT count(*) AS rows FROM session_message WHERE session_id = ? AND seq <= ?").get(sid, scan.log.after)?.rows ?? 0;
   scan.log = { ...scan.log, rows, since: scan.since };
   // a staged /undo hides the rows from its message on, as the chat does (server/opencode.ts sessionView)
-  const end = sessionView(db, sid)?.end ?? Number.MAX_SAFE_INTEGER;
+  let end = Number.MAX_SAFE_INTEGER;
+  if (scan.columns?.has("revert")) {
+    const boundary = record(parse(db.query<{ revert: string | null }, [string]>("SELECT revert FROM session_v2 WHERE id = ?").get(sid)?.revert ?? "null")).messageID;
+    if (typeof boundary === "string") end = db.query<{ seq: number }, [string, string]>("SELECT seq FROM session_message WHERE session_id = ? AND id = ?").get(sid, boundary)?.seq ?? end;
+  }
   scan.told = new Map([...told].filter(([, said]) => said.seq < end && !(said.waiting && said.seq < scan.idle)));
 }
 

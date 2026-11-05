@@ -496,6 +496,20 @@ describe("an OpenCode session's subagents are its child sessions", () => {
     expect(opencodeSubagentState(s.path, s.parent, true, NOW)!.tasks.map((task) => [task.id, task.status])).toEqual([["ses_left", "completed"]]);
   });
 
+  it("takes nothing from a call a staged /undo hides, as the chat shows nothing of it", () => {
+    const s = store();
+    s.prompt(s.parent, NOW - 30 * MIN);
+    s.session("ses_hidden", NOW - 20 * MIN);
+    s.call("ses_hidden", NOW - 20 * MIN, "background");
+    s.prompt("ses_hidden", NOW - 20 * MIN);
+    s.idle("ses_hidden", NOW - 19 * MIN);
+    expect(opencodeSubagentState(s.path, s.parent, true, NOW)!.tasks.map((task) => task.status)).toEqual(["running"]);
+    const call = s.db.query<{ id: string }, [string]>("SELECT id FROM session_message WHERE session_id = ? AND type = 'assistant'").get(s.parent)!;
+    s.db.query("UPDATE session_v2 SET revert = ? WHERE id = ?").run(JSON.stringify({ messageID: call.id }), s.parent);
+
+    expect(opencodeSubagentState(s.path, s.parent, true, NOW)!.tasks.map((task) => [task.id, task.status])).toEqual([["ses_hidden", "completed"]]);
+  });
+
   it("finds no subagents in a store without child sessions, and says nothing of one it cannot read", () => {
     const path = join(root, "v1.db");
     const v1 = new Database(path, { create: true });
