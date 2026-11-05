@@ -224,8 +224,9 @@ refuses it.
   and a remote approval; the mailbox collects nothing meanwhile, so no removal is acknowledged
   unapplied. Pairing on the PC itself and signing in are unchanged.
 - A `remove` writes its tombstone before it revokes the device; the device's relay connections
-  close at once (`auth_revoked`). A `remove` signed before this PC paired the key again leaves that
-  pairing be (`unchanged`), so a late or replayed one cannot undo it.
+  close at once (`auth_revoked`). A `remove` signed before this PC itself paired the key again leaves
+  that pairing be (`unchanged`), so a late or replayed one cannot undo it. A row an `add` or a remote
+  approval made goes, however late the `remove` arrives.
 - **Revoke** and **Revoke all** on the PC leave a tombstone too, so no record brings the key back.
 - A pairing made on this PC (a code started on the PC, or a comparison approved here) clears that
   key's tombstone, after its row is written. A code started through the relay, or a comparison an

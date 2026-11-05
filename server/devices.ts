@@ -659,8 +659,9 @@ export class DeviceStore {
    */
   removeAccountKey(key: string, account: string, record: { id: string; issuedAt: string }, now = Date.now()): boolean {
     this.assertAccountWritable();
-    // a pairing made on this PC after the removal was signed wins: a replayed or late remove leaves it be
-    if (this.devices.some((d) => d.relay_public_key === key && d.created_at > record.issuedAt)) return false;
+    // a pairing made on this PC (no `added_by`) after the removal was signed wins: a replayed or late remove
+    // leaves it be. A row an account record or a remote approval made goes, however late the remove arrives.
+    if (this.devices.some((d) => d.relay_public_key === key && d.added_by === undefined && d.created_at > record.issuedAt)) return false;
     const recordId = record.id;
     const fresh = !this.isTombstoned(key);
     if (fresh) this.writeTombstones([...this.tombstones, { key, account, record_id: recordId, removed_at: new Date(now).toISOString() }]);

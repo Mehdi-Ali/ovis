@@ -343,3 +343,17 @@ test("a bad account service address shows as the mailbox's error instead of stop
   expect(await mailbox.pull()).toBe(0);
   expect(mailbox.error).toBe("The account service must be https");
 });
+
+test("a PC that was off and gets a member's add and remove together ends without the device", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const passing = await accountKey();
+  const signedEarlier = new Date(Date.now() - 60_000).toISOString();
+  const records = [
+    await sign({ v: 1, kind: "add", account: ACCOUNT, key: passing.spki, label: "Mac app", role: "drive", issued_at: signedEarlier, id: newRecordId(), signer: key.spki }, key),
+    await sign({ v: 1, kind: "remove", account: ACCOUNT, key: passing.spki, issued_at: signedEarlier, id: newRecordId(), signer: key.spki }, key),
+  ];
+  expect((await post(link, "/api/account/records", { records })).body.results?.map(({ outcome }) => outcome)).toEqual(["applied", "applied"]);
+  expect(f.app.context.services.devices.hasKey(passing.spki)).toBe(false);
+  expect(f.app.context.services.devices.isTombstoned(passing.spki)).toBe(true);
+});
