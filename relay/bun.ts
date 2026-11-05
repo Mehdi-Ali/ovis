@@ -79,7 +79,10 @@ export function startBunRelay(options: BunRelayOptions = {}): BunRelay {
       if ((byAddress.get(address) ?? 0) >= limits.maxSocketsPerAddress) {
         return new Response("too many open connections from this address", { status: 429, headers: { "retry-after": "60", "cache-control": "no-store" } });
       }
-      if (socketCount >= limits.maxSockets || (!rooms.has(keyOf(admitted)) && rooms.size >= limits.maxRooms)) {
+      const pairing = "kind" in admitted;
+      // a pairing room needs no PC's key to open, so it never takes one of the places PCs connect to
+      const kindCount = [...rooms.keys()].filter((key) => key.startsWith("pair:") === pairing).length;
+      if (socketCount >= limits.maxSockets || (!rooms.has(keyOf(admitted)) && kindCount >= (pairing ? limits.maxPairRooms : limits.maxRooms))) {
         return new Response("relay capacity reached", { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
       }
       // Reserve synchronously before upgrading: concurrent fetches cannot oversubscribe either cap.

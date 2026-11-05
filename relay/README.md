@@ -249,13 +249,14 @@ The global cap remains a backstop.
 | `--global-per-minute` | `RELAY_GLOBAL_PER_MINUTE` | 600 |
 | `--max-sockets` | `RELAY_MAX_SOCKETS` | 1024 |
 | `--max-rooms` | `RELAY_MAX_ROOMS` | 256 |
+| `--max-pair-rooms` | `RELAY_MAX_PAIR_ROOMS` | 256 (pairing rooms for typed codes, apart from PCs' rooms) |
 | `--max-addresses` | `RELAY_MAX_ADDRESSES` | 4096 |
 | `--max-sockets-per-address` | `RELAY_MAX_SOCKETS_PER_ADDRESS` | 64 |
 
 Flags override environment. Values must be positive safe integers; zero, infinity, fractions
 and missing flag values fail startup. `startBunRelay({ limits: { maxSockets: 2048, ... } })`
 accepts the same budgets as camel-case options (`perAddressPerMinute`, `globalPerMinute`,
-`maxSockets`, `maxRooms`, `maxAddresses`, `maxSocketsPerAddress`). Programmatic options do not read environment.
+`maxSockets`, `maxRooms`, `maxPairRooms`, `maxAddresses`, `maxSocketsPerAddress`). Programmatic options do not read environment.
 `startBunRelay({ limiters })` can replace just the rate limiters; room/socket caps still hold.
 Admission reserves both caps synchronously before upgrade, rolls back failed upgrades and
 reclaims a room when its last pending/open socket leaves. `/health` remains available at capacity.

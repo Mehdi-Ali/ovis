@@ -636,12 +636,13 @@ is always up.
 - To report abuse that goes through `relay.ovis.sh`, see [SECURITY.md](../SECURITY.md#the-ovis-relay).
 
 A relay you run with Bun limits connections by default: 120 a minute from one address, 600 a minute
-in all, 1024 sockets, 256 PCs, 4096 addresses tracked at once and 64 open sockets per address
-(waiting, connected or still upgrading). A new socket past the per-address cap gets `429` with
+in all, 1024 sockets, 256 PCs, 256 typed-code pairing rooms (apart from the PCs', since anyone may
+open one), 4096 addresses tracked at once and 64 open sockets per address (waiting, connected or
+still upgrading). A new socket past the per-address cap gets `429` with
 `Retry-After: 60`; sockets already open keep their place. Raise the limits with
-`--per-address-per-minute`, `--global-per-minute`, `--max-sockets`, `--max-rooms`,
+`--per-address-per-minute`, `--global-per-minute`, `--max-sockets`, `--max-rooms`, `--max-pair-rooms`,
 `--max-addresses` and `--max-sockets-per-address`, or `RELAY_PER_ADDRESS_PER_MINUTE`,
-`RELAY_GLOBAL_PER_MINUTE`, `RELAY_MAX_SOCKETS`, `RELAY_MAX_ROOMS`, `RELAY_MAX_ADDRESSES` and
+`RELAY_GLOBAL_PER_MINUTE`, `RELAY_MAX_SOCKETS`, `RELAY_MAX_ROOMS`, `RELAY_MAX_PAIR_ROOMS`, `RELAY_MAX_ADDRESSES` and
 `RELAY_MAX_SOCKETS_PER_ADDRESS`. Behind a TLS proxy on the same machine every
 connection comes from the proxy's address, so size the per-address limit for the whole deployment
 and limit addresses at the proxy instead.

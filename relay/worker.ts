@@ -150,6 +150,7 @@ export class RelayRoom {
       },
       close: host.close,
       wake: host.wake,
+      keepaliveAt: host.keepaliveAt,
       now: host.now,
     });
   }

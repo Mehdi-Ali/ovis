@@ -126,3 +126,20 @@ describe("pairing rendezvous", () => {
     next.socket.close();
   });
 });
+
+describe("pairing rooms beside PC rooms", () => {
+  test("pairing rooms have a cap of their own: they never take the places PCs connect to", async () => {
+    const small = startBunRelay({ port: 0, limits: { maxRooms: 1, maxPairRooms: 1 }, pairGuestGapMs: 0 });
+    const http = `http://127.0.0.1:${small.port}`;
+    const upgrade = { headers: { upgrade: "websocket", connection: "Upgrade", "sec-websocket-version": "13", "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==" } };
+    try {
+      const host = await Peer.open(`ws://127.0.0.1:${small.port}/v1/pair?nameplate=AAA&role=host&v=1`);
+      await host.json("waiting");
+      expect((await fetch(`${http}/v1/pair?nameplate=BBB&role=host&v=1`, upgrade)).status).toBe(503);
+      const pc = await Peer.open(`ws://127.0.0.1:${small.port}/v1/ws?server_id=${"ab".repeat(16)}&role=client&v=1`);
+      expect(await pc.json("assigned")).toMatchObject({ type: "assigned" });
+      pc.socket.close();
+      host.socket.close();
+    } finally { await small.stop(); }
+  });
+});

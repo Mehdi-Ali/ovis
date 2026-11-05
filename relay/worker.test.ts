@@ -733,6 +733,17 @@ describe("relay Worker pairing rendezvous", () => {
     closeFromFar(room, host);
     expect(guest.closedWith?.code).toBe(1001);
   });
+
+  test("a host the runtime keeps answering keepalives for is not closed as idle", async () => {
+    const fake = fakeState();
+    setSystemTime(new Date(1_000_000));
+    const room = new RelayRoom(fake.state);
+    const host = await openPair(room, fake, "host");
+    setSystemTime(new Date(1_000_000 + IDLE_MS + 1000));
+    fake.keepalive.set(host, new Date(1_000_000 + IDLE_MS));
+    await room.alarm();
+    expect(host.closedWith).toBeNull();
+  });
 });
 
 describe("relay usage counters", () => {

@@ -87,6 +87,8 @@ export interface PairRoomHost<S extends object> {
   send(socket: S, frame: Frame): void;
   close(socket: S, code: number, reason: string): void;
   wake?(at: number): void;
+  /** when the platform last answered this socket's keepalive by itself, if it does (Cloudflare) */
+  keepaliveAt?(socket: S): number | null;
   now(): number;
 }
 
@@ -205,11 +207,12 @@ export class PairRoom<S extends object> {
     const now = this.host.now();
     let next: number | null = null;
     for (const peer of this.peers()) {
-      if (now >= peer.info.deadline || now - peer.info.seen >= IDLE_MS) {
+      const seen = Math.max(peer.info.seen, this.host.keepaliveAt?.(peer.socket) ?? 0);
+      if (now >= peer.info.deadline || now - seen >= IDLE_MS) {
         this.end(peer.socket, PAIR_CLOSE.EXPIRED, "time ran out");
         continue;
       }
-      next = Math.min(next ?? Infinity, peer.info.deadline, peer.info.seen + IDLE_MS);
+      next = Math.min(next ?? Infinity, peer.info.deadline, seen + IDLE_MS);
     }
     return next;
   }
