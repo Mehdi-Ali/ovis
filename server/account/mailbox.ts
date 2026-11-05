@@ -130,17 +130,20 @@ export class AccountMailbox {
     const retry = async () => {
       for (let progress = true; progress && early.length;) {
         progress = false;
-        const retried = early.splice(0);
-        for (let start = 0; start < retried.length; start += ACCOUNT_RECORDS_MAX) {
-          const batch = retried.slice(start, start + ACCOUNT_RECORDS_MAX);
+        for (let start = 0; start < early.length;) {
+          const batch = early.slice(start, start + ACCOUNT_RECORDS_MAX);
+          // a record leaves the list only once its outcome is known: a failure here keeps every one of them
           const outcomes = await applyAccountRecords(this.options.devices, batch, identity.server_id);
-          outcomes.forEach((outcome, index) => {
-            if (outcome.outcome === "refused" && outcome.code === "signer_not_member") early.push(batch[index]);
-            else { progress = true; if (outcome.outcome === "applied") applied += 1; }
-          });
+          const keep = batch.filter((_record, index) => outcomes[index]?.outcome === "refused" && (outcomes[index] as { code?: string }).code === "signer_not_member");
+          applied += outcomes.filter(({ outcome }) => outcome === "applied").length;
+          if (keep.length !== batch.length) progress = true;
+          early.splice(start, batch.length, ...keep);
+          start += keep.length;
         }
       }
     };
+    /** On disk before any page that put a record here is acknowledged, so a stop never loses one. */
+    const save = () => { if (this.options.pendingPath) writePrivateState(this.options.pendingPath, early.slice(-PENDING_MAX)); };
     try {
       const admissions = new Map<string, number>();
       await retry();
@@ -155,20 +158,22 @@ export class AccountMailbox {
           applied += outcomes.filter(({ outcome }) => outcome === "applied").length;
           outcomes.forEach((outcome, index) => { if (outcome.outcome === "refused" && outcome.code === "signer_not_member") early.push(batch[index]); });
         }
-        // before this page is acknowledged (with the next request), retry what waited on a signer
+        // before this page is acknowledged (with the next request), retry what waited on a signer, and keep the rest on disk
         await retry();
+        save();
         // every record read is acknowledged, refused ones too, so a refused one cannot hold the rest back
         ack = Math.max(...entries.map(({ seq }) => seq));
       }
       // still waiting on a signer: kept for later pulls, the oldest dropped past PENDING_MAX
       this.pending = early.slice(-PENDING_MAX);
-      if (this.options.pendingPath) writePrivateState(this.options.pendingPath, this.pending);
+      save();
       this.admissions = admissions;
       this.lastPullAt = new Date().toISOString();
       this.error = null;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
       this.pending = early.slice(-PENDING_MAX);
+      try { save(); } catch { /* the pull's own error is the one to show; what waits stays in memory */ }
     }
     return applied;
   }
