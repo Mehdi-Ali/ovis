@@ -102,7 +102,9 @@ MACs, not signatures, so they cannot be confused with either.
 
 **What a record cannot say.** An `add` names no PC: it is meant for every PC of the account, and a
 PC that already has the key leaves its row as it is. A `link` names one PC and one row, so it is no
-use on another. `issued_at` is only shown; nothing expires on it.
+use on another. Nothing expires on `issued_at`; it only tells whether a `remove` was signed before this
+PC itself paired the key again (`On the PC`), so a PC whose clock is minutes off can misjudge a
+`remove` signed within those minutes.
 
 ## Who may admit a device
 

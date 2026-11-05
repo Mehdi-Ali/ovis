@@ -357,3 +357,16 @@ test("a PC that was off and gets a member's add and remove together ends without
   expect(f.app.context.services.devices.hasKey(passing.spki)).toBe(false);
   expect(f.app.context.services.devices.isTombstoned(passing.spki)).toBe(true);
 });
+
+test("a pairing by a code started through the relay does not outlast an older remove", async () => {
+  const f = fixture();
+  const { device, key, link } = await member(f);
+  const target = await accountKey();
+  const removal = await sign({ v: 1, kind: "remove", account: ACCOUNT, key: target.spki, issued_at: new Date(Date.now() - 60_000).toISOString(), id: newRecordId(), signer: key.spki }, key);
+  const code = (await post(link, "/api/devices/pair/start", {})).body as unknown as { code: string };
+  await (await relayConnection(f)).pair(code.code, target.spki);
+  const row = f.app.context.services.devices.list(null).find((d) => d.label === "New phone")!;
+  expect(registryRow(f, row.id)?.added_by).toBe(device.id);
+  expect((await post(link, "/api/account/records", { records: [removal] })).body.results?.[0]?.outcome).toBe("applied");
+  expect(f.app.context.services.devices.hasKey(target.spki)).toBe(false);
+});
