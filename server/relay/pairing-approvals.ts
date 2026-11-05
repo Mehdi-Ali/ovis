@@ -18,6 +18,8 @@ interface Waiting {
   /** the new device's key, and the id its row will have (accountDeviceId) */
   key: string;
   deviceId: string;
+  /** an account join taken outside the pairing window: shown to account members only (docs/account.md, design 5.3) */
+  membersOnly: boolean;
   choices: [string, string, string];
   finish: (decision: PairingDecision) => void;
 }
@@ -52,7 +54,17 @@ export class RelayPairingApprovals {
   windowOpen(now = Date.now()): boolean { return now < this.windowUntil; }
 
   list(): RelayPairingRequest[] {
-    return [...this.waiting.values()].map(({ request }) => request);
+    return [...this.waiting.values()].filter(({ membersOnly }) => !membersOnly).map(({ request }) => request);
+  }
+
+  private readonly joins: number[] = [];
+
+  /** Counts one account join asked for outside the pairing window; false past 5 a minute. */
+  takeAccountJoin(now = Date.now()): boolean {
+    while (this.joins.length && now - this.joins[0]! >= 60_000) this.joins.shift();
+    if (this.joins.length >= 5) return false;
+    this.joins.push(now);
+    return true;
   }
 
   remoteList(): RemotePairingRequest[] {
@@ -75,7 +87,7 @@ export class RelayPairingApprovals {
   }
 
   /** Null when MAX_PENDING_APPROVALS are already waiting. `withdraw` ends it unapproved (the phone left, or time ran out). */
-  ask(label: string, digits: string, expiresAt: number, device: { intent: PairingIntent; key: string; deviceId: string } = { intent: "pc", key: "", deviceId: "" }): { decision: Promise<PairingDecision>; withdraw: () => void } | null {
+  ask(label: string, digits: string, expiresAt: number, device: { intent: PairingIntent; key: string; deviceId: string; membersOnly?: boolean } = { intent: "pc", key: "", deviceId: "" }): { decision: Promise<PairingDecision>; withdraw: () => void } | null {
     if (this.waiting.size >= MAX_PENDING_APPROVALS) return null;
     const id = randomBytes(8).toString("hex");
     const decided = Promise.withResolvers<PairingDecision>();
@@ -84,7 +96,7 @@ export class RelayPairingApprovals {
       this.changed();
       decided.resolve(decision);
     };
-    this.waiting.set(id, { request: { id, label, digits, expires_at: new Date(expiresAt).toISOString(), intent: device.intent }, key: device.key, deviceId: device.deviceId, choices: decoys(digits), finish });
+    this.waiting.set(id, { request: { id, label, digits, expires_at: new Date(expiresAt).toISOString(), intent: device.intent }, key: device.key, deviceId: device.deviceId, membersOnly: device.membersOnly ?? false, choices: decoys(digits), finish });
     this.changed();
     return { decision: decided.promise, withdraw: () => finish({ approved: false }) };
   }
@@ -92,7 +104,8 @@ export class RelayPairingApprovals {
   /** On this PC. False for an id that is not waiting: never asked, already decided, withdrawn or expired. */
   decide(id: string, approved: boolean): boolean {
     const entry = this.waiting.get(id);
-    if (!entry) return false;
+    // a join the PC's own windows were never shown is not theirs to decide
+    if (!entry || entry.membersOnly) return false;
     entry.finish(approved ? { approved: true } : { approved: false });
     return true;
   }

@@ -274,7 +274,7 @@ is what authenticates the PC.
   account; a client adds it again by pairing with its new identity, after the client's usual "this
   PC's identity changed" notice.
 - The PC collects its mailbox from `OVIS_ACCOUNT_SERVICE_URL` (https, or http on loopback only;
-  `https://account.ovis.sh` when unset), only while it has members and its relay is on. An address
+  `https://account.ovis.sh` when unset), only while it has members and a relay identity (one on disk counts, the relay on or off; none is ever made for it). An address
   it cannot use shows as the mailbox's error in `/api/account/status`.
 - `/api/account/*` is refused to Portal visitors and open LAN windows (`owner_only`), and a `link`
   must start from the key its own session signed in with.

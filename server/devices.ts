@@ -503,6 +503,9 @@ export class DeviceStore {
     return sessionKey !== "" && this.relayKeyOf(id) === sessionKey && this.isAccountApprover(id);
   }
 
+  /** Whether any drive account member could approve a join. */
+  hasAccountApprover(): boolean { return this.devices.some((d) => this.isAccountApprover(d.id)); }
+
   /** A drive account member: the only device that may approve a pairing or start a code through the relay (docs/account.md). */
   isAccountApprover(id: string): boolean {
     const device = this.devices.find((d) => d.id === id);

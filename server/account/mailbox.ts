@@ -5,7 +5,7 @@
  * never forge one: each is checked and applied like a record a client hands over directly.
  */
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { ACCOUNT_RECORDS_MAX } from "../../shared/account-records.ts";
+import { ACCOUNT_RECORDS_MAX, isAccountKey } from "../../shared/account-records.ts";
 import { importPublicKey, importSecretKey } from "../../shared/relay-e2ee.ts";
 import { answerServerChallenge } from "../../shared/relay-server-proof.ts";
 import type { DeviceStore } from "../devices.ts";
@@ -13,6 +13,8 @@ import type { RelayIdentity } from "../relay/identity.ts";
 import { applyAccountRecords } from "./records.ts";
 
 export const MAILBOX_PULL_MS = 5 * 60_000;
+/** How old an admission may be for the PC to take an account join outside the pairing window. */
+export const ADMISSION_TTL_MS = 10 * 60_000;
 /** Pages one pull reads at most; the rest waits for the next pull. */
 const MAX_PAGES = 20;
 
@@ -34,6 +36,8 @@ export interface AccountMailboxOptions {
 
 export class AccountMailbox {
   lastPullAt: string | null = null;
+  /** The account's admissions for this PC the last pull saw, by the waiting device's key: when each was made. */
+  private admissions = new Map<string, number>();
   error: string | null = null;
   private timer: ReturnType<typeof setInterval> | undefined;
   private pulling: Promise<number> | undefined;
@@ -53,6 +57,14 @@ export class AccountMailbox {
     this.timer.unref?.();
   }
 
+  /** Whether the account service has a fresh admission (at most 10 minutes old) naming `key`; pulls once if not yet seen. */
+  async admitted(key: string, now = Date.now()): Promise<boolean> {
+    const fresh = () => { const at = this.admissions.get(key); return at !== undefined && now - at < ADMISSION_TTL_MS && at <= now + 60_000; };
+    if (fresh()) return true;
+    await this.pull();
+    return fresh();
+  }
+
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
@@ -68,9 +80,11 @@ export class AccountMailbox {
     let applied = 0;
     let ack: number | null = null;
     try {
+      const admissions = new Map<string, number>();
       for (let page = 0; ; page++) {
         // past the last page read, one more call only acknowledges it; what it returns waits for the next pull
-        const entries = await this.page(identity, account, ack);
+        const { entries, waiting } = await this.page(identity, account, ack);
+        for (const admission of waiting) admissions.set(admission.key, Date.parse(admission.at));
         if (entries.length === 0 || page === MAX_PAGES) break;
         for (let start = 0; start < entries.length; start += ACCOUNT_RECORDS_MAX) {
           const outcomes = await applyAccountRecords(this.options.devices, entries.slice(start, start + ACCOUNT_RECORDS_MAX).map(({ record }) => record), identity.server_id);
@@ -79,6 +93,7 @@ export class AccountMailbox {
         // every record read is acknowledged, refused ones too, so a refused one cannot hold the rest back
         ack = Math.max(...entries.map(({ seq }) => seq));
       }
+      this.admissions = admissions;
       this.lastPullAt = new Date().toISOString();
       this.error = null;
     } catch (error) {
@@ -87,7 +102,7 @@ export class AccountMailbox {
     return applied;
   }
 
-  private async page(identity: RelayIdentity, account: string, ack: number | null): Promise<{ seq: number; record: unknown }[]> {
+  private async page(identity: RelayIdentity, account: string, ack: number | null): Promise<{ entries: { seq: number; record: unknown }[]; waiting: { key: string; at: string }[] }> {
     const call = async (path: string, body: unknown) => {
       const response = await (this.options.fetch ?? fetch)(new Request(String(this.options.service) + path, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
@@ -106,6 +121,9 @@ export class AccountMailbox {
     if (!Array.isArray(records) || !records.every((entry) => typeof entry === "object" && entry !== null && Number.isSafeInteger((entry as { seq?: unknown }).seq))) {
       throw new Error("The account service sent a malformed mailbox");
     }
-    return records as { seq: number; record: unknown }[];
+    const admissions = Array.isArray(mailbox.admissions) ? mailbox.admissions : [];
+    const waiting = admissions.filter((a): a is { key: string; at: string } => typeof a === "object" && a !== null
+      && isAccountKey((a as { key?: unknown }).key) && typeof (a as { at?: unknown }).at === "string" && !Number.isNaN(Date.parse((a as { at: string }).at)));
+    return { entries: records as { seq: number; record: unknown }[], waiting };
   }
 }
