@@ -17,6 +17,7 @@ import { accountServiceOf, AccountService, SignedOutError } from "../account/ser
 import { beginSignIn, finishSignIn, SignInError, signInReturn } from "../account/signin.ts";
 import { enrollPc, linkThisDevice, needsLink, pcAccountStatus, rememberMembers, takeIntroduction } from "../account/join.ts";
 import { leaveAccount } from "../account/leave.ts";
+import { nativeSignIn, nativeSignInAvailable } from "../account/native.ts";
 import { indexedAccountStore } from "../account/store.ts";
 import { importPublicKey } from "../../../shared/relay-e2ee.ts";
 import { encodeOffer } from "../../../shared/relay-offer.ts";
@@ -232,7 +233,11 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
     if (accountService === null) return;
     accountView = { kind: "signing-in" };
     void showFront();
-    beginSignIn(provider, { store: accountStore, service: accountService, redirectUri: `${window.location.origin}/` }).then(openSignIn).catch(async (error: unknown) => {
+    // in the phone app the system's sign-in sheet brings the return back to the page; elsewhere the page goes to the provider
+    const started = nativeSignInAvailable()
+      ? nativeSignIn(provider, { store: accountStore, service: accountService }).then(loadAccount)
+      : beginSignIn(provider, { store: accountStore, service: accountService, redirectUri: `${window.location.origin}/` }).then(openSignIn);
+    started.catch(async (error: unknown) => {
       console.warn("Ovis: the sign-in did not start", error);
       accountView = { kind: "signed-out", error: signInFailure(error) };
       await showFront();
