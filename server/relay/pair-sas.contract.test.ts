@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setSystemTime, test } from "bun:test";
 import {
   channelBinding, exportPublicKey, generateKeyPair, openClientSecureChannel, openDaemonSecureChannel,
 } from "../../shared/relay-e2ee.ts";
@@ -10,6 +10,11 @@ import type { MuxClock } from "../../shared/relay-mux-engine.ts";
 import { fromBase64Url, PAIR_APPROVAL_MS, pairCommitment, pairDigits, randomPairNonce, toBase64Url } from "../../shared/relay-pair-sas.ts";
 import type { RelayPairingRequest, RemotePairingRequest } from "../../shared/machines.ts";
 import { readDeviceRegistry } from "../devices.ts";
+import { FakeAccountService } from "../../shared/account-service-fake.ts";
+import { rotateRelayIdentity } from "./identity.ts";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { importPublicKey } from "../../shared/relay-e2ee.ts";
+import { accountDeviceId } from "../../shared/account-records.ts";
 import { RelaySession } from "./session.ts";
 import { bounded, deferred, relayAccountFixture, relayConnection, relayDevice, relayFixture, TestClock } from "./test-helpers.ts";
 
@@ -17,8 +22,10 @@ type Fixture = ReturnType<typeof relayFixture>;
 const fixtures: Fixture[] = [];
 afterEach(() => { for (const fixture of fixtures.splice(0)) fixture.close(); });
 
+/** A PC whose owner just copied a link without a code, so it takes comparisons. */
 function fixture(): Fixture {
   const made = relayFixture();
+  made.app.context.services.relay.approvals.openWindow();
   fixtures.push(made);
   return made;
 }
@@ -210,6 +217,63 @@ test("revoking every device withdraws a prompt still waiting", async () => {
   expect(await sessionError(p)).toBe("auth_failed");
 });
 
+test("a phone that requires the feature is given it where this PC can bind the digits", async () => {
+  const f = fixture();
+  const { p } = await direct(f);
+  await p.send({ type: FrameType.HELLO, flags: 0, stream_id: 0,
+    payload: { protocol: "ovis-mux", versions: [1], features: [PAIR_SAS_FEATURE], required_features: [PAIR_SAS_FEATURE] } });
+  const welcome = await p.inbox.next();
+  expect(welcome.type === FrameType.WELCOME && welcome.payload.features).toEqual([PAIR_SAS_FEATURE]);
+});
+
+test("an answer that lands after the comparison's deadline makes no device", async () => {
+  const f = fixture();
+  const { p } = await direct(f);
+  await p.hello();
+  const waiting = prompts(f, (list) => list.length === 1);
+  await compare(p);
+  const [request] = await waiting;
+  f.app.context.services.relay.approvals.decide(request!.id, true);
+  // the wall clock past the deadline while the session's own timer has not run yet
+  setSystemTime(new Date(Date.now() + PAIR_APPROVAL_MS + 1_000));
+  try {
+    await confirm(p);
+    expect(await sessionError(p)).toBe("timeout");
+  } finally { setSystemTime(); }
+  expect(f.app.context.services.devices.list(null).some((device) => device.label === "New phone")).toBe(false);
+});
+
+test("a PC whose owner copied no link without a code refuses a comparison before any prompt, and counts no failure", async () => {
+  const made = relayFixture();
+  fixtures.push(made);
+  const { p } = await direct(made);
+  await p.hello();
+  const nonce = randomPairNonce();
+  await p.send({ type: FrameType.PAIR_REQUEST, flags: 0, stream_id: 0,
+    payload: { label: "Ovis update - click Approve", public_key: p.publicKey, commitment: toBase64Url(pairCommitment(p.binding(), p.publicKey, nonce)) } });
+  expect(await sessionError(p)).toBe("auth_failed");
+  expect(made.app.context.services.relay.approvals.list()).toEqual([]);
+  // twenty refusals later a QR code still pairs: the closed window spent none of the budget
+  for (let index = 0; index < 20; index++) {
+    const again = await direct(made);
+    await again.p.hello();
+    await again.p.send({ type: FrameType.PAIR_REQUEST, flags: 0, stream_id: 0,
+      payload: { label: "x", public_key: again.p.publicKey, commitment: toBase64Url(new Uint8Array(32)) } });
+    await sessionError(again.p);
+  }
+  const devices = made.app.context.services.devices;
+  expect(() => devices.assertRelayPairing()).not.toThrow();
+});
+
+test("the window closes ten minutes after the link was copied", () => {
+  const made = relayFixture();
+  fixtures.push(made);
+  const approvals = made.app.context.services.relay.approvals;
+  approvals.openWindow(1_000);
+  expect(approvals.windowOpen(1_000 + 10 * 60_000 - 1)).toBe(true);
+  expect(approvals.windowOpen(1_000 + 10 * 60_000)).toBe(false);
+});
+
 test("the phone's word alone does not pair it: it waits for the owner", async () => {
   const f = fixture();
   const { p } = await direct(f);
@@ -389,6 +453,7 @@ async function intercepted(f: Fixture, rewrite: boolean) {
   let toPc: SecureChannel | undefined;
   let toPhone: SecureChannel | undefined;
   const fromPc = new Inbox();
+  let relayChallenge: Uint8Array | undefined;
   const fromPhone: MuxFrame[] = [];
   const relayPhoneNonce = randomPairNonce();
   const relayDeviceKey = await (async () => {
@@ -426,6 +491,7 @@ async function intercepted(f: Fixture, rewrite: boolean) {
       await back.send(encodeFrame({ type: FrameType.PAIR_REQUEST, flags: 0, stream_id: 0,
         payload: { label: frame.payload.label, public_key: relayDeviceKey, commitment: toBase64Url(pairCommitment(binding, relayDeviceKey, relayPhoneNonce)) } }).slice().buffer);
       const challenge = await fromPc.next();
+      if (challenge.type === FrameType.PAIR_CHALLENGE) relayChallenge = fromBase64Url(challenge.payload.nonce);
       await toPhone!.send(encodeFrame(challenge).slice().buffer);
     } else if (frame.type === FrameType.PAIR_REVEAL) {
       await back.send(encodeFrame({ type: FrameType.PAIR_REVEAL, flags: 0, stream_id: 0, payload: { nonce: toBase64Url(relayPhoneNonce) } }).slice().buffer);
@@ -439,7 +505,9 @@ async function intercepted(f: Fixture, rewrite: boolean) {
   toPhone = await front;
   await bounded(pcOpened.promise);
   await end.start();
-  return { p };
+  // what the relay's own comparison with the PC is made of, to work out the digits the PC shows
+  const relaySide = () => ({ binding: channelBinding(back)!, deviceKey: relayDeviceKey, phoneNonce: relayPhoneNonce, pcNonce: relayChallenge! });
+  return { p, relaySide };
 }
 
 test("a relay in the middle that passes the comparison on unchanged is refused: the commitment is bound to the phone's channel", async () => {
@@ -451,15 +519,17 @@ test("a relay in the middle that passes the comparison on unchanged is refused: 
   expect(f.app.context.services.relay.approvals.list()).toEqual([]);
 });
 
-test("a relay in the middle that runs its own comparison with the PC shows the owner other digits than the phone's", async () => {
+test("a relay in the middle that runs its own comparison with the PC shows the owner digits bound to another channel than the phone's", async () => {
   const f = fixture();
-  const { p } = await intercepted(f, true);
+  const { p, relaySide } = await intercepted(f, true);
   await p.hello();
   const waiting = prompts(f, (list) => list.length === 1);
-  const phoneDigits = await compare(p);
+  await compare(p);
   const [request] = await waiting;
-  // one in a million tries would match; the owner sees two different numbers and declines
-  expect(request?.digits).not.toBe(phoneDigits);
+  const relay = relaySide();
+  // the PC shows the relay's comparison, made over the relay's own handshake with it, never the phone's
+  expect(request?.digits).toBe(pairDigits(relay.binding, relay.deviceKey, relay.phoneNonce, relay.pcNonce));
+  expect(Buffer.from(relay.binding).equals(Buffer.from(p.binding()))).toBe(false);
 });
 
 // One admission rule (docs/account.md, "Who may admit a device"): this PC itself, or a drive account
@@ -470,6 +540,7 @@ const guard = [["content-type", "application/json"], ["x-herdr-machine", "1"]] a
 async function accountFixture(role: "drive" | "watch" = "drive") {
   const made = await relayAccountFixture(role);
   fixtures.push(made.fixture);
+  made.fixture.app.context.services.relay.approvals.openWindow();
   return { f: made.fixture, member: made.member };
 }
 
@@ -485,7 +556,7 @@ async function post(link: Link, target: string, body: unknown) {
   const request = link.open(target, { method: "POST", headers: guard, body: "stream" });
   void request.stream.sendBody(new Response(JSON.stringify(body)).body ?? new ReadableStream()).catch(() => {});
   const response = await request.response;
-  return { status: response.status, body: await response.json() as { error?: { code: string } } };
+  return { status: response.status, body: await response.json() as { error?: { code: string }; ok?: boolean; device_id?: string } };
 }
 
 async function remoteList(link: Link) {
@@ -524,9 +595,13 @@ test("a drive account member through the relay admits a device by picking its di
   expect(new Set(remote?.choices)).toEqual(new Set([digits, ...remote!.choices.filter((choice) => choice !== digits)]));
   expect(new Set(remote?.choices).size).toBe(3);
 
-  expect((await post(link, "/api/relay/pairing", { id: request.id, decision: "approve", digits })).status).toBe(200);
+  expect(remote?.key).toBe(p.publicKey);
+  const approved = await post(link, "/api/relay/pairing", { id: request.id, decision: "approve", digits });
+  const deviceId = accountDeviceId("0123456789abcdef0123456789abcdef", p.publicKey);
+  expect(approved.body).toEqual({ ok: true, device_id: deviceId });
   await confirm(p);
-  expect((await p.inbox.next()).type).toBe(FrameType.AUTH_OK);
+  const admitted = await p.inbox.next();
+  expect(admitted.type === FrameType.AUTH_OK && admitted.payload.device_id).toBe(deviceId);
   const registry = readDeviceRegistry(join(f.stateDir, "devices.json"));
   expect(registry.kind === "ok" && registry.devices.find((device) => device.label === "New phone")?.added_by).toBe(member.id);
 });
@@ -664,4 +739,89 @@ test("a watch device on the PC's own address cannot read the digits of a waiting
   const response = await fetch(`http://127.0.0.1:${f.app.port}/api/relay/pairings`, { headers: { cookie: `ovis_device=${paired.token}` } });
   expect(response.status).toBe(403);
   expect(await response.text()).not.toContain(request.digits);
+});
+
+// Joining through the account outside the pairing window (docs/account.md, design 5.3).
+
+async function joinFixture(clock: () => number = Date.now) {
+  const service = new FakeAccountService(clock);
+  const made = await relayAccountFixture("drive", "acct_1", { accountService: { url: "https://account.test", fetch: service.fetch } });
+  fixtures.push(made.fixture);
+  const identity = rotateRelayIdentity(made.fixture.stateDir);
+  const tokens = { acct_1: service.issueToken("acct_1"), acct_2: service.issueToken("acct_2") };
+  for (const token of Object.values(tokens)) {
+    await service.fetch(new Request(`https://account.test/v1/pcs/${identity.server_id}`, { method: "PUT", headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ label: "PC", public_key: bytesToHex(importPublicKey(identity.public_key)), relay: "wss://relay.ovis.sh" }) }));
+  }
+  const admit = (key: string, account: keyof typeof tokens = "acct_1") => service.fetch(new Request("https://account.test/v1/admissions", {
+    method: "POST", headers: { authorization: `Bearer ${tokens[account]}` }, body: JSON.stringify({ server_id: identity.server_id, label: "Mac app", key }),
+  }));
+  return { f: made.fixture, member: made.member, service, admit };
+}
+
+/** Asks to join the account by comparing digits; the digits when the PC took the request, else the session's error. */
+async function askToJoin(f: Fixture, admitKey?: (key: string) => Promise<unknown>, intent = PAIR_INTENT_ACCOUNT) {
+  const { p } = await direct(f);
+  await p.hello([PAIR_SAS_FEATURE, intent]);
+  await admitKey?.(p.publicKey);
+  const nonce = randomPairNonce();
+  await p.send({ type: FrameType.PAIR_REQUEST, flags: 0, stream_id: 0, payload: { label: "Mac app", public_key: p.publicKey, commitment: toBase64Url(pairCommitment(p.binding(), p.publicKey, nonce)) } });
+  const answer = await p.inbox.next();
+  if (answer.type !== FrameType.PAIR_CHALLENGE) return { p, refused: answer.type === FrameType.SESSION_ERROR ? answer.payload.code : String(answer.type) };
+  await p.send({ type: FrameType.PAIR_REVEAL, flags: 0, stream_id: 0, payload: { nonce: toBase64Url(nonce) } });
+  return { p, digits: pairDigits(p.binding(), p.publicKey, nonce, fromBase64Url(answer.payload.nonce)) };
+}
+
+function remotePrompt(f: Fixture): Promise<RemotePairingRequest> {
+  const found = deferred<RemotePairingRequest>();
+  const stop = f.app.context.services.relay.approvals.subscribeRemote((list) => { if (list[0]) found.resolve(list[0]); });
+  return bounded(found.promise).finally(stop);
+}
+
+test("an account join outside the pairing window is refused without an admission, before any prompt and uncounted", async () => {
+  const { f } = await joinFixture();
+  expect((await askToJoin(f)).refused).toBe("auth_failed");
+  expect(f.app.context.services.relay.approvals.remoteList()).toEqual([]);
+  for (let index = 0; index < 19; index++) f.app.context.services.devices.noteRelayFailure("account");
+  // the refusal above counted nothing: one more failure is still under the pause
+  expect(() => f.app.context.services.devices.assertRelayPairing("account")).not.toThrow();
+});
+
+test("an admission for another key or another account does not open the way", async () => {
+  const { f, admit } = await joinFixture();
+  const otherKey = toBase64Url(new Uint8Array(await crypto.subtle.exportKey("spki", (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])).publicKey)));
+  expect((await askToJoin(f, () => admit(otherKey))).refused).toBe("auth_failed");
+  expect((await askToJoin(f, (key) => admit(key, "acct_2"))).refused).toBe("auth_failed");
+});
+
+test("an admission older than ten minutes does not open the way", async () => {
+  const { f, admit } = await joinFixture(() => Date.now() - 11 * 60_000);
+  expect((await askToJoin(f, (key) => admit(key))).refused).toBe("auth_failed");
+});
+
+test("a fresh admission for this key lets the join wait for a member, who still has to pick the digits", async () => {
+  const { f, member, admit } = await joinFixture();
+  const link = await signedIn(f, member);
+  const prompt = remotePrompt(f);
+  const { p, digits } = await askToJoin(f, (key) => admit(key));
+  const request = await prompt;
+  // the PC's own windows never see it, and cannot decide it
+  expect(f.app.context.services.relay.approvals.list()).toEqual([]);
+  expect(f.app.context.services.relay.approvals.decide(request.id, true)).toBe(false);
+  expect((await post(link, "/api/relay/pairing", { id: request.id, decision: "approve", digits })).status).toBe(200);
+  await confirm(p);
+  expect((await p.inbox.next()).type).toBe(FrameType.AUTH_OK);
+});
+
+test("outside the window only the account intent may join, and at most five a minute", async () => {
+  const { f, admit } = await joinFixture();
+  expect((await askToJoin(f, (key) => admit(key), PAIR_INTENT_PC)).refused).toBe("auth_failed");
+  const outcomes: string[] = [];
+  for (let index = 0; index < 6; index++) {
+    const asked = await askToJoin(f, (key) => admit(key));
+    outcomes.push(asked.refused ?? "taken");
+    asked.p.channel.close();
+  }
+  expect(outcomes.filter((outcome) => outcome === "taken").length).toBeLessThanOrEqual(5);
+  expect(outcomes.at(-1)).toBe("auth_failed");
 });

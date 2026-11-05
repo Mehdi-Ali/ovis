@@ -77,4 +77,6 @@ export const RELAY_KO: Record<string, string> = {
   "To add a PC, sign in on it or scan its QR code.": "PC를 추가하려면 그 PC에서 로그인하거나 QR 코드를 스캔하세요.",
   "If they match, approve this phone on {name}.": "같으면 {name}에서 이 폰을 승인하세요.",
   "Ready · not in the account yet": "연결됨 · 아직 계정에 없음",
+  "{name} is not taking new phones right now": "{name}이(가) 지금은 새 휴대폰을 받지 않습니다",
+  "Its link may have run out (it works for 10 minutes), or it may be paused after too many tries or busy with other phones. Copy a new link on the PC, or wait a few minutes.": "링크가 만료됐거나(10분 동안 쓸 수 있음), 시도가 너무 많아 잠시 멈췄거나, 다른 휴대폰을 처리하는 중일 수 있습니다. PC에서 새 링크를 복사하거나 몇 분 기다리세요.",
 };

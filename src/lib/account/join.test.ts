@@ -5,6 +5,7 @@ import type { RelayIdentity } from "../../../server/relay/identity.ts";
 import { relayConnection, relayDevice, relayFixture } from "../../../server/relay/test-helpers.ts";
 import { accountDeviceId, exportAccountKey } from "../../../shared/account-records.ts";
 import { FakeAccountService } from "../../../shared/account-service-fake.ts";
+import { importPublicKey } from "../../../shared/relay-e2ee.ts";
 import type { RelayDevice } from "../relay/device.ts";
 import { MemoryDeviceStore } from "../relay/device.test.ts";
 import { admitToAccount, linkThisDevice, needsLink, pcAccountStatus, takeIntroduction } from "./join.ts";
@@ -93,7 +94,7 @@ it("brings an approved device into every PC of the account: the add waits in an 
   const accountStore = memoryAccountStore();
   await accountStore.set("session", { service: SERVICE, account: ACCOUNT, provider: "github", access_token: service.issueToken(ACCOUNT), refresh_token: "r", expires_at: Date.now() + 3600_000 });
   const account = new AccountService({ store: accountStore, fetch: service.fetch });
-  for (const [at, label] of [[x, "p620"], [y, "nuc"]] as const) await account.putPc(at.identity.server_id, { label, public_key: at.identity.public_key, relay: "wss://relay.example" });
+  for (const [at, label] of [[x, "p620"], [y, "nuc"]] as const) await account.putPc(at.identity.server_id, { label, public_key: Array.from(importPublicKey(at.identity.public_key), (byte) => byte.toString(16).padStart(2, "0")).join(""), relay: "wss://relay.example" });
   // PC X let the Mac in on this phone's remote approval
   const mac = await accountKey();
   const admitted = x.f.app.context.services.devices.addAccountDevice({ id: accountDeviceId(x.identity.server_id, mac.public_spki), key: mac.public_spki, label: "Mac app", role: "drive", account: ACCOUNT, addedBy: onX.device_id! });

@@ -38,7 +38,11 @@ describe("signing in", () => {
     const { store, session } = await signIn(service);
     expect(session.account).toBe("acct_1");
     const client = new AccountService({ store, fetch: service.fetch });
-    await client.putPc(PC_A, { label: "p620", public_key: "11".repeat(32), relay: "wss://relay.example" });
+    const { generateKeyPair } = await import("../../../shared/relay-e2ee.ts");
+    const { deriveServerId } = await import("../../../shared/relay-server-proof.ts");
+    const key = generateKeyPair().publicKey;
+    const hex = Array.from(key, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    await client.putPc(deriveServerId(key), { label: "p620", public_key: hex, relay: "wss://relay.example" });
     expect((await client.listPcs()).map((pc) => pc.label)).toEqual(["p620"]);
   });
 

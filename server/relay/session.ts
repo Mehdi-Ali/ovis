@@ -8,6 +8,7 @@ import { ACCOUNT_FEATURE, FrameType, LIMITS_V1, PAIR_INTENT_ACCOUNT, PAIR_INTENT
 import type { HeaderList, SessionError } from "../../shared/relay-mux.ts";
 import type { PairingIntent } from "../../shared/machines.ts";
 import { PairingRateLimitedError, type DeviceMatch } from "../devices.ts";
+import { accountDeviceId } from "../../shared/account-records.ts";
 import { handleRequest } from "../dispatch.ts";
 import type { RequestServices, ServerContext } from "../dispatch.ts";
 import type { EventStreamBudget } from "../machine-api.ts";
@@ -78,11 +79,13 @@ export class RelaySession {
   /** A pairing by comparing digits under way; `ended` once it made a device or counted as a failure. */
   private sas: {
     label: string; publicKey: string; commitment: Uint8Array; pcNonce: Uint8Array; expiresAt: number;
-    phoneConfirmed: boolean; approved: boolean; approvedBy?: string; ended: boolean; withdraw?: () => void; cancelDeadline?: () => void; stopRevokeAll?: () => void; stopApprover?: () => void;
+    phoneConfirmed: boolean; approved: boolean; approvedBy?: string; ended: boolean; membersOnly: boolean; withdraw?: () => void; cancelDeadline?: () => void; stopRevokeAll?: () => void; stopApprover?: () => void;
   } | undefined;
   private device: DeviceMatch | undefined;
   /** The key this session's device signed in or paired with: a `link` must start from it (docs/account.md). */
   private key = "";
+  /** Whether the device signed in with AUTH, the only admission that proves it holds its key. */
+  private keyProven = false;
   private unwatch: (() => void) | undefined;
   private sourceBytes = 0;
   private readonly clock: MuxClock;
@@ -200,10 +203,11 @@ export class RelaySession {
       case FrameType.HELLO:
         if (this.state !== "hello") { this.close("protocol_error"); return; }
         if (!frame.payload.versions.includes(1)) { this.close("unsupported_version"); return; }
-        if (frame.payload.required_features.length) { this.close("unsupported_extension"); return; }
-        this.state = "auth";
-        // selected only where it can finish: a protected channel to bind the digits to, and the owner's approvals
+        // selected only where it can finish: a protected channel to bind the digits to
         if (frame.payload.features.includes(PAIR_SAS_FEATURE)) this.sasBinding = channelBinding(this.options.channel);
+        // a feature the phone requires has to be one this PC selects on this channel
+        if (frame.payload.required_features.some((feature) => feature !== PAIR_SAS_FEATURE || !this.sasBinding)) { this.close("unsupported_extension"); return; }
+        this.state = "auth";
         // an intent is selected only with pair-sas, and only the one offered (docs/account.md, "Negotiation")
         const intents = frame.payload.features.filter((f) => f === PAIR_INTENT_PC || f === PAIR_INTENT_ACCOUNT);
         if (intents.length > 1) { this.close("protocol_error"); return; }
@@ -223,6 +227,7 @@ export class RelaySession {
         this.state = "verifying";
         const devices = this.options.services.devices;
         if (this.options.services.serveOnly) { this.close("auth_failed"); return; }
+        this.keyProven = frame.type === FrameType.AUTH;
         const device = frame.type === FrameType.AUTH
           ? await devices.matchRelay(frame.payload.device_id, this.nonce, frame.payload.signature, this.options.serverId)
           : devices.pairRelay(frame.payload.code, frame.payload.label, frame.payload.public_key)?.device;
@@ -232,11 +237,20 @@ export class RelaySession {
       case FrameType.PAIR_REQUEST: {
         if (this.state !== "auth" || !this.sasBinding) { this.close("protocol_error"); return; }
         if (this.options.services.serveOnly) { this.close("auth_failed"); return; }
+        // nobody asked for a link lately: refused before any prompt, and not counted, since no person was asked,
+        // unless it is an account join the account service has seen (accountJoin, docs/account.md design 5.3)
+        let membersOnly = false;
+        if (!this.options.services.relay.approvals.windowOpen()) {
+          this.state = "verifying";
+          if (!await this.accountJoin(frame.payload.public_key)) { this.close("auth_failed"); return; }
+          if (!this.mux.active) return;
+          membersOnly = true;
+        }
         this.options.services.devices.assertRelayPairing(this.path);
         this.state = "pair-commit";
         this.sas = {
           label: frame.payload.label, publicKey: frame.payload.public_key, commitment: fromBase64Url(frame.payload.commitment),
-          pcNonce: randomPairNonce(), expiresAt: Date.now() + PAIR_APPROVAL_MS, phoneConfirmed: false, approved: false, ended: false,
+          pcNonce: randomPairNonce(), expiresAt: Date.now() + PAIR_APPROVAL_MS, phoneConfirmed: false, approved: false, ended: false, membersOnly,
         };
         // past the comparison's deadline the session ends with `timeout` and its prompt goes at once;
         // the mux's own setup deadline stays just behind it as the backstop
@@ -255,7 +269,8 @@ export class RelaySession {
         // a pause that began while this phone held its reveal still keeps its prompt off the owner's screen
         this.options.services.devices.assertRelayPairing(this.path);
         const asked = this.options.services.relay.approvals.ask(sas.label,
-          pairDigits(this.sasBinding, sas.publicKey, phoneNonce, sas.pcNonce), sas.expiresAt, this.intent);
+          pairDigits(this.sasBinding, sas.publicKey, phoneNonce, sas.pcNonce), sas.expiresAt,
+          { intent: this.intent, key: sas.publicKey, deviceId: accountDeviceId(this.options.serverId, sas.publicKey), membersOnly: sas.membersOnly });
         if (!asked) { this.close("auth_failed"); return; }
         this.state = "pair-wait";
         sas.withdraw = asked.withdraw;
@@ -285,9 +300,11 @@ export class RelaySession {
   private finishPairing(): void {
     const sas = this.sas;
     if (!sas || !sas.phoneConfirmed || !sas.approved || this.state !== "pair-wait") return;
+    // an answer that lands after the deadline, before its timer ran, makes no device either
+    if (Date.now() > sas.expiresAt) { this.close("timeout"); return; }
     this.state = "verifying";
     let device: DeviceMatch | undefined;
-    try { device = this.options.services.devices.pairRelayApproved(sas.label, sas.publicKey, { path: this.path, ...(sas.approvedBy === undefined ? {} : { addedBy: sas.approvedBy }) })?.device; }
+    try { device = this.options.services.devices.pairRelayApproved(sas.label, sas.publicKey, { path: this.path, id: accountDeviceId(this.options.serverId, sas.publicKey), ...(sas.approvedBy === undefined ? {} : { addedBy: sas.approvedBy }) })?.device; }
     catch (error) {
       if (error instanceof PairingRateLimitedError) { this.close("auth_failed"); return; }
       throw error;
@@ -309,6 +326,18 @@ export class RelaySession {
     if (!counted) this.options.services.devices.noteRelayFailure(this.path);
   }
 
+  /**
+   * An account join outside the pairing window (docs/account.md, design 5.3): only with the account
+   * intent, on a PC in an account with a member to approve, for a key the account service has a fresh
+   * admission for, at most 5 a minute. Never counted as a failed pairing: nobody was asked.
+   */
+  private async accountJoin(key: string): Promise<boolean> {
+    const { devices, relay, accountMailbox } = this.options.services;
+    if (this.intent !== "account" || devices.account() === null || !devices.hasAccountApprover()) return false;
+    if (!relay.approvals.takeAccountJoin()) return false;
+    return await accountMailbox.admitted(key);
+  }
+
   /** Which failure count this session's comparison spends (server/devices.ts PairingPath). */
   private get path(): "code" | "account" { return this.intent === "account" ? "account" : "code"; }
 
@@ -324,7 +353,8 @@ export class RelaySession {
       return;
     }
     this.device = Object.freeze(device);
-    this.key = devices.relayKeyOf(device.id) ?? "";
+    // a key sent with a code or a comparison was never signed with: nothing account-side may rest on it
+    this.key = this.keyProven ? devices.relayKeyOf(device.id) ?? "" : "";
     // The commit callback runs before the sink: synchronous carriers can immediately OPEN.
     // Until then OPEN is still unauthenticated, even while AUTH_OK waits behind receipt credit.
     this.mux.enqueueControl({

@@ -77,4 +77,6 @@ export const RELAY_ZH: Record<string, string> = {
   "To add a PC, sign in on it or scan its QR code.": "要添加 PC，请在该 PC 上登录或扫描其二维码。",
   "If they match, approve this phone on {name}.": "如果一致，请在 {name} 上批准此手机。",
   "Ready · not in the account yet": "可连接 · 尚未加入账户",
+  "{name} is not taking new phones right now": "{name} 现在不接受新手机",
+  "Its link may have run out (it works for 10 minutes), or it may be paused after too many tries or busy with other phones. Copy a new link on the PC, or wait a few minutes.": "链接可能已过期（有效 10 分钟），或因尝试次数过多而暂停，或正在处理其他手机。请在电脑上复制新链接，或等几分钟。",
 };

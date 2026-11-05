@@ -32,8 +32,10 @@ when and for how long, and how much goes each way. The rhythm of the traffic sho
 in a terminal goes out at once as a small frame, so the timing of keystrokes is visible, and so is
 the size of what the PC sends back. Nothing is padded, and no cover traffic hides any of this.
 
-`relay.ovis.sh` keeps none of it: it writes no logs, stores nothing, and uses the address only to
-rate-limit connections ([what it keeps](../relay/README.md#what-it-sees-and-keeps)). That is how
+`relay.ovis.sh` writes no logs and uses the address only to rate-limit connections. It keeps only
+usage counters for capacity planning: per PC (under a hash of its relay ID), bytes each way, time
+connected and sessions, kept three months; no content, address or device identity
+([what it keeps](../relay/README.md#what-it-sees-and-keeps)). That is how
 it's run, not something you can check from outside, so assume that whoever runs a relay, and the
 network in front of it (Cloudflare, for `relay.ovis.sh`), can record everything above.
 
@@ -112,7 +114,9 @@ longer works**.
 
 **Pairing by comparing digits.** A phone can also pair without a code, from a link that holds the
 PC's `server_id`, public key and relay only (**Copy a link without a code** under the QR code; it
-holds nothing secret and never expires). Such a link may have come through a channel nobody vouches
+holds nothing secret). Copying it opens a 10-minute window, as a Bluetooth device's pairing mode
+does: outside it the PC refuses a comparison with `auth_failed` before any prompt, and does not count
+it as a failed pairing, so nobody the owner did not invite can raise a prompt. Such a link may have come through a channel nobody vouches
 for, so its key is not trusted on its own: a relay, or whoever handed the link over, could have put
 its own key there and sit between the phone and the PC. Trust comes from two people looking at
 two screens instead, as in Bluetooth's numeric comparison:
@@ -159,7 +163,7 @@ the 20 failures allowed in 10 minutes a relay gets about 20 tries, one in fifty 
 relay pairing pauses. Without step 3, a relay could try handshakes until the digits matched; the
 commitment is what stops that.
 
-Limits: both people have 90 seconds from `PAIR_REQUEST` (under the relay's 120-second idle close),
+Limits: a comparison starts only inside the window opened by copying the link; both people have 90 seconds from `PAIR_REQUEST` (under the relay's 120-second idle close),
 after which the session ends with `timeout` and the prompt goes. At most three phones wait for
 approval at once; a fourth gets `auth_failed`. Every comparison that ends without a device
 (declined, abandoned, timed out, a broken commitment, a wrong pick) counts as a failed relay
@@ -575,7 +579,8 @@ is always up.
   to `relay/` or `shared/relay-server-proof.ts` reaches main
   and passes CI or when run by hand from main, and always with the maintainer's approval. A deploy
   drops every connection; PCs and phones reconnect by themselves, and nothing is sent again. Workers
-  Logs are off and the relay stores nothing ([relay/README.md](../relay/README.md#deploy)).
+  Logs are off and the relay stores only its usage counters
+  ([relay/README.md](../relay/README.md#usage-counters)).
 - **`app.ovis.sh`** is a Cloudflare Pages project. The Release workflow deploys it from each release
   tag, and [Releasing](development.md#releasing) has its one-time setup. A build of main can be
   deployed by hand to `preview.ovis-app.pages.dev` to try before a release; it never changes `app.ovis.sh`.
@@ -595,6 +600,34 @@ and limit addresses at the proxy instead.
 To run your own relay, or your own copy of the app, see
 [Running your own relay](guide.md#running-your-own-relay) and
 [relay/README.md](../relay/README.md#running-your-own).
+
+## Regional relays
+
+`relay.ovis.sh` runs on Cloudflare, which serves some networks from far away (from Korea, from Los
+Angeles). Regional relay endpoints run the same relay (`relay/bun.ts` behind a TLS proxy) closer to
+them; the list is `REGIONAL_RELAYS` in [`shared/relay-regions.ts`](../shared/relay-regions.ts), now
+`relay-ap.ovis.sh` in Seoul.
+
+- **The PC chooses.** A PC with no `OVIS_RELAY_URL` measures each relay's `/health` when the relay
+  is turned on (the best of two round trips after a first one that opens the connection). A regional
+  relay that answers in at most half the global relay's time, with both answering, is saved in
+  `relay/region.json` under `OVIS_STATE_DIR` and kept from then on; with none saved, the PC measures
+  again at every start, and a measurement that finishes after the relay was turned off is dropped.
+  A PC with `OVIS_RELAY_URL` set uses that relay alone, unless it names one of Ovis's regional
+  relays: that one is used with no measuring, and beside `relay.ovis.sh`, as below.
+- **It stays on both.** The PC keeps its link to `relay.ovis.sh` and opens a second one, with the
+  same key and proof, to the regional relay. New pairing QR codes name the regional relay while its
+  link is online (the global one otherwise), and the relay status is the global link's; a phone
+  paired before keeps the relay it saved, so it still connects through `relay.ovis.sh`. Each link
+  has its own session limits.
+- **The phone falls back.** A phone (or a PC that added this PC through the relay) whose saved relay
+  is one of the regional ones and that cannot get through it (the relay does not answer, or the PC
+  does not answer there) tries `relay.ovis.sh` at once, and keeps using the one that worked. A phone never falls back from any other relay, so a
+  self-hosted one is never traded for Ovis's.
+
+Which relay carries a connection changes nothing about its protection: the phone and the PC
+encrypt end to end whichever relay passes the frames on, and each relay sees what
+[What the relay sees](#what-the-relay-sees) says.
 
 ## Code
 
