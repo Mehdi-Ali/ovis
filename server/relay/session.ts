@@ -206,13 +206,13 @@ export class RelaySession {
         // selected only where it can finish: a protected channel to bind the digits to
         if (frame.payload.features.includes(PAIR_SAS_FEATURE)) this.sasBinding = channelBinding(this.options.channel);
         // a feature the phone requires has to be one this PC selects on this channel
-        if (frame.payload.required_features.some((feature) => feature !== PAIR_SAS_FEATURE || !this.sasBinding)) { this.close("unsupported_extension"); return; }
-        this.state = "auth";
         // an intent is selected only with pair-sas, and only the one offered (docs/account.md, "Negotiation")
         const intents = frame.payload.features.filter((f) => f === PAIR_INTENT_PC || f === PAIR_INTENT_ACCOUNT);
         if (intents.length > 1) { this.close("protocol_error"); return; }
-        if (this.sasBinding && intents[0] === PAIR_INTENT_ACCOUNT) this.intent = "account";
         const selected = [...this.sasBinding ? [PAIR_SAS_FEATURE, ...intents] : [], ...frame.payload.features.includes(ACCOUNT_FEATURE) ? [ACCOUNT_FEATURE] : []];
+        if (frame.payload.required_features.some((feature) => !selected.includes(feature))) { this.close("unsupported_extension"); return; }
+        this.state = "auth";
+        if (this.sasBinding && intents[0] === PAIR_INTENT_ACCOUNT) this.intent = "account";
         this.mux.sendSession({
           type: FrameType.WELCOME, flags: 0, stream_id: 0,
           payload: {
@@ -333,9 +333,13 @@ export class RelaySession {
    */
   private async accountJoin(key: string): Promise<boolean> {
     const { devices, relay, accountMailbox } = this.options.services;
-    if (this.intent !== "account" || devices.account() === null || !devices.hasAccountApprover()) return false;
-    if (!relay.approvals.takeAccountJoin()) return false;
-    return await accountMailbox.admitted(key);
+    const allowed = () => this.intent === "account" && devices.account() !== null && devices.hasAccountApprover();
+    if (!allowed()) return false;
+    // a pull may take a while: the comparison's own deadline starts now
+    this.mux.extendSetup(PAIR_APPROVAL_MS + 1_000);
+    if (!await accountMailbox.admitted(key) || !allowed()) return false;
+    // counted only once admitted, so refused strangers cannot spend the PC's joins
+    return relay.approvals.takeAccountJoin();
   }
 
   /** Which failure count this session's comparison spends (server/devices.ts PairingPath). */

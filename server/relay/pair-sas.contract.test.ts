@@ -825,3 +825,11 @@ test("outside the window only the account intent may join, and at most five a mi
   expect(outcomes.filter((outcome) => outcome === "taken").length).toBeLessThanOrEqual(5);
   expect(outcomes.at(-1)).toBe("auth_failed");
 });
+
+test("refused requests do not spend the PC's account joins", async () => {
+  const { f, admit } = await joinFixture();
+  for (let index = 0; index < 5; index++) expect((await askToJoin(f)).refused).toBe("auth_failed");
+  // the PC's regular pull sees the admission (a miss pulls at most every 10 seconds)
+  const admitted = (key: string) => admit(key).then(() => f.app.context.services.accountMailbox.pull());
+  expect((await askToJoin(f, admitted)).refused).toBeUndefined();
+});

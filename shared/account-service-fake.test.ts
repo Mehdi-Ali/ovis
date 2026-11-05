@@ -137,6 +137,22 @@ describe("the fake account service", () => {
     expect(((await pull(service, machine, null)).body as { admissions?: unknown[] }).admissions).toEqual([]);
   });
 
+  test("a member lists its own account's admissions of the last ten minutes, and no other account's", async () => {
+    let now = Date.parse("2026-11-05T00:00:00.000Z");
+    const service = new FakeAccountService(() => now);
+    const [mine, other] = [service.issueToken("acct_1"), service.issueToken("acct_2")];
+    const machine = pc();
+    for (const token of [mine, other]) await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" }), headers: { authorization: `Bearer ${token}` } }));
+    const waiting = await client();
+    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac", key: waiting.spki }, mine));
+    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Other", key: (await client()).spki }, other));
+    const list = async () => (await (await service.fetch(new Request(`${BASE}/v1/admissions`, { headers: { authorization: `Bearer ${mine}` } }))).json()) as { admissions: unknown[] };
+    expect((await list()).admissions).toEqual([{ key: waiting.spki, label: "Mac", server_id: machine.serverId, at: "2026-11-05T00:00:00.000Z" }]);
+    now += ADMISSION_TTL_MS;
+    expect((await list()).admissions).toEqual([]);
+    expect((await service.fetch(new Request(`${BASE}/v1/admissions`))).status).toBe(401);
+  });
+
   test("records older than thirty days are gone", async () => {
     let now = Date.parse("2026-11-05T00:00:00.000Z");
     const service = new FakeAccountService(() => now);
