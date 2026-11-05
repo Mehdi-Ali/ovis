@@ -1264,6 +1264,9 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    */
   const sendScheduled = (paneId: string, text: string, identity: PendingIdentity, automatic: boolean, authorize: () => void): Promise<SubmitReply> =>
     serialize(paneId, () => {
+      if (automatic && pending.uncertainIn(paneId)) {
+        return { ok: false, code: "needs_ok", message: "A message to this pane may still be in its input line. Check the terminal, then send this one or discard it." };
+      }
       if (automatic && pending.turnUnconfirmed(paneId)) {
         return { ok: false, code: "pending_turn_unconfirmed", message: "The turn the last message started was not confirmed; review this one and send it explicitly" };
       }

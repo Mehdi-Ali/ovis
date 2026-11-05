@@ -35,6 +35,8 @@ const RETRY_MS = 30_000;
 /** the longest setTimeout delay */
 const MAX_TIMER_MS = 2_147_483_647;
 const FILE = "scheduled-messages.json";
+const NEEDS_OK_UNCERTAIN = { code: "needs_ok", message: "A message to this pane may still be in its input line. Check the terminal, then send this one or discard it." };
+const NEEDS_OK_RESTART = { code: "needs_ok_restart", message: "This came due while this PC's server was not running. Send it now or discard it." };
 
 interface Entry { message: ScheduledMessage; identity: PendingIdentity; device: string | null; triedAt?: number }
 
@@ -98,7 +100,7 @@ export class ScheduledMessages {
     this.entries.set(message.id, { message, identity, device });
     // kept only once written: a refused write leaves nothing behind to go alongside a retry
     try { this.save(); } catch (error) { this.entries.delete(message.id); throw error; }
-    this.commit();
+    this.announce();
     return { ...message };
   }
 
@@ -111,12 +113,15 @@ export class ScheduledMessages {
     // every field is checked before any changes: a refused edit leaves the message as it was
     const text = record["text"] === undefined ? entry.message.text : this.text(record["text"]);
     const sendAt = record["send_at"] === undefined ? entry.message.send_at : this.sendAt(record["send_at"]);
+    const was = { message: { ...entry.message }, triedAt: entry.triedAt };
     entry.message.text = text;
     entry.message.send_at = sendAt;
     entry.message.state = "scheduled";
     delete entry.message.error;
     delete entry.triedAt;
-    this.commit();
+    // written before it counts: a refused write leaves the message as it was
+    try { this.save(); } catch (error) { entry.message = was.message; entry.triedAt = was.triedAt; throw error; }
+    this.announce();
     return { ...entry.message };
   }
 
@@ -124,7 +129,9 @@ export class ScheduledMessages {
     const entry = this.entry(object(body)["id"]);
     if (entry.message.state === "sending") throw busy();
     this.entries.delete(entry.message.id);
-    this.commit();
+    // a discard that cannot be written is no discard: it would come back with the next start
+    try { this.save(); } catch (error) { this.entries.set(entry.message.id, entry); throw error; }
+    this.announce();
   }
 
   /**
@@ -148,8 +155,9 @@ export class ScheduledMessages {
 
   /** an event of the pane (a turn ended, input became ready): its due messages are tried again */
   paneEvent(paneId: string): void {
+    this.holdBehindUncertain();
     for (const entry of this.entries.values()) {
-      if (entry.message.pane_id === paneId && this.due(entry)) void this.deliver(entry, true);
+      if (entry.message.pane_id === paneId && this.due(entry)) this.run(entry);
     }
   }
 
@@ -174,12 +182,34 @@ export class ScheduledMessages {
 
   /** due, and not behind another of its pane's that is on its way or may sit typed in its input */
   private due(entry: Entry): boolean {
-    return !this.stopped && entry.message.state === "scheduled" && Date.parse(entry.message.send_at) <= this.now() && !this.blocked(entry);
+    return !this.stopped && entry.message.state === "scheduled" && Date.parse(entry.message.send_at) <= this.now()
+      && !this.behind(entry, "sending") && !this.behind(entry, "uncertain");
   }
 
-  private blocked(entry: Entry): boolean {
-    return [...this.entries.values()].some((other) => other !== entry && other.message.pane_id === entry.message.pane_id
-      && (other.message.state === "sending" || other.message.state === "uncertain"));
+  /** another message of the entry's pane is in `state` */
+  private behind(entry: Entry, state: "sending" | "uncertain"): boolean {
+    return [...this.entries.values()].some((other) => other !== entry && other.message.pane_id === entry.message.pane_id && other.message.state === state);
+  }
+
+  /**
+   * A due message whose pane holds one of its own that may sit typed in its input is never typed on its own: it waits for the
+   * user's OK (Send now or Discard), and every device's list says so (#2919). The pending queue's uncertain records are
+   * checked at the send itself (server/core/pending.ts sendScheduled, needs_ok).
+   */
+  private holdBehindUncertain(): void {
+    let held = false;
+    for (const entry of this.entries.values()) {
+      if (this.stopped || entry.message.state !== "scheduled" || Date.parse(entry.message.send_at) > this.now() || !this.behind(entry, "uncertain")) continue;
+      entry.message.state = "held";
+      entry.message.error = NEEDS_OK_UNCERTAIN;
+      held = true;
+    }
+    if (held) this.commit();
+  }
+
+  /** a delivery nothing awaits: a failure to keep its outcome is logged, never an unhandled rejection */
+  private run(entry: Entry): void {
+    this.deliver(entry, true).catch((error: unknown) => console.error(`scheduled message: ${error instanceof Error ? error.message : String(error)}`));
   }
 
   private async deliver(entry: Entry, automatic: boolean, identity = entry.identity, device = entry.device): Promise<Reply> {
@@ -222,7 +252,12 @@ export class ScheduledMessages {
   /** saves, tells every connection (unless nothing they see changed), and sets the timer for the next due message */
   private commit(quiet = false): void {
     this.save();
-    if (!quiet) this.deps.changed();
+    if (quiet) this.arm(); else this.announce();
+  }
+
+  /** tells every connection to read the list again, and sets the timer for the next due message */
+  private announce(): void {
+    this.deps.changed();
     this.arm();
   }
 
@@ -234,14 +269,15 @@ export class ScheduledMessages {
     let next = Infinity;
     for (const entry of this.entries.values()) {
       // one waiting behind its pane's message on its way or left uncertain sets no timer: that one's settling (or discard) arms again
-      if (entry.message.state !== "scheduled" || this.blocked(entry)) continue;
+      if (entry.message.state !== "scheduled" || this.behind(entry, "sending")) continue;
       const at = Date.parse(entry.message.send_at);
       next = Math.min(next, entry.triedAt !== undefined && at <= entry.triedAt ? entry.triedAt + retry : at);
     }
     if (next === Infinity) return;
     this.timer = setTimeout(() => {
       this.timer = null;
-      for (const entry of this.entries.values()) if (this.due(entry) && (entry.triedAt === undefined || entry.triedAt + retry <= this.now())) void this.deliver(entry, true);
+      this.holdBehindUncertain();
+      for (const entry of this.entries.values()) if (this.due(entry) && (entry.triedAt === undefined || entry.triedAt + retry <= this.now())) this.run(entry);
       this.arm();
     }, Math.min(MAX_TIMER_MS, Math.max(0, next - this.now())));
     this.timer.unref?.();
@@ -299,6 +335,8 @@ export class ScheduledMessages {
         message.error = { code: "submit_changed", message: "This PC's server stopped while sending this message. Check the terminal before sending it again." };
       }
       if (!["scheduled", "held", "uncertain"].includes(message.state)) continue;
+      // due already as the server starts: it is the user's to send, never typed unattended after a restart
+      if (message.state === "scheduled" && Date.parse(message.send_at) <= this.now()) { message.state = "held"; message.error = { ...NEEDS_OK_RESTART }; }
       entries.push({ message, identity: item.identity, device: typeof item.device === "string" ? item.device : null });
     }
     return entries;

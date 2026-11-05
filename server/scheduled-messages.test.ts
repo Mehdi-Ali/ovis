@@ -52,11 +52,11 @@ const settle = () => new Promise<void>((resolve) => { setImmediate(resolve); });
 
 it("keeps a scheduled message in the state folder, readable only by this user, and lists it after a restart", async () => {
   const { scheduled, stateDir } = store();
-  const message = await scheduled.create({ pane_id: "p1", text: "continue\r\n", send_at: "2026-11-05T15:00:00+09:00" }, "dev1");
-  expect(message).toMatchObject({ pane_id: "p1", text: "continue", send_at: "2026-11-05T06:00:00.000Z", state: "scheduled" });
+  const message = await scheduled.create({ pane_id: "p1", text: "continue\r\n", send_at: "2026-11-05T21:00:00+09:00" }, "dev1");
+  expect(message).toMatchObject({ pane_id: "p1", text: "continue", send_at: "2026-11-05T12:00:00.000Z", state: "scheduled" });
   const file = join(stateDir, "scheduled-messages.json");
   if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
-  const again = new ScheduledMessages({ stateDir, checkText: pendingText, identity: async () => IDENTITY, send: async () => ({ ok: true }), mayDrive: () => true, changed: () => {} });
+  const again = new ScheduledMessages({ stateDir, checkText: pendingText, identity: async () => IDENTITY, send: async () => ({ ok: true }), mayDrive: () => true, changed: () => {}, now: () => Date.parse("2026-11-05T10:00:00Z") });
   expect(again.list()).toEqual([message]);
 });
 
@@ -244,6 +244,47 @@ it("sends nothing more into a pane while one of its messages may sit typed in it
   scheduled.paneEvent("p1");
   await settle();
   expect(sends).toEqual([]);
+  expect(scheduled.list().find((message) => message.id === "b")).toMatchObject({ state: "held", error: { code: expect.stringMatching(/^needs_ok/) } });
+});
+
+it("asks for the user's OK on a due message once its pane has one that may sit in its input", async () => {
+  const { scheduled, sends, clock } = store([{ ok: false, code: "pasted_not_sent", message: "pasted" }]);
+  await scheduled.create({ pane_id: "p1", text: "first", send_at: "2026-11-05T09:59:00Z" }, null);
+  await scheduled.create({ pane_id: "p1", text: "second", send_at: "2026-11-05T10:30:00Z" }, null);
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  clock.now = Date.parse("2026-11-05T10:31:00Z");
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(sends.map((send) => send[1])).toEqual(["first"]);
+  expect(scheduled.list().find((message) => message.text === "second")).toMatchObject({ state: "held", error: { code: "needs_ok" } });
+});
+
+it("asks for the user's OK on a message already due when the server starts again", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-scheduled-"));
+  dirs.push(stateDir);
+  writeFileSync(join(stateDir, "scheduled-messages.json"), JSON.stringify([{ identity: IDENTITY, device: null,
+    message: { id: "a", pane_id: "p1", text: "a", send_at: "2026-11-05T09:00:00Z", created_at: "2026-11-05T08:00:00Z", state: "scheduled" } },
+    { identity: IDENTITY, device: null,
+    message: { id: "b", pane_id: "p1", text: "b", send_at: "2026-11-05T12:00:00Z", created_at: "2026-11-05T08:00:00Z", state: "scheduled" } }]));
+  const { scheduled, sends } = store([], { stateDir });
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(sends).toEqual([]);
+  expect(scheduled.list().map((message) => [message.id, message.state, message.error?.code])).toEqual([["a", "held", "needs_ok_restart"], ["b", "scheduled", undefined]]);
+});
+
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("leaves a message as it was when its edit or discard cannot be written", async () => {
+  const { scheduled, stateDir } = store();
+  const message = await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null);
+  chmodSync(stateDir, 0o500);
+  try {
+    expect(() => scheduled.update({ id: message.id, text: "edited" })).toThrow();
+    expect(() => scheduled.discard({ id: message.id })).toThrow();
+    expect(scheduled.list()).toEqual([message]);
+  } finally { chmodSync(stateDir, 0o700); }
 });
 
 it("keeps a message the server stopped before typing for its next start", async () => {

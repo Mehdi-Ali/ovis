@@ -276,4 +276,6 @@ export const COMPOSER_ZH: Record<string, string> = {
   "This PC sends it at that time, also with every device closed. It waits for the agent's turn to end, and is not sent if the pane is gone or runs another session.": "即使关闭所有设备，这台电脑也会在该时间发送。它会等待代理本轮结束；如果窗格已关闭或运行着另一个会话，则不会发送。",
   "Tomorrow at 9:00": "明天 9:00",
   "When this plan limit resets ({time})": "套餐限额重置时（{time}）",
+  "Needs your OK: a message to this pane may still be in its input line. Check the terminal first.": "需要你确认：此窗格的输入行中可能还留着上一条消息。请先检查终端。",
+  "Needs your OK: it came due while this PC's server was not running": "需要你确认：此电脑的服务器未运行时已到发送时间",
 };

@@ -276,4 +276,6 @@ export const COMPOSER_JA: Record<string, string> = {
   "This PC sends it at that time, also with every device closed. It waits for the agent's turn to end, and is not sent if the pane is gone or runs another session.": "すべてのデバイスを閉じていても、この PC がその時刻に送信します。エージェントのターン終了を待ち、ペインがなくなったり別のセッションが動いていたりすると送信しません。",
   "Tomorrow at 9:00": "明日 9:00",
   "When this plan limit resets ({time})": "プランの上限がリセットされたとき ({time})",
+  "Needs your OK: a message to this pane may still be in its input line. Check the terminal first.": "確認が必要です: このペインの入力行に前のメッセージが残っているかもしれません。先にターミナルを確認してください。",
+  "Needs your OK: it came due while this PC's server was not running": "確認が必要です: この PC のサーバーが動いていない間に予定時刻を過ぎました",
 };

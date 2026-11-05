@@ -34,5 +34,7 @@ it("says why a due message has not gone, and why a held one will not", () => {
   expect(scheduledStatus({ ...due, error: { code: "input_draft", message: "" } }, now, t)).toBe("Due · waits for the terminal's input box to be empty");
   expect(scheduledStatus({ ...due, state: "held", error: { code: "pending_target_changed", message: "" } }, now, t)).toBe("Not sent: the pane now runs another agent session");
   expect(scheduledStatus({ ...due, state: "held", error: { code: "pane_not_found", message: "" } }, now, t)).toBe("Not sent: the pane is gone");
+  expect(scheduledStatus({ ...due, state: "held", error: { code: "needs_ok_restart", message: "" } }, now, t)).toStartWith("Needs your OK");
+  expect(scheduledStatus({ ...due, state: "held", error: { code: "needs_ok", message: "" } }, now, t)).toStartWith("Needs your OK");
   expect(scheduledStatus({ state: "scheduled", send_at: "2026-11-05T12:00:00Z" }, now, t)).toStartWith("Sends ");
 });

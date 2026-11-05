@@ -1,7 +1,7 @@
 import { afterEach, expect, it, mock, spyOn } from "bun:test";
 import * as herdr from "../herdr/client.ts";
 import * as processStart from "../process-start.ts";
-import { createPendingDelivery } from "./pending.ts";
+import { createPendingDelivery, FIRST_MESSAGE_OWNER } from "./pending.ts";
 
 afterEach(() => mock.restore());
 
@@ -89,5 +89,24 @@ it("types nothing into a password prompt that wrapped, with no client to tell th
   const identity = await d.pending.scheduledIdentity("p");
   d.shown.screen = "Enter passphrase for key\n'/tmp/key': ";
   expect((await d.pending.sendScheduled("p", "continue", identity, true, () => {})).ok).toBe(false);
+  expect(d.writes).toEqual([]);
+});
+
+it("never lifts the unconfirmed turn on a snapshot read, only on the pane's next status event", async () => {
+  const d = delivery("idle", 0);
+  const identity = await d.pending.scheduledIdentity("p");
+  expect(await d.pending.sendScheduled("p", "first", identity, true, () => {})).toEqual({ ok: true });
+  d.pending.pending.expire();
+  d.pending.pending.observe("p", "idle", d.pending.pending.mark("p"));
+  expect(await d.pending.sendScheduled("p", "second", identity, true, () => {})).toMatchObject({ ok: false, code: "pending_turn_unconfirmed" });
+});
+
+it("asks for the user's OK, typing nothing, while a queued message to the pane may sit in its input", async () => {
+  const d = delivery("idle");
+  const identity = await d.pending.scheduledIdentity("p");
+  const queued = d.pending.pending.enqueue(FIRST_MESSAGE_OWNER, "p", -1, "earlier", null, identity);
+  expect(d.pending.pending.claim(queued, false)).toBe(true);
+  d.pending.pending.settle(queued, { code: "submit_changed", message: "not confirmed" }, true);
+  expect(await d.pending.sendScheduled("p", "continue", identity, true, () => {})).toMatchObject({ ok: false, code: "needs_ok" });
   expect(d.writes).toEqual([]);
 });

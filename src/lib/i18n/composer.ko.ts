@@ -276,4 +276,6 @@ export const COMPOSER_KO: Record<string, string> = {
   "This PC sends it at that time, also with every device closed. It waits for the agent's turn to end, and is not sent if the pane is gone or runs another session.": "모든 기기를 닫아도 이 PC가 그 시각에 보냅니다. 에이전트의 작업이 끝나길 기다리며, 창이 닫혔거나 다른 세션이 실행 중이면 보내지 않습니다.",
   "Tomorrow at 9:00": "내일 9:00",
   "When this plan limit resets ({time})": "플랜 한도가 초기화될 때 ({time})",
+  "Needs your OK: a message to this pane may still be in its input line. Check the terminal first.": "확인 필요: 이 창의 입력칸에 이전 메시지가 남아 있을 수 있습니다. 먼저 터미널을 확인하세요.",
+  "Needs your OK: it came due while this PC's server was not running": "확인 필요: 이 PC의 서버가 꺼져 있는 동안 예약 시각이 지났습니다",
 };

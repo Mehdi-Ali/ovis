@@ -264,6 +264,8 @@ export class PendingInputs<Owner, Lease> {
   /** A status event from the collector. */
   status(paneId: string, status: AgentStatus): void {
     this.events.set(paneId, this.mark(paneId) + 1);
+    // only an event says the pane moved on: a snapshot read since (observe) never lifts it
+    this.unconfirmed.delete(paneId);
     this.apply(paneId, status);
   }
 
@@ -278,6 +280,11 @@ export class PendingInputs<Owner, Lease> {
    */
   turnBusy(paneId: string): boolean {
     return this.gates.has(paneId) || [...this.records.values()].some((item) => item.paneId === paneId && (item.inFlight || item.message.state === "uncertain"));
+  }
+
+  /** Whether a delivery to the pane may sit in its input: a scheduled message is then never typed on its own (#2919). */
+  uncertainIn(paneId: string): boolean {
+    return [...this.records.values()].some((item) => item.paneId === paneId && item.message.state === "uncertain");
   }
 
   /** Whether the pane's last turn gate ran out with no status since: such a message is held for review, as `expire` holds the records. */
@@ -301,7 +308,6 @@ export class PendingInputs<Owner, Lease> {
 
   private apply(paneId: string, status: AgentStatus): void {
     this.statuses.set(paneId, status);
-    this.unconfirmed.delete(paneId);
     const gate = this.gates.get(paneId);
     if (!gate?.committed) return;
     // Escape may expose ready before the submitted steering starts its replacement turn.

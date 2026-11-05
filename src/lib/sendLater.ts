@@ -56,6 +56,8 @@ export function scheduledStatus(message: Pick<ScheduledMessage, "state" | "send_
   if (message.state === "held") {
     if (code === "pane_not_found") return t("Not sent: the pane is gone");
     if (code === "pending_target_changed") return t("Not sent: the pane now runs another agent session");
+    if (code === "needs_ok") return t("Needs your OK: a message to this pane may still be in its input line. Check the terminal first.");
+    if (code === "needs_ok_restart") return t("Needs your OK: it came due while this PC's server was not running");
     if (code === "device_revoked") return t("Not sent: the device that scheduled it can no longer send here");
     return t("Not sent: {reason}", { reason: message.error?.message ?? "" });
   }
