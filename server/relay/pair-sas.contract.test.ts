@@ -637,3 +637,26 @@ test("a comparison asking to join the account waits in the same three places as 
   await compare(p);
   expect(await sessionError(p)).toBe("auth_failed");
 });
+
+test("an approval ends for good when its approver is given another role before the phone confirms", async () => {
+  const { f, member } = await accountFixture();
+  const link = await signedIn(f, member);
+  const { p, digits, request } = await accountComparison(f);
+  expect((await post(link, "/api/relay/pairing", { id: request.id, decision: "approve", digits })).status).toBe(200);
+  f.app.context.services.devices.update(member.id, { role: "watch" });
+  f.app.context.services.devices.update(member.id, { role: "drive" });
+  await confirm(p);
+  expect(await sessionError(p)).toBe("auth_failed");
+  expect(f.app.context.services.devices.list(null).some((device) => device.label === "New phone")).toBe(false);
+});
+
+test("a watch device on the PC's own address cannot read the digits of a waiting comparison", async () => {
+  const f = fixture();
+  const store = f.app.context.services.devices;
+  const paired = store.pair(store.startPairing().code, "Watcher", "watch")!;
+  store.match(paired.token);
+  const { request } = await accountComparison(f);
+  const response = await fetch(`http://127.0.0.1:${f.app.port}/api/relay/pairings`, { headers: { cookie: `ovis_device=${paired.token}` } });
+  expect(response.status).toBe(403);
+  expect(await response.text()).not.toContain(request.digits);
+});

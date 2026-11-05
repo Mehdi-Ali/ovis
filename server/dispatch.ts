@@ -223,7 +223,9 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
   // a repository's checkouts are its folders' paths and branches, those not open in herdr too; the worktree
   // dialog that lists them is a drive feature, and the sidebar names a branch only for a driving device (#2250)
   const worktreeList = /^\/api\/(?:machines\/[^/]+\/)?worktree\/list$/.test(pathname);
-  if (readOnly && (fileRead || directoryListing || repositoryDiff || sessionHistory || commandRows || paneFiles || pluginRun || worktreeList || mutating && !ownPreferences)) {
+  // the digits of a waiting comparison are what approving it takes (docs/account.md, "Who may admit a device")
+  const pairingDigits = pathname === "/api/relay/pairings";
+  if (readOnly && (fileRead || directoryListing || repositoryDiff || sessionHistory || commandRows || paneFiles || pluginRun || worktreeList || pairingDigits || mutating && !ownPreferences)) {
     setRequestRoute("watch-refusal");
     return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
   }

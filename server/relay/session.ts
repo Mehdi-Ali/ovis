@@ -78,7 +78,7 @@ export class RelaySession {
   /** A pairing by comparing digits under way; `ended` once it made a device or counted as a failure. */
   private sas: {
     label: string; publicKey: string; commitment: Uint8Array; pcNonce: Uint8Array; expiresAt: number;
-    phoneConfirmed: boolean; approved: boolean; approvedBy?: string; ended: boolean; withdraw?: () => void; cancelDeadline?: () => void; stopRevokeAll?: () => void;
+    phoneConfirmed: boolean; approved: boolean; approvedBy?: string; ended: boolean; withdraw?: () => void; cancelDeadline?: () => void; stopRevokeAll?: () => void; stopApprover?: () => void;
   } | undefined;
   private device: DeviceMatch | undefined;
   private unwatch: (() => void) | undefined;
@@ -262,6 +262,8 @@ export class RelaySession {
           if (!decision.approved) { this.close("auth_failed"); return; }
           sas.approved = true;
           sas.approvedBy = decision.by?.id;
+          // an approver revoked or given another role before the phone confirms takes the approval with it, for good
+          if (decision.by) sas.stopApprover = this.options.services.devices.onRevoke(decision.by.id, () => { if (this.pairing) this.close("auth_failed"); });
           this.finishPairing();
         }).catch(() => this.close("internal_error"));
         return;
@@ -300,6 +302,7 @@ export class RelaySession {
     sas.ended = true;
     sas.cancelDeadline?.();
     sas.stopRevokeAll?.();
+    sas.stopApprover?.();
     sas.withdraw?.();
     if (!counted) this.options.services.devices.noteRelayFailure(this.path);
   }

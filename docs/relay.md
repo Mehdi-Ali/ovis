@@ -166,7 +166,8 @@ approval at once; a fourth gets `auth_failed`. Every comparison that ends withou
 pairing. A comparison that pairs this PC only counts toward the same 20 failures in 10 minutes as
 a wrong code, after which the PC takes no such pairing for 10 minutes. One that asks to join the
 account (`pair-intent-account`) counts toward 20 of its own, so a flood of those cannot pause
-pairing with a QR code or a code.
+pairing with a QR code or a code. A relay in the middle can spend both, so it gets about 40 tries
+in 10 minutes, one in twenty-five thousand, before both pause.
 **Revoke all** ends every comparison under way, an approved one included, and withdraws its prompt. The prompt lives in memory only. The relay learns nothing new: the comparison travels inside the
 encrypted channel, so it sees only a few more frames and their sizes and timing.
 
@@ -188,7 +189,8 @@ headers ([below](#requests-through-the-mux)), never `Cookie`, `Authorization`, `
 forwarding headers, and signing in with the token answers 403 `device_key_required`. A phone on the
 relay can't start or stop the relay, show its QR code or reset its identity (403 `local_required`). A pairing
 code admits whoever holds it, so through the relay only a phone linked to the owner's account, with
-drive access, may start one under Devices; any other gets 403 `account_required`.
+drive access, may start one under Devices; any other gets 403 `account_required` (`read_only`
+for a watch device).
 
 **Who controls the relay.** Start, stop, pairing offers and identity reset require drive access
 and a direct connection to the PC. A Portal visitor may read the state but cannot change it:

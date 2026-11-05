@@ -115,8 +115,9 @@ One rule for every way in: a pairing code, comparing digits, and joining through
   account member. It must **pick the new device's digits out of three** (two decoys the PC chose at
   random) before it can approve. A tap without looking picks right one time in three, and a wrong
   pick ends the request, so the person has to look again at a new comparison.
-- A pairing code can be started only by the same people: on the PC itself, or by a drive account
-  member through the relay (`403 account_required` for any other relay device).
+- A pairing code can be started only by the same people: directly on the PC (any window there with
+  drive access, as before), or by a drive account member through the relay (`403 account_required`
+  for any other relay device, `read_only` for a watch device).
 - **Every admission is announced** on every device connected to the PC: the new device's name and who
   approved it.
 
@@ -154,9 +155,10 @@ remote approver's app adds how many PCs that means from its own list of the acco
 intent travels inside the encrypted channel that the digits authenticate: a relay that changes it
 must sit in the middle, and then the digits differ.
 
-When the intent is `pair-intent-account`, a remote approval carries the signed `add` record for the
-new device (`POST /api/relay/pairing` with `record`), and the PC admits the device by applying that
-record. The approver then delivers the same record to the account's other PCs.
+Either intent admits the device on this PC as a plain row. With `pair-intent-account` the new
+device then links that row to the account itself (a `link` whose `old_key` is its `key`), and
+the approver signs the `add` for it and delivers it to the account's other PCs. The intent decides
+only what the prompt says and which failure count a comparison spends.
 
 ## PC API
 
