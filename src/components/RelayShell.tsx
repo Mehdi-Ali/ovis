@@ -1,11 +1,12 @@
 import "./RelayShell.css";
 
+import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 
 import type { AccountProvider } from "../lib/account/store.ts";
 import { useT } from "../lib/i18n.ts";
 import type { AccountView, KeyMismatch } from "../lib/relay/shellState.ts";
-import { AccountPcs, AccountSignIn } from "./AccountPcs.tsx";
+import { AccountFinePrint, AccountPcs, AccountSignIn } from "./AccountPcs.tsx";
 import { KeyId } from "./KeyId.tsx";
 import { describeUpdate } from "../lib/updateProgress.ts";
 import type { RelayShellState } from "../lib/relay/shellState.ts";
@@ -70,6 +71,9 @@ export function RelayShell({ state, scoped, iosTab, onPair, onRetry, onCancel, o
   const t = useT();
   const account: AccountView | null = (state.kind === "list" || state.kind === "empty") && onSignIn ? state.account ?? null : null;
   const signIn = account?.kind === "signed-out" && onSignIn ? <AccountSignIn onSignIn={onSignIn} error={account.error} /> : null;
+  // signed out with no saved PC, the QR route waits behind a link under the sign-in
+  const [qr, setQr] = useState(false);
+  const signInFirst = account?.kind === "signed-out" && state.kind === "empty" && !qr;
   const name = state.kind === "confirm" ? state.offer.name ?? null : state.kind === "list" || state.kind === "empty" ? null : state.name;
   const pc = name ?? t("this PC");
   // a forged link is the identity-changed warning in its own words: there is no key of its to forget
@@ -79,7 +83,7 @@ export function RelayShell({ state, scoped, iosTab, onPair, onRetry, onCancel, o
   const retry = <button type="button" className="btn btn-primary" onClick={onRetry}>{t("Try again")}</button>;
   return (
     <main className="relay-shell-screen" data-relay-state={stateName} {...(account ? { "data-account-state": account.kind } : {})}>
-      <div className="relay-shell">
+      <div className={signInFirst || state.kind === "compare" ? "relay-shell account-centered" : "relay-shell"}>
         <img src="/icons/icon-192.png?v=sheep1" alt="" width="44" height="44" className="relay-shell-mark" />
         {account?.kind === "signed-in" && <AccountPcs view={account} />}
         {account?.kind === "signing-in" && (
@@ -88,11 +92,13 @@ export function RelayShell({ state, scoped, iosTab, onPair, onRetry, onCancel, o
             <div className="relay-shell-wait" role="status"><div className="boot-spinner" aria-hidden="true" /><span className="visually-hidden">{t("Signing in…")}</span></div>
           </>
         )}
-        {account?.kind === "signed-out" && state.kind === "empty" && (
+        {signInFirst && (
           <>
-            <h1 className="relay-shell-title">{t("Connect to your PCs")}</h1>
-            <p className="relay-shell-copy">{t("Sign in with the account your PCs use to see every one of them here.")}</p>
+            <h1 className="relay-shell-title">{t("Sign in to Ovis")}</h1>
+            <p className="relay-shell-copy account-subtitle">{t("See every PC on your account.")}</p>
             {signIn}
+            <button type="button" className="account-link" onClick={() => setQr(true)}>{t("Use a QR code or pairing code instead")}</button>
+            <AccountFinePrint />
           </>
         )}
         {state.kind === "list" && (account === null || account.kind === "signed-out") && (
@@ -109,16 +115,15 @@ export function RelayShell({ state, scoped, iosTab, onPair, onRetry, onCancel, o
               ))}
             </ul>
             <p className="relay-shell-copy">{t("To add another PC, scan the QR code it shows under Phone & devices.")}</p>
-            {signIn && <div className="account-or"><p className="relay-shell-copy">{t("Or sign in to see every PC of your account.")}</p>{signIn}</div>}
+            {signIn && <div className="account-or"><p className="relay-shell-copy">{t("Or sign in to see every PC on your account.")}</p>{signIn}<AccountFinePrint /></div>}
           </>
         )}
-        {state.kind === "empty" && (account === null || account.kind === "signed-out") && (
+        {state.kind === "empty" && (account === null || (account.kind === "signed-out" && qr)) && (
           <>
-            {account
-              ? <h2 className="relay-shell-title account-or">{t("Or scan the QR code on your PC")}</h2>
-              : <h1 className="relay-shell-title">{t("Scan the QR code on your PC")}</h1>}
+            <h1 className="relay-shell-title">{t("Scan the QR code on your PC")}</h1>
             <p className="relay-shell-copy">{t("On the PC, open Settings → Phone & devices and turn on remote access through the Ovis relay. The QR code there opens this app paired with that PC.")}</p>
             {back && <div className="relay-shell-actions">{back}</div>}
+            {account && <div className="relay-shell-actions"><button type="button" className="btn" onClick={() => setQr(false)}>{t("Sign in instead")}</button></div>}
           </>
         )}
         {state.kind === "confirm" && (
@@ -148,7 +153,7 @@ export function RelayShell({ state, scoped, iosTab, onPair, onRetry, onCancel, o
                 <p className="relay-shell-detail">{t("Approve this phone on {name} to finish.", { name: pc })}</p>
               </div>
             ) : (
-              <p className="relay-shell-copy">{t("Pair only if the PC's screen shows the same six digits. Then approve this phone on the PC.")}</p>
+              <p className="relay-shell-copy">{t("If they match, approve this phone on {name}.", { name: pc })}</p>
             )}
             <div className="relay-shell-actions">
               {!state.confirmed && <button type="button" className="btn btn-primary" onClick={onMatch}>{t("The numbers match")}</button>}
