@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import nacl from "tweetnacl";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { exportAccountKey, newRecordId, signAccountRecord, type AccountRecord } from "./account-records.ts";
-import { ACCESS_TOKEN_TTL_S, FakeAccountService, isAllowedRedirect, MAILBOX_TTL_MS, WEB_REDIRECT, type FakePc } from "./account-service-fake.ts";
+import { ACCESS_TOKEN_TTL_S, ACCOUNT_RING, ADMISSIONS_PER_WINDOW, DEVICE_POLL_S, DIRECTORY_MAX, FakeAccountService, isAllowedRedirect, MAILBOX_TTL_MS, WEB_REDIRECT, type FakePc } from "./account-service-fake.ts";
 import { answerServerChallenge, deriveServerId, serverChallenge, verifyServerProof, type ProofRoute } from "./relay-server-proof.ts";
 
 const BASE = "https://account.test";
@@ -212,12 +212,37 @@ describe("signing in to the fake account service", () => {
     expect((await token(service, { grant_type: "refresh_token", refresh_token: fresh.refresh_token })).status).toBe(400);
   });
 
-  test("an iOS app signs in with Apple's identity token only for the nonce it asked with", async () => {
+  test("an iOS app signs in with Apple's identity token only for the plain nonce whose hash Apple was given, once", async () => {
     const service = new FakeAccountService();
-    const idToken = service.appleIdToken("acct_apple", "nonce-0123456789ab");
-    expect((await token(service, { grant_type: "apple_id_token", id_token: idToken, nonce: "nonce-ba9876543210" })).status).toBe(400);
-    const other = service.appleIdToken("acct_apple", "nonce-0123456789ab");
-    expect(await (await token(service, { grant_type: "apple_id_token", id_token: other, nonce: "nonce-0123456789ab" })).json()).toMatchObject({ account: "acct_apple", provider: "apple" });
+    const nonce = "nonce-0123456789ab";
+    const hashed = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(nonce))).toString("hex");
+    expect((await token(service, { grant_type: "apple_id_token", id_token: service.appleIdToken("acct_apple", hashed), nonce: "nonce-ba9876543210" })).status).toBe(400);
+    expect((await token(service, { grant_type: "apple_id_token", id_token: service.appleIdToken("acct_apple", nonce), nonce })).status).toBe(400);
+    const idToken = service.appleIdToken("acct_apple", hashed);
+    expect(await (await token(service, { grant_type: "apple_id_token", id_token: idToken, nonce })).json()).toMatchObject({ account: "acct_apple", provider: "apple" });
+    expect((await token(service, { grant_type: "apple_id_token", id_token: idToken, nonce })).status).toBe(400);
+  });
+
+  test("a headless PC signs in with GitHub's device flow: pending, slow down, then tokens once", async () => {
+    let now = 0;
+    const service = new FakeAccountService(() => now);
+    const started = await (await service.fetch(post("/v1/signin/github/device", {}))).json() as { device_code: string; user_code: string; interval: number };
+    expect(started.interval).toBe(DEVICE_POLL_S);
+    const poll = async () => ((await (await token(service, { grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: started.device_code })).json()) as { error?: { code: string }; account?: string });
+    expect((await poll()).error?.code).toBe("authorization_pending");
+    expect((await poll()).error?.code).toBe("slow_down");
+    now += 60_000;
+    service.approveDevice(started.user_code, "acct_head");
+    expect((await poll()).account).toBe("acct_head");
+    now += 60_000;
+    expect((await poll()).error?.code).toBe("expired_token");
+  });
+
+  test("a device sign-in refused at GitHub answers access_denied", async () => {
+    const service = new FakeAccountService();
+    const started = await (await service.fetch(post("/v1/signin/github/device", {}))).json() as { device_code: string; user_code: string };
+    service.denyDevice(started.user_code);
+    expect(((await (await token(service, { grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: started.device_code })).json()) as { error: { code: string } }).error.code).toBe("access_denied");
   });
 
   test("the loopback redirect takes the code in its query, and the app's own scheme may ask for the fragment", async () => {
@@ -240,5 +265,44 @@ describe("signing in to the fake account service", () => {
       `redirect_uri=${encodeURIComponent("ovis://account/callback")}&state=s&code_challenge=${challenge}&code_challenge_method=plain`,
       `redirect_uri=${encodeURIComponent("ovis://account/callback")}&code_challenge=${challenge}&code_challenge_method=S256`,
     ]) expect((await service.fetch(new Request(`${BASE}/v1/signin/github?${query}`))).status).toBe(400);
+  });
+});
+
+describe("the fake account service's doorbell and limits", () => {
+  const p256dh = "B" + "A".repeat(86);
+  const auth = "A".repeat(22);
+  const put = (service: FakeAccountService, token: string, path: string, body: unknown, method = "PUT") =>
+    service.fetch(new Request(`${BASE}${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body), headers: { authorization: `Bearer ${token}` } }));
+
+  test("other signed-in devices are rung, with no content, when a PC joins the directory or a device waits at one", async () => {
+    const service = new FakeAccountService();
+    const [phone, laptop] = [service.issueToken("acct_1"), service.issueToken("acct_1")];
+    expect((await put(service, phone, "/v1/push", { endpoint: "https://push.ovis.sh/p/1", keys: { p256dh, auth } })).status).toBe(204);
+    const machine = pc();
+    await put(service, laptop, `/v1/pcs/${machine.serverId}`, { label: "pc", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" });
+    await put(service, laptop, `/v1/pcs/${machine.serverId}`, { label: "renamed", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" });
+    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac" }, laptop));
+    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac" }, phone));
+    expect(service.rings()).toEqual([
+      { account: "acct_1", endpoint: "https://push.ovis.sh/p/1", payload: ACCOUNT_RING },
+      { account: "acct_1", endpoint: "https://push.ovis.sh/p/1", payload: ACCOUNT_RING },
+    ]);
+    expect((await put(service, phone, "/v1/push", undefined, "DELETE")).status).toBe(204);
+    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac" }, laptop));
+    expect(service.rings().length).toBe(2);
+  });
+
+  test("a directory holds at most a hundred PCs, and an account rings for admissions ten times in ten minutes", async () => {
+    const service = new FakeAccountService();
+    const token = service.issueToken("acct_1");
+    let last = pc();
+    for (let index = 0; index < DIRECTORY_MAX; index++) {
+      last = pc();
+      expect((await put(service, token, `/v1/pcs/${last.serverId}`, { label: "pc", public_key: last.publicKey, relay: "wss://relay.ovis.sh" })).status).toBe(200);
+    }
+    const extra = pc();
+    expect(((await (await put(service, token, `/v1/pcs/${extra.serverId}`, { label: "pc", public_key: extra.publicKey, relay: "wss://relay.ovis.sh" })).json()) as { error: { code: string } }).error.code).toBe("directory_full");
+    for (let index = 0; index < ADMISSIONS_PER_WINDOW; index++) expect((await service.fetch(post("/v1/admissions", { server_id: last.serverId, label: "Mac" }, token))).status).toBe(200);
+    expect((await service.fetch(post("/v1/admissions", { server_id: last.serverId, label: "Mac" }, token))).status).toBe(429);
   });
 });

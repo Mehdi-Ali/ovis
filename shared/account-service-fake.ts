@@ -15,6 +15,17 @@ export const MAILBOX_PAGE = 100;
 /** Records one account may hold for one PC at once; past it, `/v1/records` answers 429 `mailbox_full`. */
 export const MAILBOX_MAX = 1000;
 export const ACCESS_TOKEN_TTL_S = 3600;
+/** PCs one account may list; past it, a new PC answers 409 `directory_full`. */
+export const DIRECTORY_MAX = 100;
+export const LIMIT_WINDOW_MS = 10 * 60_000;
+export const ADMISSIONS_PER_WINDOW = 10;
+export const ACCOUNT_REQUESTS_PER_WINDOW = 600;
+export const DEVICE_CODE_TTL_S = 900;
+export const DEVICE_POLL_S = 5;
+/** What every push ring says; which device or PC it is about, the app learns from its PCs. */
+export const ACCOUNT_RING = { pane_id: null, title: "Ovis", body: "Your Ovis account has news", tag: "ovis-account" } as const;
+
+export interface FakeRing { account: string; endpoint: string; payload: typeof ACCOUNT_RING }
 export const SIGNIN_CODE_TTL_MS = 60_000;
 
 export type SignInProvider = "github" | "apple";
@@ -27,6 +38,10 @@ export function isAllowedRedirect(uri: string): boolean {
   if (uri === WEB_REDIRECT || uri === "ovis://account/callback") return true;
   const loopback = /^http:\/\/127\.0\.0\.1:([0-9]{1,5})\/callback$/.exec(uri);
   return loopback !== null && Number(loopback[1]) >= 1 && Number(loopback[1]) <= 65535;
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function s256(verifier: string): Promise<string> {
@@ -53,6 +68,10 @@ export class FakeAccountService {
   private readonly revokedFamilies = new Set<string>();
   private readonly appleTokens = new Map<string, { account: string; nonce: string }>();
   private readonly signIns = new Map<SignInProvider, string>();
+  private readonly deviceSignIns = new Map<string, { userCode: string; account: string | null; denied: boolean; interval: number; nextPoll: number; expires: number }>();
+  private readonly pushes = new Map<string, { account: string; endpoint: string }>();
+  private readonly counters = new Map<string, { start: number; count: number }>();
+  private readonly ringList: FakeRing[] = [];
   private readonly directories = new Map<string, Map<string, FakePc>>();
   private readonly mailboxes = new Map<string, Mail[]>();
   private readonly challenges = new Map<string, { server_id: string; expected: string; expires: number }>();
@@ -73,11 +92,37 @@ export class FakeAccountService {
   /** Who the next sign-in with `provider` turns out to be; unset, `acct_<provider>`. */
   signInAs(provider: SignInProvider, account: string): void { this.signIns.set(provider, account); }
 
-  /** An identity token as Sign in with Apple hands an iOS app, for `account` and the app's `nonce`. */
-  appleIdToken(account: string, nonce: string): string {
+  /** An identity token as Sign in with Apple hands an iOS app, for `account`, whose `nonce` claim is the hash the app gave Apple. */
+  appleIdToken(account: string, nonceHash: string): string {
     const token = randomHex(32);
-    this.appleTokens.set(token, { account, nonce });
+    this.appleTokens.set(token, { account, nonce: nonceHash });
     return token;
+  }
+
+  /** The person typed `userCode` at GitHub and approved (or refused) the device sign-in. */
+  approveDevice(userCode: string, account: string): void {
+    for (const entry of this.deviceSignIns.values()) if (entry.userCode === userCode) entry.account = account;
+  }
+
+  denyDevice(userCode: string): void {
+    for (const entry of this.deviceSignIns.values()) if (entry.userCode === userCode) entry.denied = true;
+  }
+
+  /** Every push the fake would have sent, oldest first. */
+  rings(): readonly FakeRing[] { return this.ringList; }
+
+  /** Rings every other signed-in device of `account` that subscribed. */
+  private ring(account: string, family: string): void {
+    for (const [owner, push] of this.pushes) if (push.account === account && owner !== family) this.ringList.push({ account, endpoint: push.endpoint, payload: ACCOUNT_RING });
+  }
+
+  /** Counts one more of `key` in its 10-minute window; false past `max`. */
+  private spend(key: string, max: number): boolean {
+    const now = this.now();
+    const counter = this.counters.get(key);
+    if (!counter || now - counter.start >= LIMIT_WINDOW_MS) { this.counters.set(key, { start: now, count: 1 }); return true; }
+    counter.count += 1;
+    return counter.count <= max;
   }
 
   revokeToken(token: string): void { this.tokens.delete(token); }
@@ -136,8 +181,23 @@ export class FakeAccountService {
       case "apple_id_token": {
         const apple = typeof body.id_token === "string" ? this.appleTokens.get(body.id_token) : undefined;
         if (typeof body.id_token === "string") this.appleTokens.delete(body.id_token);
-        if (!apple || typeof body.nonce !== "string" || body.nonce.length < 16 || body.nonce !== apple.nonce) return invalid("The identity token is not valid for that nonce");
+        // the app sends its plain nonce; Apple was given its SHA-256 in lowercase hex
+        if (!apple || typeof body.nonce !== "string" || body.nonce.length < 16 || body.nonce.length > 128 || await sha256Hex(body.nonce) !== apple.nonce) return invalid("The identity token is not valid for that nonce");
         return this.grant(apple.account, "apple");
+      }
+      case "urn:ietf:params:oauth:grant-type:device_code": {
+        const entry = typeof body.device_code === "string" ? this.deviceSignIns.get(body.device_code) : undefined;
+        if (!entry || this.now() >= entry.expires) return problem(400, "expired_token", "Start the sign-in again");
+        if (this.now() < entry.nextPoll) {
+          entry.interval += DEVICE_POLL_S;
+          entry.nextPoll = this.now() + entry.interval * 1000;
+          return problem(400, "slow_down", `Poll every ${entry.interval} seconds`);
+        }
+        entry.nextPoll = this.now() + entry.interval * 1000;
+        if (entry.denied) { this.deviceSignIns.delete(body.device_code as string); return problem(400, "access_denied", "The sign-in was refused at GitHub"); }
+        if (entry.account === null) return problem(400, "authorization_pending", "Waiting for the sign-in at GitHub");
+        this.deviceSignIns.delete(body.device_code as string);
+        return this.grant(entry.account, "github");
       }
       default: return problem(400, "unsupported_grant_type", "Use authorization_code, refresh_token or apple_id_token");
     }
@@ -174,6 +234,13 @@ export class FakeAccountService {
       const provider = /^\/v1\/signin\/([a-z]+)$/.exec(url.pathname)?.[1];
       if (provider !== undefined && request.method === "GET") return this.signIn(url, provider);
       if (url.pathname === "/v1/token" && request.method === "POST") return await this.token(request);
+      if (url.pathname === "/v1/signin/github/device" && request.method === "POST") {
+        const deviceCode = randomHex(32);
+        const userCode = `${randomHex(2).toUpperCase()}-${randomHex(2).toUpperCase()}`;
+        this.deviceSignIns.set(deviceCode, { userCode, account: null, denied: false, interval: DEVICE_POLL_S, nextPoll: this.now(), expires: this.now() + DEVICE_CODE_TTL_S * 1000 });
+        return json({ device_code: deviceCode, user_code: userCode, verification_uri: "https://github.com/login/device", expires_in: DEVICE_CODE_TTL_S, interval: DEVICE_POLL_S });
+      }
+      if (url.pathname === "/v1/push/key" && request.method === "GET") return json({ public_key: "BFakeVapidPublicKeyForTests" });
       return await this.client(request, url.pathname);
     } catch (error) {
       if (error instanceof AccountRecordError) return problem(400, "record_invalid", error.message);
@@ -187,8 +254,21 @@ export class FakeAccountService {
     const session = bearer === undefined ? undefined : this.tokens.get(bearer);
     if (session === undefined || this.now() >= session.expires || this.revokedFamilies.has(session.family)) return problem(401, "unauthorized", "Sign in again");
     const account = session.account;
+    if (!this.spend(`requests:${account}`, ACCOUNT_REQUESTS_PER_WINDOW)) return problem(429, "rate_limited", "Too many requests; try again later");
     if (path === "/v1/signout" && request.method === "POST") {
       this.revokeFamily(session.family);
+      return new Response(null, { status: 204 });
+    }
+    if (path === "/v1/push" && request.method === "PUT") {
+      const body = await request.json() as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } };
+      if (typeof body.endpoint !== "string" || !URL.canParse(body.endpoint) || typeof body.keys?.p256dh !== "string" || !/^[A-Za-z0-9_-]{87}$/.test(body.keys.p256dh)
+        || typeof body.keys.auth !== "string" || !/^[A-Za-z0-9_-]{22}$/.test(body.keys.auth)) return problem(400, "invalid_endpoint", "Send the subscription's endpoint and keys");
+      // one subscription per signed-in device: a new one replaces it
+      this.pushes.set(session.family, { account, endpoint: body.endpoint });
+      return new Response(null, { status: 204 });
+    }
+    if (path === "/v1/push" && request.method === "DELETE") {
+      this.pushes.delete(session.family);
       return new Response(null, { status: 204 });
     }
     const directory = this.directories.get(account) ?? new Map<string, FakePc>();
@@ -202,8 +282,11 @@ export class FakeAccountService {
       const key = proofKey(body.public_key);
       if (!key || deriveServerId(key) !== pc) return problem(400, "server_key_mismatch", "That key does not give that server_id");
       if (typeof body.relay !== "string" || !isWssOrigin(body.relay)) return problem(400, "invalid_relay", "Give the relay's wss origin");
+      const fresh = !directory.has(pc);
+      if (fresh && directory.size >= DIRECTORY_MAX) return problem(409, "directory_full", "Remove a PC first");
       const entry = { server_id: pc, label: body.label, public_key: body.public_key as string, relay: body.relay, added_at: directory.get(pc)?.added_at ?? this.iso(), last_seen_at: directory.get(pc)?.last_seen_at ?? null };
       directory.set(pc, entry);
+      if (fresh) this.ring(account, session.family);
       return json({ pc: entry });
     }
     if (pc !== undefined && request.method === "DELETE") {
@@ -231,8 +314,10 @@ export class FakeAccountService {
     if (path === "/v1/admissions" && request.method === "POST") {
       const body = await request.json() as { server_id?: unknown; label?: unknown };
       if (typeof body.server_id !== "string" || !directory.has(body.server_id) || typeof body.label !== "string") return problem(400, "unknown_pc", "List PCs of this account only");
+      if (!this.spend(`admissions:${account}`, ADMISSIONS_PER_WINDOW)) return problem(429, "too_many_admissions", "Too many requests; try again later");
       const admission = { id: randomHex(16), server_id: body.server_id, label: body.label, at: this.iso() };
       this.admissionList.push(admission);
+      this.ring(account, session.family);
       return json({ id: admission.id });
     }
     return problem(404, "not_found", "Unknown request");

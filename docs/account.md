@@ -240,11 +240,19 @@ OAuth's authorization code flow with PKCE, `S256` only:
    family), as a leaked one would be.
 4. On iOS, Sign in with Apple hands the app an identity token directly:
    `POST /v1/token` `{ "grant_type": "apple_id_token", "id_token", "nonce" }` answers the same. The
-   app makes a fresh random `nonce` (at least 128 bits) for each sign-in and gives Apple its
-   SHA-256; the service accepts the token only when Apple's signature holds (Apple's published keys),
-   `iss` is `https://appleid.apple.com`, `aud` is the app's id, it has not expired, and its
-   `nonce` claim is the SHA-256 of the `nonce` sent. Each identity token is accepted once.
-5. `POST /v1/signout` (Bearer) answers 204 and ends that sign-in's family.
+   app makes a fresh random `nonce` of 16-128 characters for each sign-in, gives Apple its SHA-256 in
+   lowercase hex, and sends the plain `nonce` here. The service accepts the token only when Apple's
+   signature holds (Apple's published keys), `iss` is `https://appleid.apple.com`, `aud` is the
+   app's id, it was issued at most 10 minutes ago and has not expired, and its `nonce` claim is that
+   hash. Each nonce is accepted once.
+5. A PC without a browser signs in with GitHub's device flow (RFC 8628):
+   `POST /v1/signin/github/device` answers `{ "device_code", "user_code", "verification_uri",
+   "expires_in", "interval" }`; the person opens `verification_uri` elsewhere and types `user_code`.
+   The PC polls `POST /v1/token` `{ "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+   "device_code" }` every `interval` seconds: 400 `authorization_pending` until the person approves,
+   `slow_down` for a poll too soon (the interval grows by five seconds), `access_denied` if they
+   refused, `expired_token` once it ran out; then the same answer as the other grants, once.
+6. `POST /v1/signout` (Bearer) answers 204 and ends that sign-in's family.
 
 The client makes `state` (at least 128 bits) and `code_verifier` (32 random bytes, base64url) fresh
 for each sign-in, keeps them with that sign-in only, and drops a callback whose `state` is missing or
@@ -267,6 +275,23 @@ Clients:
 | `POST /v1/records` | `{ "server_ids": [...], "record" }` | `{ "queued": n }`: puts a signed record of the caller's account in that account's mailbox for each listed PC; the service checks only its shape and signature. 429 `mailbox_full` past 1000 records waiting for one PC |
 | `POST /v1/admissions` | `{ "server_id", "label" }` | `{ "id" }`: rings the account's other clients (push) that a device waits at that PC |
 | `POST /v1/signout` | | `204`: ends this sign-in's tokens |
+
+Push (the doorbell), per signed-in device:
+
+| request | body | answer |
+|---|---|---|
+| `GET /v1/push/key` | | `{ "public_key" }`: the VAPID key to subscribe with |
+| `PUT /v1/push` | `{ "endpoint", "keys": { "p256dh", "auth" } }` | `204`: this device's subscription, one per signed-in device (a new one replaces it) |
+| `DELETE /v1/push` | | `204` |
+
+The service rings the account's other subscribed devices when a PC joins the directory and on
+`POST /v1/admissions`. Every ring is the same payload,
+`{ "pane_id": null, "title": "Ovis", "body": "Your Ovis account has news", "tag": "ovis-account" }`,
+with nothing about which device or PC: the app asks its PCs.
+
+Limits: an account lists at most 100 PCs (409 `directory_full`), rings for admissions 10 times
+and makes 600 requests in 10 minutes (429 `too_many_admissions`, 429 `rate_limited`), and holds at
+most 1000 records waiting for one PC (429 `mailbox_full`). A 429 carries `Retry-After`.
 
 The PC, by server proof:
 
