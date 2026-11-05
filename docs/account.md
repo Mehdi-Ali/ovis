@@ -149,7 +149,10 @@ it, only when all of these hold:
 Such a comparison is shown only to the account's members through the relay (`remote-pairings`,
 digits picked out of three, as always), never to the PC's own windows, and never approved by itself.
 Anything else is refused before any prompt and not counted as a failed pairing. A PC takes at most 5
-such requests a minute.
+such joins a minute; refused requests do not count toward them. A request whose admission the PC has
+not seen yet makes it pull its mailbox, at most once every 10 seconds, so a device that asks right
+after posting its admission may be refused and asks again. The admissions the PC knows are kept per
+account and relay identity, so they never carry over to another account or a new identity.
 
 At most three requests wait for approval at once on a PC. A wrong pick ends that request and counts
 as a failed pairing.

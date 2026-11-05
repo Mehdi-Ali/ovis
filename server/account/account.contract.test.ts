@@ -542,3 +542,44 @@ test("a device paired with a code a relay device started on a PC in no account i
   expect((await post(link, "/api/account/records", { records: [removal] })).body.results?.[0]?.outcome).toBe("applied");
   expect(f.app.context.services.devices.hasKey(target.spki)).toBe(false);
 });
+
+test("a session from a row's former key cannot start a member's pairing code", async () => {
+  const f = fixture();
+  const legacy = await relayDevice(f);
+  const [first, stale] = [await signedIn(f, legacy), await signedIn(f, legacy)];
+  const key = await accountKey();
+  expect((await post(first, "/api/account/link", { record: await linkRecord(legacy, key) })).status).toBe(200);
+  expect((await post(stale, "/api/devices/pair/start", {})).body.error?.code).toBe("account_required");
+});
+
+test("a watching device added by a member reads its own introduction", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const watcher = await accountKey();
+  const record = await sign({ v: 1, kind: "add", account: ACCOUNT, key: watcher.spki, label: "Tablet", role: "watch", issued_at: new Date().toISOString(), id: newRecordId(), signer: key.spki }, key);
+  await post(link, "/api/account/records", { records: [record] });
+  const pcs = [introducedPc()];
+  const introduced = link.open("/api/account/introduce", { method: "POST", headers: guard, body: "stream" });
+  void introduced.stream.sendBody(new Response(JSON.stringify({ key: watcher.spki, pcs })).body!).catch(() => {});
+  expect((await introduced.response).status).toBe(204);
+  const session = await relayConnection(f);
+  await session.auth({ keys: watcher.keys, publicKey: watcher.spki, id: accountDeviceId(SERVER_ID, watcher.spki) });
+  expect(await (await session.open("/api/account/introduction").response).json()).toEqual({ pcs });
+});
+
+test("an admission counts only for the account and relay identity it was made for", async () => {
+  const f = fixture();
+  await member(f);
+  let identity = rotateRelayIdentity(f.stateDir);
+  const service = new FakeAccountService();
+  const token = service.issueToken(ACCOUNT);
+  await service.fetch(new Request(`https://account.test/v1/pcs/${identity.server_id}`, { method: "PUT", headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ label: "PC", public_key: bytesToHex(importPublicKey(identity.public_key)), relay: "wss://relay.ovis.sh" }) }));
+  const waiting = await accountKey();
+  await service.fetch(new Request("https://account.test/v1/admissions", { method: "POST", headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ server_id: identity.server_id, label: "Mac", key: waiting.spki }) }));
+  const mailbox = new AccountMailbox({ devices: f.app.context.services.devices, identity: () => identity, service: "https://account.test", fetch: service.fetch });
+  expect(await mailbox.admitted(waiting.spki)).toBe(true);
+  identity = rotateRelayIdentity(f.stateDir);
+  expect(await mailbox.admitted(waiting.spki)).toBe(false);
+});

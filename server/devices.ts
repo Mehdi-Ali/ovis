@@ -785,7 +785,8 @@ export class DeviceStore {
  * `onRevoked` is told the id of every device a request revoked, once the registry says so: the
  * cleanup that follows (push subscriptions, page media) works from those ids, never from the path.
  */
-export async function handleDeviceRequest(request: Request, pathname: string, store: DeviceStore, access: Access, onRevoked?: (ids: string[]) => void): Promise<Response> {
+/** `relayKey`: the key a relayed session proved (empty when it never signed in with one), null off the relay. */
+export async function handleDeviceRequest(request: Request, pathname: string, store: DeviceStore, access: Access, relayKey: string | null, onRevoked?: (ids: string[]) => void): Promise<Response> {
   if (store.error !== null) return jsonResponse({ error: { code: "device_store_unavailable", message: access.level === "full" ? store.error : "Device pairing is unavailable; ask the owner to check Settings → Devices on the host." } }, 503);
   const json = async (): Promise<Record<string, unknown> | Response> => {
     try {
@@ -827,7 +828,7 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     // a code admits whoever holds it, so through the relay to a PC in an account only those who may approve a pairing
     // may start one; a PC in no account keeps letting any driving relay device start one, as before
-    if (access.level === "full" && access.via === "relay" && store.account() !== null && !(access.device && store.isAccountApprover(access.device.id))) {
+    if (access.level === "full" && access.via === "relay" && store.account() !== null && !(access.device && store.isAccountApproverSession(access.device.id, relayKey ?? ""))) {
       return jsonResponse({ error: { code: "account_required", message: "Start a pairing on this PC, or from a device linked to your account" } }, 403);
     }
     try {
