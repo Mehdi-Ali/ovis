@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import nacl from "tweetnacl";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { exportAccountKey, newRecordId, signAccountRecord, type AccountRecord } from "./account-records.ts";
-import { ACCESS_TOKEN_TTL_S, ACCOUNT_RING, ADMISSIONS_PER_WINDOW, DEVICE_POLL_S, DIRECTORY_MAX, FakeAccountService, isAllowedRedirect, MAILBOX_TTL_MS, WEB_REDIRECT, type FakePc } from "./account-service-fake.ts";
+import { ACCESS_TOKEN_TTL_S, ADMISSION_TTL_MS, ACCOUNT_RING, ADMISSIONS_PER_WINDOW, DEVICE_POLL_S, DIRECTORY_MAX, FakeAccountService, isAllowedRedirect, MAILBOX_TTL_MS, WEB_REDIRECT, type FakePc } from "./account-service-fake.ts";
 import { answerServerChallenge, deriveServerId, serverChallenge, verifyServerProof, type ProofRoute } from "./relay-server-proof.ts";
 
 const BASE = "https://account.test";
@@ -119,6 +119,22 @@ describe("the fake account service", () => {
     const accountAnswer = answerServerChallenge(relay.frame, machine.keys.secretKey, { ...route, role: "account" });
     expect(verifyServerProof(accountAnswer, relay.expected)).toBe(false);
     expect(verifyServerProof(answerServerChallenge(relay.frame, machine.keys.secretKey, route), relay.expected)).toBe(true);
+  });
+
+  test("a PC's mailbox carries its account's admissions for ten minutes, each naming the waiting device's key", async () => {
+    let now = Date.parse("2026-11-05T00:00:00.000Z");
+    const service = new FakeAccountService(() => now);
+    const [mine, other] = [service.issueToken("acct_1"), service.issueToken("acct_2")];
+    const machine = pc();
+    for (const token of [mine, other]) await service.fetch(new Request(`${BASE}/v1/pcs/${machine.serverId}`, { method: "PUT", body: JSON.stringify({ label: "pc", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" }), headers: { authorization: `Bearer ${token}` } }));
+    const waiting = await client();
+    expect((await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac" }, mine))).status).toBe(400);
+    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac", key: waiting.spki }, mine));
+    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Other", key: (await client()).spki }, other));
+    const first = (await pull(service, machine, null)).body as { admissions?: { key: string }[] };
+    expect(first.admissions?.map(({ key }) => key)).toEqual([waiting.spki]);
+    now += ADMISSION_TTL_MS;
+    expect(((await pull(service, machine, null)).body as { admissions?: unknown[] }).admissions).toEqual([]);
   });
 
   test("records older than thirty days are gone", async () => {
@@ -281,14 +297,14 @@ describe("the fake account service's doorbell and limits", () => {
     const machine = pc();
     await put(service, laptop, `/v1/pcs/${machine.serverId}`, { label: "pc", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" });
     await put(service, laptop, `/v1/pcs/${machine.serverId}`, { label: "renamed", public_key: machine.publicKey, relay: "wss://relay.ovis.sh" });
-    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac" }, laptop));
-    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac" }, phone));
+    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac", key: (await client()).spki }, laptop));
+    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac", key: (await client()).spki }, phone));
     expect(service.rings()).toEqual([
       { account: "acct_1", endpoint: "https://push.ovis.sh/p/1", payload: ACCOUNT_RING },
       { account: "acct_1", endpoint: "https://push.ovis.sh/p/1", payload: ACCOUNT_RING },
     ]);
     expect((await put(service, phone, "/v1/push", undefined, "DELETE")).status).toBe(204);
-    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac" }, laptop));
+    await service.fetch(post("/v1/admissions", { server_id: machine.serverId, label: "Mac", key: (await client()).spki }, laptop));
     expect(service.rings().length).toBe(2);
   });
 
@@ -302,7 +318,7 @@ describe("the fake account service's doorbell and limits", () => {
     }
     const extra = pc();
     expect(((await (await put(service, token, `/v1/pcs/${extra.serverId}`, { label: "pc", public_key: extra.publicKey, relay: "wss://relay.ovis.sh" })).json()) as { error: { code: string } }).error.code).toBe("directory_full");
-    for (let index = 0; index < ADMISSIONS_PER_WINDOW; index++) expect((await service.fetch(post("/v1/admissions", { server_id: last.serverId, label: "Mac" }, token))).status).toBe(200);
-    expect((await service.fetch(post("/v1/admissions", { server_id: last.serverId, label: "Mac" }, token))).status).toBe(429);
+    for (let index = 0; index < ADMISSIONS_PER_WINDOW; index++) expect((await service.fetch(post("/v1/admissions", { server_id: last.serverId, label: "Mac", key: (await client()).spki }, token))).status).toBe(200);
+    expect((await service.fetch(post("/v1/admissions", { server_id: last.serverId, label: "Mac", key: (await client()).spki }, token))).status).toBe(429);
   });
 });
