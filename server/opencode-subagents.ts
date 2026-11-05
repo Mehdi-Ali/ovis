@@ -105,7 +105,7 @@ function runEnd(run: ChildRun): End | null {
  * the row it is in. `end` null: it runs, a foreground call not answered yet (`waiting`) or a background one not yet
  * said to have ended.
  */
-interface Told { id: string; seq: number; end: End | null; waiting: boolean }
+interface Told { id: string; seq: number; end: End | null; waiting: boolean; updated: number }
 
 /**
  * What a parent's rows were read to tell, kept by whoever reads the session again (the tracker, for each pane) so that
@@ -142,7 +142,7 @@ type ParentRow = { id: string; seq: number; type: string; created: number; updat
 /** What one parent row tells of the children it names. */
 function parentRow(row: ParentRow): (Told & { child: string })[] {
   const told: (Told & { child: string })[] = [];
-  const said = (child: string, end: End | null, waiting = false) => told.push({ child, id: row.id, seq: row.seq, end, waiting });
+  const said = (child: string, end: End | null, waiting = false) => told.push({ child, id: row.id, seq: row.seq, end, waiting, updated: row.updated });
   const child = label(row.notified);
   if (row.type === "synthetic" && child !== null) {
     said(child, { status: row.state === "error" ? "failed" : row.state === "cancelled" ? "cancelled" : "completed", at: stamp(row.at) ?? row.created });
@@ -167,7 +167,7 @@ function parentRow(row: ParentRow): (Told & { child: string })[] {
  * scan's own copy): first whether the rows that log read are still the session's, and those of them written since;
  * then the rows after it, a page a step; once all are in, each child's newest call or notice (`scan.told`). Only rows
  * that may name a subagent are looked into. A foreground call the parent's run is no longer in (an `idle` row of the
- * parent's after it: a crash, a turn stopped) waits on nothing, and a call a staged `/undo` hides tells nothing: the
+ * parent's after it: a crash, a turn stopped) or last written before the service now running started waits on nothing, and a call a staged `/undo` hides tells nothing: the
  * child's own rows tell.
  */
 function parentStep(db: Database, scan: Scan): void {
@@ -224,7 +224,9 @@ function parentStep(db: Database, scan: Scan): void {
     const boundary = record(parse(db.query<{ revert: string | null }, [string]>("SELECT revert FROM session_v2 WHERE id = ?").get(sid)?.revert ?? "null")).messageID;
     if (typeof boundary === "string") end = db.query<{ seq: number }, [string, string]>("SELECT seq FROM session_message WHERE session_id = ? AND id = ?").get(sid, boundary)?.seq ?? end;
   }
-  scan.told = new Map([...told].filter(([, said]) => said.seq < end && !(said.waiting && said.seq < scan.idle)));
+  // a call still waiting that was last written before the service now running started: that service took its run along
+  const orphan = (said: Told) => said.waiting && scan.serviceStart !== null && said.updated < scan.serviceStart - START_SLACK_MS;
+  scan.told = new Map([...told].filter(([, said]) => said.seq < end && !(said.waiting && said.seq < scan.idle) && !orphan(said)));
 }
 
 /**
@@ -728,10 +730,11 @@ export class OpencodeSubagentStatus {
     for (let tries = 0; tries < 3; tries++) {
       const known = this.sessionOf(paneId);
       if (known === null) return null;
-      const log = this.deps.parentEnds?.() === true ? this.panes.get(paneId)?.log ?? NO_LOG : null;
+      const parentEnds = this.deps.parentEnds?.() === true;
+      const log = parentEnds ? this.panes.get(paneId)?.log ?? NO_LOG : null;
       const state = await pagedState(known.path, known.session, known.live, this.now(), this.deps.serviceStart?.() ?? null, true, withStore, log);
       const current = this.sessionOf(paneId);
-      if (current?.path === known.path && current.session === known.session && current.live === known.live) return state === null ? null : { tasks: state.tasks, unlisted: state.unlisted, read: known };
+      if (current?.path === known.path && current.session === known.session && current.live === known.live && parentEnds === (this.deps.parentEnds?.() === true)) return state === null ? null : { tasks: state.tasks, unlisted: state.unlisted, read: known };
     }
     return null;
   }
@@ -846,7 +849,8 @@ export class OpencodeSubagentStatus {
       for (const [paneId, scan] of scans) {
         // a pane that moved on since its read began: what was read is not its own now
         const tracked = this.panes.get(paneId);
-        if (tracked?.live && tracked.session === scan.sessionId) { tracked.log = scan.log; this.tell(paneId, tracked, scanResult(scan)); }
+        // nor one read under the other side of Settings -> Read OpenCode subagent ends from their session: the next poll reads it again
+        if (tracked?.live && tracked.session === scan.sessionId && scan.parentEnds === (this.deps.parentEnds?.() === true)) { tracked.log = scan.log; this.tell(paneId, tracked, scanResult(scan)); }
       }
     } finally {
       for (const [paneId, token] of tokens) if (this.reading.get(paneId) === token) this.reading.delete(paneId);

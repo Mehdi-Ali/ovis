@@ -498,6 +498,20 @@ describe("an OpenCode session's subagents are its child sessions", () => {
     expect(opencodeSubagentState(s.path, s.parent, true, NOW, null, true, true)!.tasks.map((task) => [task.id, task.status])).toEqual([["ses_left", "completed"]]);
   });
 
+  it("lets a child's own rows tell once the service that ran its waiting call is gone, the restarted one having woken it", () => {
+    const s = store();
+    s.prompt(s.parent, NOW - 90_000);
+    s.session("ses_child", NOW - 80_000);
+    s.call("ses_child", NOW - 80_000, "running");
+    s.prompt("ses_child", NOW - 79_000);
+    s.idle("ses_child", NOW - 70_000);
+    // the service starts again, wakes the child, and it goes idle; no parent idle row was written
+    s.add("ses_child", "synthetic", NOW - 20_000, { time: { created: NOW - 20_000 }, metadata: { source: "shell" } });
+    s.idle("ses_child", NOW - 10_000);
+
+    expect(opencodeSubagentState(s.path, s.parent, true, NOW, NOW - 30_000, true, true)!.tasks.map((task) => [task.id, task.status])).toEqual([["ses_child", "completed"]]);
+  });
+
   it("takes nothing from a call a staged /undo hides, as the chat shows nothing of it", () => {
     const s = store();
     s.prompt(s.parent, NOW - 30 * MIN);
