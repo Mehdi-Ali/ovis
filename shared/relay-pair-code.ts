@@ -188,8 +188,9 @@ function fromBase64Url(text: unknown, length?: number): Uint8Array {
   return bytes;
 }
 
-function encodeMessage(message: Record<string, unknown>): Uint8Array {
-  return utf8ToBytes(JSON.stringify(message));
+/** a frame a WebSocket can send as it is */
+function encodeMessage(message: Record<string, unknown>): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(utf8ToBytes(JSON.stringify(message)));
 }
 
 function decodeMessage(frame: Uint8Array): Record<string, unknown> {
@@ -216,7 +217,7 @@ export class PairCodeHost {
     this.ya = scalarMult(this.scalar, calculateGenerator(utf8ToBytes(password), channelIdentifier(nameplate), this.sid));
   }
 
-  hello(): Uint8Array {
+  hello(): Uint8Array<ArrayBuffer> {
     return encodeMessage({ v: 1, sid: toBase64Url(this.sid), ya: toBase64Url(this.ya) });
   }
 
@@ -224,7 +225,7 @@ export class PairCodeHost {
    * `offer` is the pairing offer's JSON (shared/relay-offer.ts), sent only to a device that knew the
    * code; null when its six-digit code is no longer pending, which that device is told instead.
    */
-  answer(frame: Uint8Array, offer: string | null): Uint8Array | null {
+  answer(frame: Uint8Array, offer: string | null): Uint8Array<ArrayBuffer> | null {
     if (this.done) throw new PairCodeProtocolError("this exchange is over");
     this.done = true;
     const message = decodeMessage(frame);
@@ -255,7 +256,7 @@ export class PairCodeGuest {
     this.code = splitPairCode(code);
   }
 
-  answer(frame: Uint8Array): Uint8Array {
+  answer(frame: Uint8Array): Uint8Array<ArrayBuffer> {
     if (this.isk !== null) throw new PairCodeProtocolError("this exchange is over");
     const message = decodeMessage(frame);
     if (message.v !== 1) throw new PairCodeProtocolError("unsupported version");

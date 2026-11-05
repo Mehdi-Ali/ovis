@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Link2, RefreshCw } from "lucide-react";
+import { Keyboard, Link2, RefreshCw } from "lucide-react";
 
 import "./RelayPanel.css";
 
 import { copyText } from "../lib/clipboard.ts";
-import { ApiError, requestRelayLink, requestRelayOffer, startPairing, type RelayOffer } from "../lib/api.ts";
+import { ApiError, cancelRelayCode, requestRelayCode, requestRelayLink, requestRelayOffer, startPairing, type RelayCode, type RelayOffer } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
 import { callNative, hasNativePlugin } from "../lib/nativeApp.ts";
 import { announcePairingCode, PAIRING_CODE_EVENT } from "../lib/useRelay.ts";
@@ -194,9 +194,55 @@ export function RelayPairing({ phone = false }: { phone?: boolean }) {
           <button type="button" className="btn" disabled={state === "minting"} onClick={() => void renew()}><RefreshCw aria-hidden="true" />{t("New code")}</button>
         </div>
         <CodelessLink />
+        <TypedCode onMinted={() => { quiet.current = true; again(); }} />
         {pcId}
       </div>
     </div>
+  );
+}
+
+/**
+ * No camera, no way to send a link: a code to type on the other device (Pair with a code at
+ * app.ovis.sh), shown as GitHub's device sign-in shows its code. It starts a new six-digit code,
+ * so the QR code above is asked for again (`onMinted`). The other device then shows this PC's ID
+ * to compare with the one below.
+ */
+function TypedCode({ onMinted }: { onMinted: () => void }) {
+  const t = useT();
+  const [code, setCode] = useState<RelayCode | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [left, setLeft] = useState("");
+  useEffect(() => {
+    if (code === null) return;
+    const tick = () => {
+      const ms = Date.parse(code.expires_at) - Date.now();
+      if (ms <= 0) { setCode(null); return; }
+      setLeft(`${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`);
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [code]);
+  const show = async () => {
+    setFailure(null);
+    try { setCode(await requestRelayCode()); onMinted(); } catch (reason) { setCode(null); setFailure(failureText(reason)); }
+  };
+  const hide = () => { setCode(null); void cancelRelayCode().catch(() => undefined); };
+  return (
+    <>
+      <div className="phone-actions">
+        <button type="button" className="btn" onClick={() => void show()}><Keyboard aria-hidden="true" />{code === null ? t("Show a code to type") : t("New code to type")}</button>
+        {code !== null && <button type="button" className="btn" onClick={hide}>{t("Hide the code")}</button>}
+      </div>
+      {code !== null && (
+        <div className="relay-typed-code" role="status">
+          <p className="relay-typed-code-value" aria-label={t("Code to type")}>{code.code}</p>
+          <p className="settings-hint">{t("On the other device, open app.ovis.sh, choose Pair with a code and type it. Expires in {time}. It works once.", { time: left })}</p>
+          <p className="settings-hint">{t("That device then shows an ID: pair only if it matches this PC's ID below, every group.")}</p>
+        </div>
+      )}
+      {failure !== null && <p className="settings-hint relay-error" role="alert">{failure}</p>}
+    </>
   );
 }
 

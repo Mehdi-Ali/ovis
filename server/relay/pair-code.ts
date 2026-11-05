@@ -135,7 +135,7 @@ export class RelayPairCodes {
     });
   }
 
-  private send(current: Current, data: string | Uint8Array): void {
+  private send(current: Current, data: string | Uint8Array<ArrayBuffer>): void {
     try { current.socket?.send(data); } catch { /* the close handler reopens or ends it */ }
   }
 
