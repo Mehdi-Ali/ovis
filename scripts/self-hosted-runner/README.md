@@ -186,7 +186,49 @@ four slot jobs and twelve runners busy, the host stayed under 17.2 GiB; a fifth 
 4 GiB puts it near 21 GiB, about 9 GiB below the total, which holds one browser spike at eight
 workers (about 5-7 GiB above that job's usual 2-4 GiB) but not two at once.
 
-A manual run can override the variable with the `self_hosted_labels` workflow_dispatch input. Fork PRs always use `ubuntu-24.04`; Windows/macOS jobs, `remote-bundles.yml` and `windows-install.yml` stay GitHub-hosted.
+A manual run can override the variable with the `self_hosted_labels` workflow_dispatch input. Fork PRs always use `ubuntu-24.04`; Windows jobs, the Linux bundles of `remote-bundles.yml` and `windows-install.yml` stay GitHub-hosted. The macOS jobs go to the Mac runner below while it is free.
+
+## Mac runner
+
+The macOS jobs (`ci.yml`'s Native macOS session identity, `remote-bundles.yml`'s `macos-15` bundle)
+of a same-repository pull request or a push to main run on the maintainer's test MacBook Air
+(`ssh eamac`) when `scripts/ci-mac-runner-route.sh` finds it online and free, and on `macos-15`
+otherwise (see `docs/development.md`). It is one plain GitHub Actions runner, not this directory's
+Docker launcher, so it runs one job at a time:
+
+- `~/actions-runner-ovis` on the Mac's internal disk, name `eamac-ovis-mac`, labels `self-hosted`,
+  `macOS`, `ARM64`, `self-hosted-ovis-mac`, work directory `_work`.
+- A launchd LaunchAgent of the Mac's own user (`./svc.sh install`), so it runs while that user is
+  logged in; log in `~/Library/Logs/actions.runner.devswha-ovis.eamac-ovis-mac/`.
+- `.env` sets `ACTIONS_RUNNER_HOOK_JOB_STARTED` to a copy of `job-started.sh` in `hooks/` (it finds
+  the worker with `ps` on macOS), and `RUSTUP_HOME`/`CARGO_HOME` to a minimal rustup in `tools/`
+  for the PTY host build; `.path` puts `tools/cargo/bin` first. Bun and Node come from
+  `setup-bun`/`setup-node` into the runner's tool cache, as on a hosted runner.
+- No job signs anything: nothing here touches the user's keychains (the signing identities stay
+  in their own keychains), and jobs get no signing secret.
+
+Set up again after a wipe (registration token from
+`gh api -X POST repos/devswha/ovis/actions/runners/registration-token --jq .token`):
+
+```sh
+cd ~/actions-runner-ovis   # the osx-arm64 runner release, checksum-verified
+./config.sh --unattended --url https://github.com/devswha/ovis --token <token> \
+  --name eamac-ovis-mac --labels self-hosted-ovis-mac --work _work --replace
+./svc.sh install && ./svc.sh start
+```
+
+Copy `job-started.sh` to `hooks/` again after changing it. Stop or remove it:
+
+```sh
+gh variable set CI_MAC_SELF_HOSTED_LABELS --body '"macos-15"'   # every macOS job hosted, runner untouched
+ssh eamac 'cd ~/actions-runner-ovis && ./svc.sh stop'            # stop; set the variable first, or a job already sent there waits
+ssh eamac 'cd ~/actions-runner-ovis && ./svc.sh start'           # start again
+ssh eamac 'cd ~/actions-runner-ovis && ./svc.sh uninstall && ./config.sh remove --token <removal token>'
+```
+
+The removal token comes from `gh api -X POST repos/devswha/ovis/actions/runners/remove-token --jq .token`.
+Unlike the Docker runners it keeps its work directory between jobs, so only same-repository code
+reaches it (the hook refuses the rest) and a job could leave files or processes behind for the next.
 
 ## Security model
 

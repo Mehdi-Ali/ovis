@@ -20,14 +20,22 @@ refuse() {
   # nothing may stop this before the kill: a closed output (SIGPIPE) or a signal ends the shell
   # inside its EXIT trap, and the worker would go on
   trap '' PIPE HUP INT TERM
-  local refusal pid parent
+  local refusal pid parent name
   # A failing hook only fails its own step: runner v2.338 still runs the job's `if: always()` and
   # `if: failure()` steps and its actions' post steps. So end the job first: SIGKILL the
   # Runner.Worker that runs it (an ancestor of this hook), which leaves no step to run.
+  # Linux reads /proc; macOS (the Mac runner, README "Mac runner") has none and asks ps.
   pid=$PPID
   while [[ "$pid" -gt 1 ]]; do
-    parent="$(sed -n 's/^PPid:[[:space:]]*//p' "/proc/$pid/status" 2>/dev/null)" || break
-    if [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == Runner.Worker ]]; then
+    if [[ -d /proc/$pid ]]; then
+      parent="$(sed -n 's/^PPid:[[:space:]]*//p' "/proc/$pid/status" 2>/dev/null)" || break
+      name="$(cat "/proc/$pid/comm" 2>/dev/null)"
+    else
+      parent="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')" || break
+      name="$(ps -o comm= -p "$pid" 2>/dev/null)"
+      name="${name##*/}"
+    fi
+    if [[ "$name" == Runner.Worker ]]; then
       kill -KILL "$pid"
       break
     fi

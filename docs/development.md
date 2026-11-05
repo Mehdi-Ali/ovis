@@ -1060,9 +1060,18 @@ request runs, and `"ubuntu-24.04"` keeps only main GitHub-hosted. `CI_SELF_HOSTE
 `"ubuntu-24.04"` still keeps every job hosted. Delete the variable while no reserved runner is online,
 or main's jobs wait for one.
 
-Detect changes, the Integration and browser summary, the Windows and macOS jobs,
+Detect changes, the Integration and browser summary, the Windows jobs, the Linux bundles of
 `remote-bundles.yml`, `windows-install.yml`, `windows-terminal-qa.yml` and `pr-title.yml` always
 stay GitHub-hosted.
+
+The macOS jobs (`ci.yml`'s Native macOS session identity and `remote-bundles.yml`'s `macos-15`
+bundle) of a same-repository pull request or a push to main go to the maintainer's Mac runner
+(`["self-hosted","self-hosted-ovis-mac"]`, one job at a time) while it looks online and free, and
+to `macos-15` otherwise; tags, dispatches and release runs stay on `macos-15`.
+`scripts/ci-mac-runner-route.sh` decides from the Actions API: a job that has waited over 10
+minutes for that label means the Mac is offline, and two unfinished jobs there mean it is busy.
+The repository variable `CI_MAC_SELF_HOSTED_LABELS='"macos-15"'` keeps every macOS job hosted.
+Setup and how to stop it: `scripts/self-hosted-runner/README.md` ("Mac runner").
 
 In `ci.yml`, Detect changes picks the runner with `scripts/ci-runner-route.sh`. A fork pull request
 always gets `ubuntu-24.04`, whatever the variable says. Since that script runs from the pull
