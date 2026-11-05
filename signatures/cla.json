@@ -1,3 +1,20 @@
 {
-  "signedContributors": []
+  "signedContributors": [
+    {
+      "name": "YuuuXie",
+      "id": 24205323,
+      "comment_id": 6672031070,
+      "created_at": "2026-11-05T23:16:02Z",
+      "repoId": 1374928133,
+      "pullRequestNo": 3086
+    },
+    {
+      "name": "YuuuXie",
+      "id": 24205323,
+      "comment_id": 6672319382,
+      "created_at": "2026-11-05T23:34:13Z",
+      "repoId": 1374928133,
+      "pullRequestNo": 3086
+    }
+  ]
 }
