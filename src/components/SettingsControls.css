@@ -325,6 +325,85 @@
   }
 }
 
+/* the picture before a row's name */
+.settings-row-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-right: var(--space-1);
+  color: var(--text-dim);
+}
+
+/* a tiny drawing of what the choice does, beside its control */
+.settings-row-preview {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+/* Wrap long lines, drawn: a line of code in a box two lines high, wrapped or running past the edge */
+.settings-wrap-preview {
+  display: block;
+  width: 88px;
+  height: 30px;
+  padding: 2px var(--space-1);
+  overflow: hidden;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: 9px;
+  line-height: 12px;
+  white-space: pre;
+  position: relative;
+}
+
+/* off, the line runs past the edge: it fades there */
+.settings-wrap-preview::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 18px;
+  background: linear-gradient(to right, transparent, var(--bg));
+}
+
+.settings-wrap-preview.is-wrapped {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-wrap-preview.is-wrapped::after {
+  display: none;
+}
+
+.settings-chip svg {
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+/* several on/off choices in one row: a chip each, pressed when on */
+.settings-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.settings-chip {
+  padding: 2px var(--space-3);
+  border: var(--hairline) solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.settings-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* a font list and its size on one line */
 .settings-font-size {
   display: flex;

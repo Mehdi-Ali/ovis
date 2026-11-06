@@ -1,5 +1,5 @@
 import { createContext, isValidElement, useContext, type ComponentProps, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw, type LucideIcon } from "lucide-react";
 
 import { DEFAULT_SETTINGS, useSettings, type Settings } from "../lib/settings.ts";
 import { useT } from "../lib/i18n.ts";
@@ -17,8 +17,11 @@ import "./SettingsControls.css";
  */
 export const SettingsQuery = createContext<readonly string[]>([]);
 
-/** A page drawn as herdr-app draws its settings: rows are a label and a control, with no sentences and no group captions. */
-export const SettingsBare = createContext(false);
+/**
+ * A page drawn as herdr-app draws its settings: rows are a label and a control, with no sentences and no group captions.
+ * `"rows"`: the rows go without sentences, but each group keeps its short heading. A row's sentence still counts for search.
+ */
+export const SettingsBare = createContext<boolean | "rows">(false);
 
 /** What a search matches by: case and full-width forms folded, so "Font" finds "font". */
 const folded = (text: string): string => text.normalize("NFKC").toLocaleLowerCase();
@@ -72,7 +75,7 @@ export function SettingsGroup({ title, note, className, section, children }: { t
   const titled = words.length > 0 && title !== undefined && matchesSettingsQuery(words, title);
   return (
     <section className={className ? `settings-section ${className}` : "settings-section"} data-section={section} data-found={titled ? "" : undefined} tabIndex={section ? -1 : undefined}>
-      {!bare && title !== undefined && <h3>{title}</h3>}
+      {bare !== true && title !== undefined && <h3>{title}</h3>}
       {!bare && note !== undefined && <p className="settings-description settings-note">{note}</p>}
       <div className="settings-card">{titled ? <SettingsQuery.Provider value={[]}>{children}</SettingsQuery.Provider> : children}</div>
     </section>
@@ -85,7 +88,13 @@ export function SettingsGroup({ title, note, className, section, children }: { t
  * more words a search finds it by, for a row opened by another. `held`: a row in the middle of a
  * step (a recording, a confirmation) stays in a search whatever its words have become.
  */
-export function SettingsRow({ label, description, keywords, held = false, htmlFor, wide = false, reset, children }: { label: string; description?: ReactNode; keywords?: string; held?: boolean; htmlFor?: string; wide?: boolean; reset?: readonly (keyof Settings)[]; children: ReactNode }) {
+export function SettingsRow({ label, description, keywords, held = false, htmlFor, wide = false, reset, icon: Icon, preview, condition, children }: { label: string; description?: ReactNode; keywords?: string; held?: boolean; htmlFor?: string; wide?: boolean; reset?: readonly (keyof Settings)[];
+  /** a picture of what the row is about, before its name: shown, not told */
+  icon?: LucideIcon;
+  /** a tiny drawing of what the choice does, beside the control */
+  preview?: ReactNode;
+  /** what applies right now (a refusal, a missing key): shown under the name even where sentences are not */
+  condition?: ReactNode; children: ReactNode }) {
   const words = useContext(SettingsQuery);
   const bare = useContext(SettingsBare);
   const { settings, update } = useSettings();
@@ -97,16 +106,19 @@ export function SettingsRow({ label, description, keywords, held = false, htmlFo
   return (
     <div className={wide ? "settings-row is-wide" : "settings-row"} data-setting="">
       <div className="settings-row-text">
-        {changed ? (
+        {changed || Icon !== undefined ? (
           <span className="settings-label-line">
+            {Icon !== undefined && <Icon className="settings-row-icon" aria-hidden="true" />}
             {label_}
-            <button type="button" className="settings-reset" title={t("Restore defaults")} aria-label={`${t("Restore defaults")}: ${label}`} onClick={() => update(Object.fromEntries(reset.map((key) => [key, DEFAULT_SETTINGS[key]])) as Partial<Settings>)}>
+            {changed && <button type="button" className="settings-reset" title={t("Restore defaults")} aria-label={`${t("Restore defaults")}: ${label}`} onClick={() => update(Object.fromEntries(reset.map((key) => [key, DEFAULT_SETTINGS[key]])) as Partial<Settings>)}>
               <RotateCcw aria-hidden="true" />
-            </button>
+            </button>}
           </span>
         ) : label_}
-        {!bare && description !== undefined && <span className="settings-description">{description}</span>}
+        {bare === false && description !== undefined && <span className="settings-description">{description}</span>}
+        {condition}
       </div>
+      {preview !== undefined && <span className="settings-row-preview" aria-hidden="true">{preview}</span>}
       {children}
     </div>
   );
@@ -130,14 +142,15 @@ export function SettingsSelect({ className, children, ...props }: ComponentProps
   );
 }
 
-export interface SegmentedOption<T extends string> { value: T; label: string }
+/** `name`: what a screen reader and a test call the button when its short label is shared with another control nearby */
+export interface SegmentedOption<T extends string> { value: T; label: string; name?: string }
 
 /** One of a few short choices, all in sight. Five or more go in a select instead. */
 export function Segmented<T extends string>({ label, value, options, onChange, disabled }: { label: string; value: T; options: readonly SegmentedOption<T>[]; onChange: (value: T) => void; disabled?: boolean }) {
   return (
     <div className="segmented settings-segmented" role="group" aria-label={label}>
       {options.map((option) => (
-        <button key={option.value} type="button" aria-pressed={value === option.value} disabled={disabled} onClick={() => onChange(option.value)}>{option.label}</button>
+        <button key={option.value} type="button" aria-pressed={value === option.value} aria-label={option.name} disabled={disabled} onClick={() => onChange(option.value)}>{option.label}</button>
       ))}
     </div>
   );

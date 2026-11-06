@@ -9,6 +9,8 @@ export const SETTINGS_LAYOUT_JA: Record<string, string> = {
   "Search results": "検索結果",
   "Open {page}": "{page} を開く",
   "Sidebar": "サイドバー",
+  "Show dark themes": "ダークテーマを表示",
+  "Show light themes": "ライトテーマを表示",
   "Earlier themes": "前のテーマ",
   "Later themes": "次のテーマ",
   "More settings": "その他の設定",

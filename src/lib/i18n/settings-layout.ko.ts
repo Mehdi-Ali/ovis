@@ -9,6 +9,8 @@ export const SETTINGS_LAYOUT_KO: Record<string, string> = {
   "Search results": "검색 결과",
   "Open {page}": "{page} 열기",
   "Sidebar": "사이드바",
+  "Show dark themes": "다크 테마 보기",
+  "Show light themes": "라이트 테마 보기",
   "Earlier themes": "이전 테마",
   "Later themes": "다음 테마",
   "More settings": "설정 더 보기",

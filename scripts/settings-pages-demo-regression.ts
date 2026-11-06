@@ -50,11 +50,15 @@ const historyHolds = async (page: Page, step: string, holds: () => boolean): Pro
 /** Controls and text that reach past their card, and cards past the page's box: a row wider than its card is cut there. */
 const cutOff = (page: Page): Promise<string[]> => page.locator(".settings-body:not([hidden]), .settings-key-bar-body").evaluate((body) => {
   const edge = body.getBoundingClientRect();
-  const out = [...body.querySelectorAll<HTMLElement>("button, input, select, a, .settings-card, .settings-row")]
+  const out = [...body.querySelectorAll<HTMLElement>("button, input, select, a, .settings-card, .settings-row, .theme-cards")]
     .filter((node) => {
       const box = node.getBoundingClientRect();
       // a control is held by its card, where it has one; a card by the page
       const card = node.classList.contains("settings-card") ? null : node.closest<HTMLElement>(".settings-card");
+      // one in a row that scrolls sideways on purpose (the theme cards) is held by that row's scroll, inside the card
+      for (let up = node.parentElement; up && up !== card && up !== body; up = up.parentElement) {
+        if (/auto|scroll/.test(getComputedStyle(up).overflowX)) return false;
+      }
       const within = card ? card.getBoundingClientRect() : edge;
       return box.width > 0 && (box.right > within.right + 0.5 || box.left < within.left - 0.5);
     })

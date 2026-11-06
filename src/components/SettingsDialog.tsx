@@ -393,7 +393,7 @@ function ThemePicker() {
   return (
     <>
       <SettingsRow label={label} keywords={`${t("Dark theme")} ${t("Light theme")} ${t("Shown in dark mode")} ${t("Shown in light mode")}`} reset={[side === "dark" ? "darkTheme" : "lightTheme"]}>
-        <Segmented label={`${t("Dark theme")} · ${t("Light theme")}`} value={side} onChange={setSide} options={[{ value: "dark", label: t("Dark") }, { value: "light", label: t("Light") }]} />
+        <Segmented label={`${t("Dark theme")} · ${t("Light theme")}`} value={side} onChange={setSide} options={[{ value: "dark", label: t("Dark"), name: t("Show dark themes") }, { value: "light", label: t("Light"), name: t("Show light themes") }]} />
       </SettingsRow>
       <div className="settings-item theme-strip">
         <div className="theme-strip-frame">

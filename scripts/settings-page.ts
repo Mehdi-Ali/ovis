@@ -37,7 +37,7 @@ export async function openSettingsFolds(page: Page): Promise<void> {
  * side once was: the side is switched to first, then its cards are read or one is picked. English labels.
  */
 export function themeSide(page: Page, side: "dark" | "light") {
-  const switchTo = () => page.getByRole("group", { name: "Dark theme · Light theme", exact: true }).getByRole("button", { name: side === "dark" ? "Dark" : "Light", exact: true }).click();
+  const switchTo = () => page.getByRole("group", { name: "Dark theme · Light theme", exact: true }).getByRole("button", { name: side === "dark" ? "Show dark themes" : "Show light themes", exact: true }).click();
   const cards = page.getByRole("radiogroup", { name: side === "dark" ? "Dark theme" : "Light theme", exact: true });
   return {
     async selectOption(id: string): Promise<void> {
