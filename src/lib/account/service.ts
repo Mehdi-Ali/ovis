@@ -202,20 +202,33 @@ async function endAtService(session: AccountSession, fetchImpl: Fetch, now: () =
   if (!response.ok) throw await failure(response);
 }
 
-/** Sign-ins this client could not end at the service, kept to end later; past this many the oldest is dropped. */
-const ENDING_MAX = 16;
+/** `ending` with `session` in it once. */
+function withEnding(ending: readonly AccountSession[] | undefined, session: AccountSession): AccountSession[] {
+  return [...(ending ?? []).filter((each) => each.refresh_token !== session.refresh_token), session];
+}
+
+/** Takes `session` off the list to end, once the service confirmed it ended. */
+async function ended(store: AccountStore, session: AccountSession): Promise<void> {
+  await store.update("ending", (current) => {
+    const left = (current ?? []).filter((each) => each.refresh_token !== session.refresh_token);
+    return left.length > 0 ? left : undefined;
+  });
+}
 
 /**
- * Ends a sign-in no one keeps (`what` names it in the log). One the service did not confirm ending
- * is kept in the store and ended again by AccountService.endLeftovers; it never throws.
+ * Ends a sign-in no one keeps (`what` names it in the log). It is on the store's list to end before
+ * the service is asked, and leaves it only once the service confirms, so a page closed meanwhile or
+ * a refused answer loses nothing: AccountService.endLeftovers ends it later. Never throws.
  */
 export async function endSignIn(session: AccountSession, what: string, options: { store: AccountStore; fetch?: Fetch; now?: () => number }): Promise<void> {
+  await options.store.update("ending", (current) => withEnding(current, session));
   try {
     await endAtService(session, options.fetch ?? ((input, init) => fetch(input, init)), options.now ?? Date.now);
   } catch (error) {
     console.warn(`Ovis: ${what} was not ended at the account service; it is tried again later`, error instanceof AccountServiceError ? error.code : error instanceof Error ? error.name : error);
-    await options.store.update("ending", (current) => [...(current ?? []), session].slice(-ENDING_MAX));
+    return;
   }
+  await ended(options.store, session);
 }
 
 /**
@@ -400,21 +413,16 @@ export class AccountService {
    */
   async signOut(): Promise<void> {
     // at once, not behind a refresh or another sign-out that holds the lock
+    // and onto the list to end in the same step, so a page closed before the service answers loses nothing
     let session: AccountSession | undefined;
-    await this.options.store.updateMany(["session", "epoch"], (current) => {
+    await this.options.store.updateMany(["session", "epoch", "ending"], (current) => {
       session = current.session;
-      return { epoch: crypto.randomUUID() };
+      return { epoch: crypto.randomUUID(), ending: session === undefined ? current.ending : withEnding(current.ending, session) };
     });
     const taken = session;
     if (taken !== undefined) {
-      await this.lock(async () => {
-        try {
-          await endAtService(taken, this.fetch, this.now);
-        } catch (error) {
-          await this.options.store.update("ending", (current) => [...(current ?? []), taken].slice(-ENDING_MAX));
-          throw error;
-        }
-      });
+      await this.lock(() => endAtService(taken, this.fetch, this.now));
+      await ended(this.options.store, taken);
     }
     await this.endLeftovers();
   }
@@ -485,9 +493,11 @@ export class AccountService {
   private async call(method: string, path: string, body?: unknown): Promise<unknown> {
     let stale: string | undefined;
     let account: string | undefined;
+    const epoch = await this.options.store.get("epoch");
     for (const retry of [false, true]) {
       const session = await this.fresh(stale);
-      // a request is repeated only for the account it was made for, never one signed in meanwhile
+      // a request is repeated only for the sign-in it was made for: never after a sign-out, nor for another account
+      if (retry && await this.options.store.get("epoch") !== epoch) throw new SignedOutError();
       if (account !== undefined && session.account !== account) throw new SignedOutError();
       account = session.account;
       const response = await this.fetch(new URL(path, session.service), {

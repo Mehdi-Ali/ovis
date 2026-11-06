@@ -5,7 +5,7 @@
  * host that serves the app.
  */
 import { toBase64Url } from "../../../shared/relay-pair-sas.ts";
-import { AccountServiceError, keepSignIn, requestToken, signInEpoch } from "./service.ts";
+import { AccountServiceError, keepSignIn, requestToken, SignedOutError, signInEpoch } from "./service.ts";
 import type { AccountProvider, AccountSession, AccountStore, PendingSignIn } from "./store.ts";
 
 /** A sign-in left at the provider's pages longer than this is not finished: its return is refused. */
@@ -93,6 +93,8 @@ export async function finishSignIn(returned: SignInReturn, options: FinishOption
   if (now() - pending.started_at > SIGN_IN_MS) throw new SignInError("expired", "The sign-in took too long");
   if ("error" in returned && returned.error === "invalid_link") throw new SignInError("expired", "The link to add a sign-in method ran out");
   if ("error" in returned) throw new SignInError("denied", "The sign-in was cancelled or refused");
+  // signed out since it started: the code is not redeemed, so a link adds nothing, even when the revoke failed
+  if (await options.store.get("epoch") !== pending.epoch) throw new SignedOutError();
   let session: AccountSession;
   try {
     session = await requestToken(pending.service, {
