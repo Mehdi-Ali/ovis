@@ -203,10 +203,14 @@ export function DevicesPanel({ onDevicePaired, auth, onPaired, onRevokedAll, kin
   const removeEverywhere = async (key: string, account: string, label: string) => {
     const transport = getTransport();
     const service = new AccountService({ store: indexedAccountStore });
-    const result = await removeFromAccount({ service, accountStore: indexedAccountStore, relayStore: indexedDeviceStore, key, account, label, track: reports,
-      here: (path, init) => transport.fetch(path, init), ...(serverIdOfPath(window.location.pathname) ? { hereId: serverIdOfPath(window.location.pathname)! } : {}) });
-    setRemovalsVersion((v) => v + 1);
-    return { ...result, service };
+    try {
+      const result = await removeFromAccount({ service, accountStore: indexedAccountStore, relayStore: indexedDeviceStore, key, account, label, track: reports,
+        here: (path, init) => transport.fetch(path, init), ...(serverIdOfPath(window.location.pathname) ? { hereId: serverIdOfPath(window.location.pathname)! } : {}) });
+      return { ...result, service };
+    } finally {
+      // a removal that failed part of the way may still have reached this PC: both lists are read again
+      setRemovalsVersion((v) => v + 1);
+    }
   };
   /** A device of the account, gone from every PC of it: at once here, then carried to the others (docs/account.md, "Removing a device"). */
   const disconnect = async (id: string, key: string, account: string, label: string) => {
@@ -237,6 +241,7 @@ export function DevicesPanel({ onDevicePaired, auth, onPaired, onRevokedAll, kin
       }
     } catch (e) {
       setError(e instanceof RemovalTrackingFull ? t("This device already tracks the most removals it can. Clear the settled ones first.") : e instanceof Error ? e.message : String(e));
+      await load({ quiet: true });
     }
   };
   const removeCandidates = async (account: string) => {

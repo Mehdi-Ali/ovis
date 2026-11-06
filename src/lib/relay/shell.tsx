@@ -437,7 +437,6 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
       if (device.public_spki !== key.public_spki || (!linking && status.account !== session.account)) return;
       // the account's removals this PC holds, checked and kept as signed, for a PC this client enrolls later (#2956)
       if (!linking) await keepRemovals({ store: accountStore, account: session.account, removals: status.removals });
-      // the removals this device signed reach this PC now, whatever the account service did, and its report is kept
       // the PC lists this row as a member: only now does it count as in the account here
       if (!linking && device.account !== session.account && device.device_id !== null && !status.unlinked.includes(device.device_id)) {
         const known = device;

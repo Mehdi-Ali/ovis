@@ -104,8 +104,10 @@ export async function removeFromAccount(options: {
       if (options.hereId !== undefined) await carryRemovals({ fetch: options.here, store: options.accountStore, account: session.account, serverId: options.hereId, now: options.now });
     }
     if (read.error !== null) throw new Error("Removed here and on your paired PCs, but your account's PC list could not be read. It is sent to the others when this device next reads it.");
-    const unconfirmed = [...listed.filter((id) => !linked.has(id)), ...[...linked].filter((id) => !listed.includes(id)), ...failed];
-    return { remove, unconfirmed, queued: listed.filter((id) => !failed.includes(id)) };
+    // the PC in view applied it (it threw otherwise): never named as not reached
+    const here = (id: string) => options.here !== undefined && id === options.hereId;
+    const unconfirmed = [...listed.filter((id) => !linked.has(id)), ...[...linked].filter((id) => !listed.includes(id)), ...failed].filter((id) => !here(id));
+    return { remove, unconfirmed, queued: listed.filter((id) => !failed.includes(id) && !here(id)) };
   }
   // the PC in view first: it answers at once, whatever the account service does next
   if (options.here) {
