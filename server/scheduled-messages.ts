@@ -1,6 +1,7 @@
 /**
- * Messages the user scheduled for a pane's agent (#2919): kept by this PC, in its state folder, so each goes out
- * at its time with every device closed. At its time a message is typed as a queued next-turn message is
+ * Messages the user scheduled for a pane's agent (#2919): kept by this PC, in its state folder. At its time a message
+ * is typed only while a device has its pane open (#2951: that device's width is what a wrapped password prompt is read
+ * at; with none it waits), and as a queued next-turn message is
  * (server/core/pending.ts sendScheduled): it waits for the agent's turn, never goes over a draft or an open
  * question, and only into the terminal and agent session it was scheduled for. One whose pane is gone or runs
  * another session is held with the reason until the user sends or discards it. A message is claimed (`sending`)
