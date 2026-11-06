@@ -689,13 +689,21 @@ async function rowResets(browser: import("playwright-core").Browser, url: string
     await page.goto(`${url}?settings=appearance`);
     await page.locator(".conn-live").waitFor({ state: "attached" });
     await page.locator(".theme-cards").waitFor();
+    // the cards follow the Theme mode while no side is chosen here
+    const mode = page.getByRole("group", { name: "Theme", exact: true });
+    await mode.getByRole("button", { name: "Light", exact: true }).click();
+    await page.getByRole("radiogroup", { name: "Light theme", exact: true }).waitFor();
+    await mode.getByRole("button", { name: "Dark", exact: true }).click();
+    await page.getByRole("radiogroup", { name: "Dark theme", exact: true }).waitFor();
 
     assert.equal(await reset("Terminal font").count(), 0, "no ↺ while the terminal font and size are the defaults");
     await page.getByRole("button", { name: "Increase terminal font size", exact: true }).click();
     await reset("Terminal font").waitFor();
     assert.equal((await saved())["terminalFontSize"], DEFAULT_SETTINGS.terminalFontSize + 1);
-    await reset("Terminal font").click();
+    await reset("Terminal font").focus();
+    await page.keyboard.press("Enter");
     await reset("Terminal font").waitFor({ state: "detached" });
+    assert.equal(await page.evaluate(() => document.activeElement?.closest(".settings-row")?.querySelector(".settings-label")?.textContent), "Terminal font", "the row keeps the focus once its ↺ goes");
     const fonts = await saved();
     assert.deepEqual([fonts["terminalFontSize"], fonts["terminalFontFamily"] ?? DEFAULT_SETTINGS.terminalFontFamily], [DEFAULT_SETTINGS.terminalFontSize, DEFAULT_SETTINGS.terminalFontFamily], "↺ puts back the size and the font of its row");
 
@@ -719,9 +727,6 @@ async function rowResets(browser: import("playwright-core").Browser, url: string
     await page.keyboard.press("Home");
     await page.waitForFunction((id) => document.documentElement.dataset.palette === id, listed[0]!);
 
-    // the cards follow the Theme mode while no side is chosen here
-    await page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name: "Light", exact: true }).click();
-    await page.getByRole("radiogroup", { name: "Light theme", exact: true }).waitFor();
     assert.deepEqual(errors, []);
   } finally {
     await context.close();

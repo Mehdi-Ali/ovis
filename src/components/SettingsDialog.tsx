@@ -325,8 +325,10 @@ function ThemeCard({ id, side, checked, onPick }: { id: ThemeId; side: Mode; che
   const t = useT();
   const row = rowFor(id, side);
   const c = row.preview;
+  // a theme of the other kind says so: it draws that way on this side
+  const kind = row.mode === side ? undefined : `${t(THEME_NAMES[id])} · ${t(row.mode === "dark" ? "Dark" : "Light")}`;
   return (
-    <button type="button" role="radio" aria-checked={checked} tabIndex={checked ? 0 : -1} className="theme-card" data-theme-card={id} onClick={onPick}>
+    <button type="button" role="radio" aria-checked={checked} aria-label={kind} title={kind} tabIndex={checked ? 0 : -1} className="theme-card" data-theme-card={id} onClick={onPick}>
       <span className="theme-card-art" aria-hidden="true" style={{ background: row.bg, borderColor: c.border }}>
         <span className="theme-card-side" style={{ background: row.bgPanel, borderColor: c.border }}>
           <i style={{ background: c.accent }} /><i style={{ background: c.textDim }} /><i style={{ background: c.textDim }} />
@@ -366,14 +368,15 @@ function ThemePicker() {
     const el = strip.current;
     if (el) setEnds({ start: el.scrollLeft <= 1, end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 });
   }, []);
-  // the chosen card in view when the side changes, by the row's own scroll so the page stays put;
-  // a pick made in the row leaves it where it is
+  // the chosen card in view when it is not (a side switched, a reset), by the row's own scroll so the
+  // page stays put; a pick already in view leaves the row where it is
   useLayoutEffect(() => {
     const el = strip.current;
     const card = el?.querySelector<HTMLElement>(`[data-theme-card="${current}"]`);
-    if (el && card) el.scrollLeft = card.offsetLeft - (el.clientWidth - card.offsetWidth) / 2;
+    const shown = el && card && card.offsetLeft >= el.scrollLeft && card.offsetLeft + card.offsetWidth <= el.scrollLeft + el.clientWidth;
+    if (el && card && !shown) el.scrollLeft = card.offsetLeft - (el.clientWidth - card.offsetWidth) / 2;
     measure();
-  }, [side, measure]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [side, current, measure]);
   useEffect(() => {
     const el = strip.current;
     if (!el) return;
@@ -424,6 +427,8 @@ function InterfaceFontRows() {
   const t = useT();
   const preset = uiFontPreset(settings.uiFontFamily);
   const [customOpen, setCustomOpen] = useState(preset === "custom");
+  // a family put back from elsewhere (the row's ↺) closes the custom field it was typed in
+  useEffect(() => { if (settings.uiFontFamily === DEFAULT_SETTINGS.uiFontFamily) setCustomOpen(false); }, [settings.uiFontFamily]);
   const custom = customOpen || preset === "custom";
   const interfaceFontDescription = t("Menus, lists, dialogs and the sidebar; the chat's text follows it until it has a font of its own. The terminal and code keep theirs. System is this device's own interface font.");
   const choose = (next: UiFontPreset | "custom"): void => {
@@ -545,7 +550,7 @@ function AppearancePage() {
     <SettingsFold kind="experimental" keys={["agentLocks"]}>
       <SettingsGroup>
         <SettingsRow label={t("Lock pinned agents (experimental)")} description={t("A pinned agent's menu in the Agents list offers Lock agent. This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.")}
-          condition={<span className="settings-condition">{t("This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.")}</span>}>
+          condition={<span className="settings-condition">{t("A pinned agent's menu in the Agents list offers Lock agent. This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.")}</span>}>
           <Toggle label={t("Lock pinned agents (experimental)")} checked={settings.agentLocks} onChange={(agentLocks) => update({ agentLocks })} />
         </SettingsRow>
       </SettingsGroup>
