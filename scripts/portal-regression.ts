@@ -55,7 +55,7 @@ const remoteAccess = {
 const portalFetchPage = async (context: BrowserContext): Promise<void> => {
   await context.route("**/api/access", (route) => route.fulfill({ json: remoteAccess }));
 };
-/** Portal is one of Connect a device's other ways: Settings → Devices and PCs → Connect → Other ways to connect → Portal. */
+/** Portal is one of Connect a device's other ways: Settings → Devices and PCs → Add a connection → Phone or tablet → Other ways to connect → Portal. */
 const openPhoneSettings = async (page: Page, { portal = true } = {}): Promise<void> => {
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
   await page.locator(".settings-dialog").waitFor({ timeout: 10_000 });
@@ -63,10 +63,14 @@ const openPhoneSettings = async (page: Page, { portal = true } = {}): Promise<vo
   await page.locator('.settings-dialog [data-section="devices"]').getByRole("button", { name: "Add a connection", exact: true }).click();
   const connect = settingsOf(page);
   await connect.waitFor({ timeout: 10_000 });
+  // a Portal visitor is not asked what is connected: only a phone or browser connects from there
+  const phoneKind = connect.locator('.connect-kind[data-kind="phone"]');
+  if (await phoneKind.count() > 0) await phoneKind.click();
   await connect.locator(".connect-other > summary").click();
   if (portal) await connect.getByRole("button", { name: "Portal", exact: true }).click();
 };
-const settingsOf = (page: Page) => page.getByRole("dialog", { name: "Add a connection", exact: true });
+// titled by its step: Add a connection, then Phone or tablet
+const settingsOf = (page: Page) => page.locator(".connect-phone-dialog");
 const reopenPhoneSettings = async (page: Page, options: { portal?: boolean } = {}): Promise<void> => {
   await settingsOf(page).getByRole("button", { name: "Close", exact: true }).click();
   await settingsOf(page).waitFor({ state: "detached", timeout: 10_000 });

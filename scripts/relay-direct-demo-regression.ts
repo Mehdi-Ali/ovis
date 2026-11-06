@@ -1,5 +1,5 @@
 /**
- * Settings → Devices and PCs → My devices on the unmodified app over the demo's fixture transport, the
+ * Settings → Devices and PCs → Add a connection → Phone or tablet on the unmodified app over the demo's fixture transport, the
  * relay on: the same Wi-Fi direct connection row says it is on and who can sign in there, its switch turns
  * it off (the row says so) and on again. At 390 and 1280, light and dark.
  *
@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { chromium, type Browser } from "playwright-core";
 import { buildDemoApp } from "./demo-build.ts";
 import { chromePath } from "./chrome-path.ts";
-import { openSettingsFolds, openSettingsPage } from "./settings-page.ts";
+import { openSettingsPage } from "./settings-page.ts";
 
 const EVIDENCE = process.env.UI_EVIDENCE_DIR;
 
@@ -28,9 +28,12 @@ async function run(browser: Browser, origin: string, width: number, theme: "ligh
   await page.locator(".conn-live").waitFor();
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
   await openSettingsPage(page, "Devices and PCs");
-  // the switch waits in More settings, under what is connected
-  await openSettingsFolds(page);
-  const group = page.locator('[data-section="devices-more"]');
+  // the switch is a way in: Add a connection → Phone or tablet → Other ways to connect
+  await page.locator('.settings-dialog [data-section="devices"]').getByRole("button", { name: "Add a connection", exact: true }).click();
+  const sheet = page.locator(".connect-phone-dialog");
+  await sheet.locator('.connect-kind[data-kind="phone"]').click();
+  await sheet.locator("details.connect-other > summary").click();
+  const group = sheet.locator(".connect-direct");
   await group.getByText("Same Wi-Fi direct connection on", { exact: true }).waitFor();
   await group.getByText("Only devices paired through the relay can sign in there; nothing new pairs.", { exact: false }).waitFor();
   const toggle = group.getByRole("switch", { name: "Same Wi-Fi direct connection" });

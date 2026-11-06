@@ -15,7 +15,7 @@ import { KO } from "../src/lib/i18n.ko.ts";
 // (the access token, this PC, its Tailscale login); the confirmation asks again, with Cancel in
 // focus, and a refused write stays in the dialog with the server's words; a confirmed revocation
 // empties the list; a device that only watches sees the words and no working button; a fictional
-// pairing (its code started from Connect, Other ways to connect, Same Wi-Fi) shows one notice, whose
+// pairing (its code started from Connect, Phone or tablet, Other ways to connect, Same Wi-Fi) shows one notice, whose
 // action opens Devices and PCs and whose X dismisses it. Nothing
 // overflows a 390 px phone, and its touch targets are 44 px. With UI_EVIDENCE_DIR set, each state
 // is captured at 390 (phone emulation) and 1440, light and dark, plus Korean at 390, with a manifest.
@@ -282,10 +282,11 @@ try {
         try {
           await context.addInitScript((settings) => localStorage.setItem("ovis:settings", settings), settingsOf(language, theme));
           const press = async (target: Locator): Promise<void> => { if (phone) await target.tap(); else await target.click(); };
-          // Connect, Other ways to connect, Same Wi-Fi: the six-digit code, which that way starts at once
+          // Connect, Phone or tablet, Other ways to connect, Same Wi-Fi: the six-digit code, which that way starts at once
           const startCode = async (page: Page): Promise<void> => {
             await press(page.locator('.settings-dialog [data-section="devices"]').getByRole("button", { name: label("Add a connection"), exact: true }));
             const sheet = page.locator(".connect-phone-dialog");
+            await press(sheet.locator('.connect-kind[data-kind="phone"]'));
             await press(sheet.locator("details.connect-other > summary"));
             await press(sheet.locator(".connect-way", { hasText: label("Same Wi-Fi") }));
           };

@@ -91,11 +91,21 @@ export async function openPhoneSettings(page: Page, origin: string): Promise<voi
 function relayUi(page: Page) {
   const dialog = page.locator(".settings-dialog");
   const relayGroup = dialog.locator('[data-section="relay"]');
-  const sheet = page.getByRole("dialog", { name: "Add a connection", exact: true });
+  // titled by its step: Add a connection first, then what was picked
+  const sheet = page.locator(".connect-phone-dialog");
   const relayRoute = sheet.locator(".connect-phone-relay");
+  const addButton = dialog.locator('[data-section="devices"]').getByRole("button", { name: "Add a connection", exact: true });
   return {
     dialog,
-    connect: dialog.locator('[data-section="devices"]').getByRole("button", { name: "Add a connection", exact: true }),
+    /** Add a connection, then Phone or tablet where the dialog asks what is connected (a Portal visitor is not asked) */
+    connect: {
+      async click(): Promise<void> {
+        await addButton.click();
+        await sheet.waitFor();
+        const phoneKind = sheet.locator('.connect-kind[data-kind="phone"]');
+        if (await phoneKind.count() > 0) await phoneKind.click();
+      },
+    },
     relayGroup,
     // the Ovis relay row's description is the relay's state; read as text, so with More settings folded too
     moreState: relayGroup.locator(".settings-row").first().locator(".settings-description"),
@@ -372,7 +382,7 @@ export async function checkRelayPanel(browser: Browser): Promise<void> {
     await page.locator(".devices-panel .devices-row").filter({ hasText: "iPad" }).locator("[data-connection='offline']", { hasText: "The app is closed, or its network is off." }).waitFor();
 
     // the page holds two things: what is connected to this PC (the PC's name atop one list, the device in use first in it
-    // with its tag), then one Add a connection; the account, revoking every device and the rest wait in More settings
+    // with its tag), then one Add a connection; the account heads the page, revoking every device and the rest wait in More settings
     const inUse: PairedDevice = { id: "0123456789abcded", label: "Chrome · Desk", role: "drive", created_at: paired.created_at, last_seen_at: new Date().toISOString(), current: true };
     await page.unroute("**/api/devices");
     await page.route("**/api/devices", (route) => route.request().method() === "GET" ? route.fulfill({ json: { devices: [paired, away, inUse] } }) : route.continue());
@@ -388,7 +398,8 @@ export async function checkRelayPanel(browser: Browser): Promise<void> {
     assert.equal(await devicesGroup.locator("details.settings-details").count(), 0, "no explanation folds above the list");
     const more = dialog.locator('.settings-fold[data-fold="more"]');
     assert.equal(await more.getByText("Revoke every device", { exact: true }).count(), 1, "revoking every device is in More settings");
-    assert.equal(await dialog.locator('[data-section="account"]').evaluateAll((groups) => groups.every((group) => group.closest('.settings-fold[data-fold="more"]') !== null)), true, "the account is in More settings");
+    assert.equal(await dialog.locator('[data-section="account"]').evaluateAll((groups) => groups.every((group) => group.closest('.settings-fold[data-fold="more"]') === null
+      && (group.compareDocumentPosition(document.querySelector('.settings-dialog [data-section="devices"]')!) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0)), true, "the account heads the page, above the list");
     await page.unroute("**/api/devices");
 
     // a start that fails before the link exists (the saved choice cannot be written): the switch stays off,
