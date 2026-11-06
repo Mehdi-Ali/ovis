@@ -181,16 +181,25 @@ export async function requestToken(service: string, grant: Record<string, string
  */
 async function endAtService(session: AccountSession, fetchImpl: Fetch, now: () => number): Promise<void> {
   let live = session;
-  if (session.expires_at - REFRESH_EARLY_MS <= now()) {
+  /** false: the service refused the refresh token, so the sign-in is over there already */
+  const refresh = async (): Promise<boolean> => {
     try {
       live = await requestToken(session.service, { grant_type: "refresh_token", refresh_token: session.refresh_token }, { fetch: fetchImpl, now });
+      return true;
     } catch (error) {
-      if (error instanceof AccountServiceError && (error.status === 400 || error.status === 401)) return;
+      if (error instanceof AccountServiceError && (error.status === 400 || error.status === 401)) return false;
       throw error;
     }
+  };
+  const signOut = () => fetchImpl(new URL("/v1/signout", live.service), { method: "POST", headers: { authorization: `Bearer ${live.access_token}` } });
+  if (session.expires_at - REFRESH_EARLY_MS <= now() && !await refresh()) return;
+  let response = await signOut();
+  // a 401 says only that this access token is done (it may have run out on the way): its refresh token decides
+  if (response.status === 401 && live === session) {
+    if (!await refresh()) return;
+    response = await signOut();
   }
-  const response = await fetchImpl(new URL("/v1/signout", live.service), { method: "POST", headers: { authorization: `Bearer ${live.access_token}` } });
-  if (!response.ok && response.status !== 401) throw await failure(response);
+  if (!response.ok) throw await failure(response);
 }
 
 /** Sign-ins this client could not end at the service, kept to end later; past this many the oldest is dropped. */
@@ -226,11 +235,18 @@ export async function signInEpoch(store: AccountStore): Promise<string> {
  */
 export async function keepSignIn(session: AccountSession, epoch: string, options: { store: AccountStore; fetch?: Fetch; now?: () => number }): Promise<AccountSession> {
   let kept = false;
+  let replaced: AccountSession | undefined;
   await options.store.updateMany(["session", "epoch"], (current) => {
     kept = current.epoch === epoch;
-    return kept ? { session, epoch } : current;
+    if (!kept) return current;
+    replaced = current.session;
+    return { session, epoch };
   });
-  if (kept) return session;
+  if (kept) {
+    // the sign-in it replaces would otherwise live on at the service until it runs out
+    if (replaced !== undefined && replaced.refresh_token !== session.refresh_token) await endSignIn(replaced, "the replaced sign-in", options);
+    return session;
+  }
   await endSignIn(session, "a sign-in that finished after a sign-out", options);
   throw new SignedOutError();
 }
@@ -323,6 +339,7 @@ export class AccountService {
     const body = await this.call("POST", "/v1/identities/link", { provider });
     const linkToken = isRecord(body) && typeof body.link_token === "string" && body.link_token !== "" ? body.link_token : null;
     if (linkToken === null) throw new AccountServiceError(502, "invalid_answer", "The account service sent no link");
+    const epoch = await signInEpoch(this.options.store);
     const before = await this.session();
     if (before === undefined) return this.signedOut();
     const after = await signIn(linkToken, before.access_token);
@@ -334,10 +351,12 @@ export class AccountService {
     // under the lock sign-out and refresh take: the answer replaces only the sign-in that asked for it
     const outcome = await this.lock(async () => {
       let result: "kept" | "moved-on" | "signed-out" = "signed-out";
-      await this.options.store.update("session", (current) => {
-        if (current?.refresh_token === before.refresh_token) { result = "kept"; return after; }
+      await this.options.store.updateMany(["session", "epoch"], (current) => {
+        // a sign-out meanwhile wins, even if the same account signed in again after it
+        if (current.epoch !== epoch) return current;
+        if (current.session?.refresh_token === before.refresh_token) { result = "kept"; return { ...current, session: after }; }
         // refreshed by another tab, or signed in again there: the link holds at the service, and that session stays
-        if (current !== undefined && current.account === before.account) result = "moved-on";
+        if (current.session !== undefined && current.session.account === before.account) result = "moved-on";
         return current;
       });
       return result;
@@ -378,31 +397,32 @@ export class AccountService {
    * caller can say so.
    */
   async signOut(): Promise<void> {
-    await this.lock(async () => {
-      let session: AccountSession | undefined;
-      await this.options.store.updateMany(["session", "epoch"], (current) => {
-        session = current.session;
-        return { epoch: crypto.randomUUID() };
-      });
-      if (session !== undefined) {
+    // at once, not behind a refresh or another sign-out that holds the lock
+    let session: AccountSession | undefined;
+    await this.options.store.updateMany(["session", "epoch"], (current) => {
+      session = current.session;
+      return { epoch: crypto.randomUUID() };
+    });
+    const taken = session;
+    if (taken !== undefined) {
+      await this.lock(async () => {
         try {
-          await endAtService(session, this.fetch, this.now);
+          await endAtService(taken, this.fetch, this.now);
         } catch (error) {
-          const unended = session;
-          await this.options.store.update("ending", (current) => [...(current ?? []), unended].slice(-ENDING_MAX));
+          await this.options.store.update("ending", (current) => [...(current ?? []), taken].slice(-ENDING_MAX));
           throw error;
         }
-      }
-      await this.endKept();
-    });
+      });
+    }
+    await this.endLeftovers();
   }
 
-  /** Ends again the sign-ins this client could not end at the service before (endSignIn). */
+  /**
+   * Ends again the sign-ins this client could not end at the service before (endSignIn). Outside
+   * the lock, so a slow service never holds up a refresh or sign-out; two tabs ending the same one
+   * at once both count it ended (a refresh token used twice ends its whole sign-in).
+   */
   async endLeftovers(): Promise<void> {
-    await this.lock(() => this.endKept());
-  }
-
-  private async endKept(): Promise<void> {
     const ending = await this.options.store.get("ending");
     if (ending === undefined || ending.length === 0) return;
     const ended = new Set<string>();
@@ -440,8 +460,10 @@ export class AccountService {
       kept = current?.refresh_token === from.refresh_token;
       return kept ? next : current;
     });
-    if (!kept) throw new SignedOutError();
-    return next;
+    if (kept) return next;
+    // signed out, or signed in anew, while it was on its way: the rotated sign-in must not live on
+    await endSignIn(next, "a refresh no tab keeps", { store: this.options.store, fetch: this.fetch, now: this.now });
+    throw new SignedOutError();
   }
 
   /** A session whose access token is good, refreshing once between tabs; `stale` is a token the service just refused. */

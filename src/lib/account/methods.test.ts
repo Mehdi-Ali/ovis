@@ -261,4 +261,64 @@ describe("signing out while a sign-in is on its way", () => {
     expect(await store.get("session")).toBeUndefined();
     expect(fake.requests.filter((request) => request === "POST /v1/signout")).toHaveLength(2);
   });
+
+  it("ends a desktop sign-in whose sign-out came while the app was still opening its loopback", async () => {
+    const fake = new FakeAccountService();
+    fake.signInAs("github", "acct_1");
+    const store = memoryAccountStore();
+    await redirectSignIn(fake, "github", store);
+    let opened: () => void = () => undefined;
+    const bridge = {
+      service: SERVICE,
+      start: () => new Promise<string>((resolve) => { opened = () => resolve("http://127.0.0.1:4567/callback"); }),
+      open: async (url: string) => new URL((await fake.fetch(url)).headers.get("location") ?? "").search.slice(1),
+    };
+    const real = globalThis.fetch;
+    globalThis.fetch = Object.assign(fake.fetch, { preconnect: real.preconnect });
+    try {
+      const signingIn = desktopSignIn("github", bridge, store);
+      await new AccountService({ store, fetch: fake.fetch, lock: memoryLock() }).signOut();
+      opened();
+      await expect(signingIn).rejects.toBeInstanceOf(SignedOutError);
+    } finally {
+      globalThis.fetch = real;
+    }
+    expect(await store.get("session")).toBeUndefined();
+  });
+});
+
+describe("ending a sign-in at the service", () => {
+  const refreshes = (fake: FakeAccountService, refreshToken: string) => requestToken(SERVICE, { grant_type: "refresh_token", refresh_token: refreshToken }, { fetch: fake.fetch });
+
+  it("does not take a 401 to the sign-out as the end of the sign-in, and ends it with its refresh token", async () => {
+    const fake = new FakeAccountService();
+    fake.signInAs("github", "acct_1");
+    const store = memoryAccountStore();
+    const session = await redirectSignIn(fake, "github", store);
+    let refused = false;
+    // the access token ran out on the way: the first sign-out is answered 401 without ending anything
+    const fetch = async (input: Request | string | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      if (!refused && new URL(request.url).pathname === "/v1/signout") { refused = true; return Response.json({ error: { code: "unauthorized" } }, { status: 401 }); }
+      return fake.fetch(request);
+    };
+    await new AccountService({ store, fetch, lock: memoryLock() }).signOut();
+    await expect(refreshes(fake, session.refresh_token)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("keeps a sign-out the service refused through leaving the account, and ends it later", async () => {
+    const fake = new FakeAccountService();
+    fake.signInAs("github", "acct_1");
+    const store = memoryAccountStore();
+    const session = await redirectSignIn(fake, "github", store);
+    const down = async (input: Request | string | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      return new URL(request.url).pathname === "/v1/signout" ? new Response("", { status: 503 }) : fake.fetch(request);
+    };
+    await expect(new AccountService({ store, fetch: down, lock: memoryLock() }).signOut()).rejects.toMatchObject({ status: 503 });
+    await store.clear();
+    await new AccountService({ store, fetch: fake.fetch, lock: memoryLock() }).endLeftovers();
+    await expect(refreshes(fake, session.refresh_token)).rejects.toMatchObject({ status: 400 });
+    expect(await store.get("ending")).toBeUndefined();
+  });
 });

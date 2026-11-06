@@ -29,12 +29,13 @@ function random(bytes: number): string {
  * Where to send the browser to sign in; the verifier and state wait in the store for the return.
  * `linkToken` (AccountService.addMethod) adds the provider to the signed-in account instead.
  */
-export async function beginSignIn(provider: AccountProvider, options: { store: AccountStore; service: string; redirectUri: string; now?: () => number; linkToken?: string }): Promise<string> {
+export async function beginSignIn(provider: AccountProvider, options: { store: AccountStore; service: string; redirectUri: string; now?: () => number; linkToken?: string; epoch?: string }): Promise<string> {
+  // first, before anything waits: a sign-out after this point wins (`epoch`: a caller that waited before calling took it earlier)
+  const epoch = options.epoch ?? await signInEpoch(options.store);
   const verifier = random(32);
   const state = random(16);
   const challenge = toBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
   const now = (options.now ?? Date.now)();
-  const epoch = await signInEpoch(options.store);
   const pending = { service: options.service, provider, state, verifier, redirect_uri: options.redirectUri, started_at: now, epoch };
   // one per state: another tab's sign-in stays, and only ones past their time are dropped
   await options.store.update("pending", (current) => ({
@@ -103,7 +104,8 @@ export async function finishSignIn(returned: SignInReturn, options: FinishOption
   }
   if (options.bearer !== undefined) return session;
   // a sign-out since this sign-in started wins: its session is ended, not stored
-  return keepSignIn(session, pending.epoch ?? await signInEpoch(options.store), { store: options.store, ...(options.fetch ? { fetch: options.fetch } : {}), now });
+  // one an earlier build started has no epoch: it cannot show no sign-out came since, so it is not kept
+  return keepSignIn(session, pending.epoch ?? "", { store: options.store, ...(options.fetch ? { fetch: options.fetch } : {}), now });
 }
 
 /**
