@@ -359,6 +359,8 @@ export const SETTINGS_KO: Record<string, string> = {
   "{name} was added. Its workspaces join the sidebar.": "{name}을(를) 추가했습니다. 워크스페이스가 사이드바에 함께 보입니다.",
   "Lock pinned agents (experimental)": "고정 에이전트 잠그기 (실험적)",
   "A pinned agent's menu in the Agents list offers Lock agent. This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.": "에이전트 목록에서 고정한 에이전트의 메뉴에 '에이전트 잠금'이 생깁니다. 잠긴 에이전트의 패널, 탭, 워크스페이스는 모든 브라우저에서 이 앱으로 닫을 수 없습니다. herdr 자체나 스크립트로는 여전히 닫을 수 있습니다.",
+  "Only those words are kept, on this server, until the tab closes; turning this off deletes them.": "그 몇 단어만 탭이 닫힐 때까지 이 서버에 보관하며, 끄면 삭제됩니다.",
+  "This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.": "잠긴 에이전트의 패널, 탭, 워크스페이스는 모든 브라우저에서 이 앱으로 닫을 수 없습니다. herdr 자체나 스크립트로는 여전히 닫을 수 있습니다.",
   "Within a state": "같은 상태 안에서",
   "Longest wait": "오래 기다린 순",
   "Also send to": "다른 곳에도 보내기",

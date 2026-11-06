@@ -19,7 +19,7 @@ import { HERDR_PREFIX_ACTIONS, type HerdrKeys, type HerdrPrefixAction } from "..
 import { WEB_LINK_TARGETS } from "../lib/webPanel.ts";
 import { FILE_OPEN_TARGETS } from "../lib/filePresentation.ts";
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, DICTATION_LANGUAGES, VOICE_BUTTONS, VOICE_ENGINES, enterSendsOn, useSettings, forgetPaneViews, uiFontSize, type DictationLanguage, type VoiceButton } from "../lib/settings.ts";
-import { pickTheme, rowFor, THEME_IDS, type Mode, type ThemeId } from "../lib/themes.ts";
+import { isThemeId, pickTheme, rowFor, THEME_IDS, type Mode, type ThemeId } from "../lib/themes.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useLocale, useT } from "../lib/i18n.ts";
 import { focusInOtherModal, useFocusTrap } from "../lib/useFocusTrap.ts";
 import { awaitRestart, restartState, subscribeRestart } from "../lib/runtimeSwitch.ts";
@@ -345,14 +345,16 @@ function ThemeCard({ id, side, checked, onPick }: { id: ThemeId; side: Mode; che
  * swipe, or the arrows at its ends), the chosen one brought into view: the row stays one card tall
  * however many themes there are. The side drawn now opens first; Dark and Light switch it. The side's
  * own kind comes first, then after a rule the other kind, which that side draws as it is (a dark theme
- * chosen for light mode draws dark, as in herdr). Arrow keys move along the row; Enter or Space picks.
+ * chosen for light mode draws dark, as in herdr). Arrow keys, Home and End pick along the row, as a radio group's do.
  */
 function ThemePicker() {
   const { settings, update } = useSettings();
   const t = useT();
   const systemDark = useMediaQuery("(prefers-color-scheme: dark)");
   const drawn: Mode = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
-  const [side, setSide] = useState<Mode>(drawn);
+  // the side drawn now, until Dark or Light here is chosen
+  const [picked, setPicked] = useState<Mode | null>(null);
+  const side = picked ?? drawn;
   const strip = useRef<HTMLDivElement>(null);
   const [ends, setEnds] = useState({ start: true, end: true });
   const current = side === "dark" ? settings.darkTheme : settings.lightTheme;
@@ -384,8 +386,11 @@ function ThemePicker() {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
     const cards = [...(strip.current?.querySelectorAll<HTMLElement>("[data-theme-card]") ?? [])];
     const at = cards.indexOf(document.activeElement as HTMLElement);
-    const next = event.key === "Home" ? 0 : event.key === "End" ? cards.length - 1 : Math.min(cards.length - 1, Math.max(0, at + (event.key === "ArrowRight" ? 1 : -1)));
+    const next = event.key === "Home" ? 0 : event.key === "End" ? cards.length - 1 : (at + (event.key === "ArrowRight" ? 1 : -1) + cards.length) % cards.length;
     event.preventDefault();
+    // a radio group's arrows pick as they move
+    const id = cards[next]?.dataset["themeCard"];
+    if (id && isThemeId(id)) update(pickTheme(settings, side, id));
     cards[next]?.focus();
     cards[next]?.scrollIntoView({ block: "nearest", inline: "nearest" });
   };
@@ -393,7 +398,7 @@ function ThemePicker() {
   return (
     <>
       <SettingsRow label={label} keywords={`${t("Dark theme")} ${t("Light theme")} ${t("Shown in dark mode")} ${t("Shown in light mode")}`} reset={[side === "dark" ? "darkTheme" : "lightTheme"]}>
-        <Segmented label={`${t("Dark theme")} · ${t("Light theme")}`} value={side} onChange={setSide} options={[{ value: "dark", label: t("Dark"), name: t("Show dark themes") }, { value: "light", label: t("Light"), name: t("Show light themes") }]} />
+        <Segmented label={`${t("Dark theme")} · ${t("Light theme")}`} value={side} onChange={setPicked} options={[{ value: "dark", label: t("Dark"), name: t("Show dark themes") }, { value: "light", label: t("Light"), name: t("Show light themes") }]} />
       </SettingsRow>
       <div className="settings-item theme-strip">
         <div className="theme-strip-frame">
@@ -498,7 +503,8 @@ function AppearancePage() {
       {settings.agentGroups && <SettingsRow label={t("Within a state")} wide>
         <Segmented label={t("Within a state")} value={settings.agentGroupSort} onChange={(agentGroupSort) => update({ agentGroupSort })} options={[{ value: "wait", label: t("Longest wait") }, { value: "recent", label: t("Recent") }, { value: "name", label: t("Name") }]} />
       </SettingsRow>}
-      <SettingsRow label={t("Name tabs from the first message")} description={t("A tab still named by its number shows a few words of the first message sent to it, in every browser. A name you gave a tab is kept, and herdr's own tab names do not change. Only those words are kept, on this server, until the tab closes; turning this off deletes them.")} reset={["autoTabNames"]}>
+      <SettingsRow label={t("Name tabs from the first message")} description={t("A tab still named by its number shows a few words of the first message sent to it, in every browser. A name you gave a tab is kept, and herdr's own tab names do not change. Only those words are kept, on this server, until the tab closes; turning this off deletes them.")}
+        condition={<span className="settings-condition">{t("Only those words are kept, on this server, until the tab closes; turning this off deletes them.")}</span>} reset={["autoTabNames"]}>
         <Toggle label={t("Name tabs from the first message")} checked={settings.autoTabNames} onChange={(autoTabNames) => update({ autoTabNames })} />
       </SettingsRow>
     </SettingsGroup>
@@ -538,7 +544,8 @@ function AppearancePage() {
     </SettingsFold>
     <SettingsFold kind="experimental" keys={["agentLocks"]}>
       <SettingsGroup>
-        <SettingsRow label={t("Lock pinned agents (experimental)")} description={t("A pinned agent's menu in the Agents list offers Lock agent. This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.")}>
+        <SettingsRow label={t("Lock pinned agents (experimental)")} description={t("A pinned agent's menu in the Agents list offers Lock agent. This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.")}
+          condition={<span className="settings-condition">{t("This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.")}</span>}>
           <Toggle label={t("Lock pinned agents (experimental)")} checked={settings.agentLocks} onChange={(agentLocks) => update({ agentLocks })} />
         </SettingsRow>
       </SettingsGroup>

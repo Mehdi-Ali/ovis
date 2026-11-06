@@ -359,6 +359,8 @@ export const SETTINGS_JA: Record<string, string> = {
   "{name} was added. Its workspaces join the sidebar.": "{name} を追加しました。ワークスペースはサイドバーに並びます。",
   "Lock pinned agents (experimental)": "固定したエージェントをロック（実験的）",
   "A pinned agent's menu in the Agents list offers Lock agent. This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.": "エージェント一覧で固定したエージェントのメニューに「エージェントをロック」が加わります。ロックしたエージェントのペイン、タブ、ワークスペースは、どのブラウザでもこのアプリから閉じられません。herdr 本体やスクリプトからは閉じられます。",
+  "Only those words are kept, on this server, until the tab closes; turning this off deletes them.": "保存するのはその数語だけで、タブを閉じるまでこのサーバーに残り、オフにすると削除されます。",
+  "This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.": "ロックしたエージェントのペイン、タブ、ワークスペースは、どのブラウザでもこのアプリから閉じられません。herdr 本体やスクリプトからは閉じられます。",
   "Within a state": "同じ状態の中で",
   "Longest wait": "待ち時間順",
   "Also send to": "ほかの送り先",

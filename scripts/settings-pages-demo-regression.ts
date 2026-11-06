@@ -10,7 +10,7 @@ import { openSettingsFolds, openSettingsPage, sheetRisen, themeSide } from "./se
 import { KO } from "../src/lib/i18n.ko.ts";
 import { JA } from "../src/lib/i18n.ja.ts";
 import { ZH } from "../src/lib/i18n.zh.ts";
-import { terminalTheme } from "../src/lib/settings.ts";
+import { DEFAULT_SETTINGS, terminalTheme } from "../src/lib/settings.ts";
 import { rowFor, THEME_IDS, type ThemeId } from "../src/lib/themes.ts";
 import baseline from "../src/lib/themes.legacy-baseline.json";
 import { comboKey, LEGACY_COMBOS } from "./theme-baseline.ts";
@@ -55,10 +55,8 @@ const cutOff = (page: Page): Promise<string[]> => page.locator(".settings-body:n
       const box = node.getBoundingClientRect();
       // a control is held by its card, where it has one; a card by the page
       const card = node.classList.contains("settings-card") ? null : node.closest<HTMLElement>(".settings-card");
-      // one in a row that scrolls sideways on purpose (the theme cards) is held by that row's scroll, inside the card
-      for (let up = node.parentElement; up && up !== card && up !== body; up = up.parentElement) {
-        if (/auto|scroll/.test(getComputedStyle(up).overflowX)) return false;
-      }
+      // a theme card is held by the row of cards that scrolls sideways on purpose; the row itself is checked against its card
+      if (!node.classList.contains("theme-cards") && node.closest(".theme-cards")) return false;
       const within = card ? card.getBoundingClientRect() : edge;
       return box.width > 0 && (box.right > within.right + 0.5 || box.left < within.left - 0.5);
     })
@@ -672,6 +670,63 @@ async function accountPcList(browser: import("playwright-core").Browser, url: st
     }
   }
   console.log("PASS the account's PCs in Settings are styled rows at 390 and 1280px, light and dark");
+}
+
+/**
+ * Appearance's ↺ beside a changed row, and its theme cards by keyboard: ↺ shows only off the default,
+ * puts back every key of its row (a font and its size; a theme and the palette it draws) and goes; the
+ * arrows pick along the row as a radio group's do; the cards follow the Theme mode until a side is chosen.
+ */
+async function rowResets(browser: import("playwright-core").Browser, url: string): Promise<void> {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "en" });
+  try {
+    await context.addInitScript((settings) => { if (localStorage.getItem("ovis:settings") === null) localStorage.setItem("ovis:settings", settings); }, JSON.stringify(SETTINGS));
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem("ovis:settings")!) as Record<string, unknown>);
+    const reset = (row: string) => page.getByRole("button", { name: `Restore defaults: ${row}`, exact: true });
+    await page.goto(`${url}?settings=appearance`);
+    await page.locator(".conn-live").waitFor({ state: "attached" });
+    await page.locator(".theme-cards").waitFor();
+
+    assert.equal(await reset("Terminal font").count(), 0, "no ↺ while the terminal font and size are the defaults");
+    await page.getByRole("button", { name: "Increase terminal font size", exact: true }).click();
+    await reset("Terminal font").waitFor();
+    assert.equal((await saved())["terminalFontSize"], DEFAULT_SETTINGS.terminalFontSize + 1);
+    await reset("Terminal font").click();
+    await reset("Terminal font").waitFor({ state: "detached" });
+    const fonts = await saved();
+    assert.deepEqual([fonts["terminalFontSize"], fonts["terminalFontFamily"] ?? DEFAULT_SETTINGS.terminalFontFamily], [DEFAULT_SETTINGS.terminalFontSize, DEFAULT_SETTINGS.terminalFontFamily], "↺ puts back the size and the font of its row");
+
+    const dark = themeSide(page, "dark");
+    await dark.selectOption("dracula");
+    await page.waitForFunction(() => document.documentElement.dataset.palette === "dracula");
+    await reset("Dark theme").click();
+    await page.waitForFunction((id) => document.documentElement.dataset.palette === id, DEFAULT_SETTINGS.darkTheme);
+    assert.deepEqual([(await saved())["darkTheme"], (await saved())["palette"]], [DEFAULT_SETTINGS.darkTheme, DEFAULT_SETTINGS.darkTheme], "↺ puts back the dark theme and the palette it draws");
+    assert.equal(await reset("Dark theme").count(), 0, "↺ goes once the theme is back");
+
+    // the arrows pick along the row, Home goes to its first card
+    const cards = page.getByRole("radiogroup", { name: "Dark theme", exact: true });
+    const listed = await dark.listed();
+    await cards.locator('[role="radio"][aria-checked="true"]').focus();
+    await page.keyboard.press("ArrowRight");
+    const next = listed[listed.indexOf(DEFAULT_SETTINGS.darkTheme) + 1]!;
+    await page.waitForFunction((id) => document.documentElement.dataset.palette === id, next);
+    assert.equal(await cards.locator('[role="radio"][aria-checked="true"]').getAttribute("data-theme-card"), next, "ArrowRight picks the next card");
+    assert.equal(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset["themeCard"]), next, "the picked card takes the focus");
+    await page.keyboard.press("Home");
+    await page.waitForFunction((id) => document.documentElement.dataset.palette === id, listed[0]!);
+
+    // the cards follow the Theme mode while no side is chosen here
+    await page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name: "Light", exact: true }).click();
+    await page.getByRole("radiogroup", { name: "Light theme", exact: true }).waitFor();
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+  console.log("PASS Appearance: ↺ shows only off the default and puts back its row's keys; theme cards pick by arrow and follow the Theme mode");
 }
 
 async function mergedRows(browser: import("playwright-core").Browser, url: string): Promise<void> {
@@ -1319,6 +1374,7 @@ try {
       await dialogSearch(browser, url);
       await foldedGroups(browser, url);
       await mergedRows(browser, url);
+      await rowResets(browser, url);
       await accountPcList(browser, url);
       await heldGroupLanding(browser, devUrl);
     } finally {
