@@ -3,8 +3,12 @@ import type { PreferencesChange, SharedPreferences } from "../../shared/preferen
 import type { AlertWebhookSave, AlertWebhookView } from "../../shared/alert-webhook.ts";
 import type { SeenFinish, SeenPresentation } from "../../shared/seen.ts";
 import type { AgentCatalogResponse, AgentTabStarted } from "../../shared/agent-catalog.ts";
+import type { ConversationSearchResponse } from "../../shared/conversation-search.ts";
 import { resumeConnectionTraces } from "./connectionTrace.ts";
 import type { PullRequestCheckLog, PullRequestMergeRequest, PullRequestView } from "../../shared/pull-request.ts";
+import type { SystemReport } from "../../shared/system.ts";
+import type { EditableText, PaneDocuments, TextSaved, TextSaveRequest } from "../../shared/files.ts";
+import { parseSystemReport } from "./systemReport.ts";
 import { machinePath, type BridgeHealth, type HerdrCoreFacts, type HerdrIdentity, type HerdrRuntimeFacts, type Machine, type MachineRoster, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   ScheduledMessage,
@@ -33,6 +37,7 @@ import type {
   TabMovedToWorkspace,
   OmoActivity,
   ClaudeArtifact,
+  OmpBtwHistory,
   PaneBackgroundAgentDetail,
   OpenWorktreeRequest,
   PairedDevice,
@@ -75,6 +80,8 @@ import type {
   SplitPaneDirection,
   SplitPaneRequest,
   SwapPaneRequest,
+  MovePaneRequest,
+  PaneMoved,
   TabCreated,
   UpdateInstallRequest,
   StatuslineState, UsageReport,
@@ -83,6 +90,7 @@ import type {
   PluginActionResult,
   PluginActions,
   PluginActionsResponse,
+  WorktreeInventory,
   WorktreeListing,
   WorktreeOpened,
   WorktreeRemoved,
@@ -98,6 +106,7 @@ import { MAX_ATTACHMENT_BYTES } from "../../shared/attachments.ts";
 import { t } from "./i18n.ts";
 import { chatReadDeadlineMs, withChatReadDeadline } from "./chatReadDeadline.ts";
 import { movingHerdrFocus } from "./followFocus.ts";
+import { observeWaitingClock, waitingKey } from "./sentWaiting.ts";
 import type { UsageAccountRemoval, UsageLoginAccounts, UsageLoginCode, UsageLoginFollowed, UsageLoginPrompt, UsageLoginProvider, UsageLoginRequest, UsageLoginStarted } from "../../shared/usage-login.ts";
 
 export function fetchUsageLoginProviders(signal: AbortSignal): Promise<{ providers: readonly UsageLoginProvider[] }> {
@@ -286,9 +295,12 @@ export function cancelRelayCode(): Promise<{ readonly ok: true }> {
   return getJson<{ readonly ok: true }>("/api/relay/code/cancel", { method: "POST", headers: { "x-herdr-update": "1" } });
 }
 
-/** POST /api/relay/link: a pairing link without a code; the phone that opens it compares six digits with this PC. */
-export function requestRelayLink(): Promise<{ readonly url: string }> {
-  return getJson<{ readonly url: string }>("/api/relay/link", { method: "POST", headers: { "x-herdr-update": "1" } });
+/**
+ * POST /api/relay/link: a pairing link without a code; the phone that opens it compares six digits with this PC.
+ * `localOnly`: this PC's screen waits to be added to an account, so what comes is approved on this PC only.
+ */
+export function requestRelayLink(options: { localOnly?: boolean } = {}): Promise<{ readonly url: string }> {
+  return getJson<{ readonly url: string }>("/api/relay/link", { method: "POST", headers: { "x-herdr-update": "1", ...(options.localOnly ? { "x-ovis-local-only": "1" } : {}) } });
 }
 
 /** POST /api/relay/pairing: the owner's answer to a phone waiting with the same digits (`relay-pairings` events). */
@@ -399,6 +411,14 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(url, init);
   if (!response.ok) throw await errorFrom(url, response);
   return (await response.json()) as T;
+}
+
+/** GET /api/system on a PC: its load right now. A bridge from before this route answers 404. */
+export async function fetchSystem(machineId = "local", signal?: AbortSignal): Promise<SystemReport> {
+  const report = parseSystemReport(await getJson<unknown>(machinePath(machineId, "system"), { cache: "no-store", ...(signal ? { signal } : {}) }));
+  // another PC's bridge can be of another version: an answer the sidebar cannot draw is an unusable one
+  if (report === null) throw new ApiError(machinePath(machineId, "system"), 502, UNUSABLE_ANSWER["remote_response_invalid"]!(), "remote_response_invalid");
+  return report;
 }
 
 export async function fetchSession(machineId = "local"): Promise<SessionSnapshot> {
@@ -705,6 +725,17 @@ export function prefetchPaneConversation(paneId: string, machineId: string, prom
   setTimeout(() => { if (pressReads.get(url) === pressed) pressReads.delete(url); }, PRESS_READ_MS);
 }
 
+/**
+ * GET /api/pane/conversation/search: the messages and answers that hold `query`, newest first, a
+ * few pages per answer; `before` and `historyId` go on from an answer's cursor and history.
+ */
+export async function searchPaneConversation(paneId: string, query: string, machineId = "local", page: { before?: string; historyId?: string; signal?: AbortSignal } = {}): Promise<ConversationSearchResponse> {
+  const params = new URLSearchParams({ pane_id: paneId, q: query });
+  if (page.before !== undefined) params.set("before", page.before);
+  if (page.historyId !== undefined) params.set("history_id", page.historyId);
+  return getJson<ConversationSearchResponse>(machinePath(machineId, `pane/conversation/search?${params.toString()}`), page.signal ? { signal: page.signal } : undefined);
+}
+
 /** GET /api/pane/conversation: structured turns, or scrollback fallback; `page` as ConversationResponse.cursor describes. */
 export async function fetchPaneConversation(paneId: string, machineId = "local", page: ConversationPageQuery = {}): Promise<ConversationResponse> {
   return readPaneConversation(paneId, machineId, page, false);
@@ -745,9 +776,16 @@ async function readPaneConversation(paneId: string, machineId: string, page: Con
   const requestUrl = page.history_id === undefined ? url : `${url}&history_id=${encodeURIComponent(page.history_id)}`;
   const { response, body } = await withChatReadDeadline(async (signal) => {
     const response = await apiFetch(requestUrl, { cache: "no-store", signal, ...(known && !page.fresh ? { headers: { "if-none-match": known.etag } } : {}) });
-    if (response.status === 304 && known) return { response, body: known.body };
+    // as it arrived, whatever becomes of its body: its time bounds this browser's clock against the PC's
+    const received = performance.now(), receivedWall = Date.now();
+    if (response.status === 304 && known) {
+      observeWaitingClock(waitingKey(machineId, paneId), response.headers.get("x-server-time"), received, receivedWall);
+      return { response, body: known.body };
+    }
     if (!response.ok) throw await errorFrom(url, response);
-    return { response, body: (await response.json()) as ConversationResponse };
+    const body = (await response.json()) as ConversationResponse;
+    observeWaitingClock(waitingKey(machineId, paneId), response.headers.get("x-server-time") ?? body.server_time, received, receivedWall);
+    return { response, body };
   }, chatReadDeadlineMs(machineId), page.signal).catch((cause: unknown) => {
     // a failed read gives up what it held of the pages' order: a later read is the newest again
     if (polled && lastNewestRead.get(url) === read) lastNewestRead.delete(url);
@@ -929,7 +967,7 @@ export async function uploadPaneImage(paneId: string, image: Blob, machineId = "
   return ((await response.json()) as { path: string }).path;
 }
 
-async function sendJson(url: string, method: "POST" | "PATCH" | "DELETE", body: unknown): Promise<Response> {
+async function sendJson(url: string, method: "POST" | "PATCH" | "PUT" | "DELETE", body: unknown): Promise<Response> {
   const response = await apiFetch(url, {
     method,
     headers: { "content-type": "application/json", "x-herdr-machine": "1" },
@@ -1038,6 +1076,13 @@ export async function swapPaneWith(paneId: string, targetPaneId: string, machine
   return movingHerdrFocus(machineId, request);
 }
 
+/** POST /api/pane/move: the pane goes to that side of another pane of its tab; herdr's focus moves on the way and back, so its events wait as a swap's do. */
+export async function movePaneBeside(paneId: string, targetPaneId: string, side: PaneDirection, machineId = "local"): Promise<PaneMoved> {
+  const request = sendJson(machinePath(machineId, "pane/move"), "POST", { pane_id: paneId, target_pane_id: targetPaneId, side } satisfies MovePaneRequest)
+    .then(async (response) => (await response.json()) as PaneMoved);
+  return movingHerdrFocus(machineId, request);
+}
+
 /** POST /api/layout/ratio: set the split identified by its binary path to the dragged ratio. */
 export async function setSplitRatio(tabId: string, path: boolean[], ratio: number, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "layout/ratio"), "POST", { tab_id: tabId, path, ratio } satisfies SetSplitRatioRequest);
@@ -1111,6 +1156,16 @@ export async function fetchFileInfo(path: string, paneId: string | null, machine
   }
   if (!response.ok) throw await errorFrom(url, response);
   return (await response.json()) as FileInfo;
+}
+
+/** GET /api/fs/text: a text file under the pane's folder, read to edit it (shared/files.ts). */
+export async function fetchEditableText(path: string, paneId: string, machineId = "local"): Promise<EditableText> {
+  return getJson<EditableText>(machinePath(machineId, `fs/text?${fileQuery(path, paneId)}`), { cache: "no-store" });
+}
+
+/** PUT /api/fs/text: saves the text over the file read with `revision`; a file changed since is an ApiError `stale_revision`. */
+export async function saveEditableText(request: TextSaveRequest, machineId = "local"): Promise<TextSaved> {
+  return (await (await sendJson(machinePath(machineId, "fs/text"), "PUT", request)).json()) as TextSaved;
 }
 
 /** GET /api/fs/favicon: the icon the project in folder `root` keeps, or null, in one request. */
@@ -1220,6 +1275,14 @@ export async function createWorktree(request: CreateWorktreeRequest, machineId =
 /** GET /api/worktree/list: every checkout of the workspace's repository, with the workspace each is open in. */
 export function listWorktrees(workspaceId: string, machineId = "local"): Promise<WorktreeListing> {
   return getJson<WorktreeListing>(`${machinePath(machineId, "worktree/list")}?workspace_id=${encodeURIComponent(workspaceId)}`);
+}
+
+/**
+ * GET /api/worktree/inventory: what listWorktrees answers for each workspace, in one read (at most
+ * MAX_INVENTORY_WORKSPACES). A PC whose bridge is from before it answers 404 not_found (routeMissing).
+ */
+export function readWorktreeInventory(workspaceIds: readonly string[], machineId = "local"): Promise<WorktreeInventory> {
+  return getJson<WorktreeInventory>(`${machinePath(machineId, "worktree/inventory")}?${workspaceIds.map((id) => `workspace_id=${encodeURIComponent(id)}`).join("&")}`);
 }
 
 /** POST /api/worktree/open: an existing checkout as a workspace; the one it already has when it is open. */
@@ -1353,6 +1416,12 @@ export async function fetchPaneArtifacts(paneId: string, machineId = "local"): P
   return (await getJson<{ artifacts: ClaudeArtifact[] }>(machinePath(machineId, `pane/artifacts?pane_id=${encodeURIComponent(paneId)}`))).artifacts;
 }
 
+/** GET /api/pane/btw: the side conversations the pane's OMP session saved with `/btw`, newest first; `more` when the PC left some out. */
+export async function fetchPaneBtw(paneId: string, machineId = "local", signal?: AbortSignal): Promise<OmpBtwHistory> {
+  const answer = await getJson<Partial<OmpBtwHistory>>(machinePath(machineId, `pane/btw?pane_id=${encodeURIComponent(paneId)}`), { signal });
+  return { topics: answer.topics ?? [], more: answer.more === true };
+}
+
 /** GET /api/pane/plan: the plan the pane's Claude Code or Codex session keeps, and that PC's clock. */
 export async function fetchPanePlan(paneId: string, machineId = "local"): Promise<{ steps: PlanStep[] | null; serverTime: string | null }> {
   const answer = await getJson<Partial<PanePlan>>(machinePath(machineId, `pane/plan?pane_id=${encodeURIComponent(paneId)}`));
@@ -1363,6 +1432,11 @@ export async function fetchPanePlan(paneId: string, machineId = "local"): Promis
 export async function fetchPaneFiles(paneId: string, query: string, limit = 20, machineId = "local"): Promise<string[]> {
   const params = new URLSearchParams({ pane_id: paneId, q: query, limit: String(limit) });
   return (await getJson<{ files: string[] }>(machinePath(machineId, `pane/files?${params.toString()}`))).files;
+}
+
+/** GET /api/pane/docs: the Markdown files under the pane's folder, newest first. */
+export async function fetchPaneDocuments(paneId: string, machineId = "local", signal?: AbortSignal): Promise<PaneDocuments> {
+  return getJson<PaneDocuments>(machinePath(machineId, `pane/docs?pane_id=${encodeURIComponent(paneId)}`), { signal });
 }
 
 /** GET /api/pane/prompt: the agent's interactive menu currently on screen, or null. */
@@ -1483,6 +1557,13 @@ export async function machineRequest<T>(path: string, method = "GET", body?: unk
 }
 /** POST /api/machines/relay: pairs with the PC whose relay pairing link this is and adds it (server/relay-pc.ts). */
 export const addRelayPc = (link: string) => machineRequest<{ machine: Machine }>("/relay", "POST", { link });
+/**
+ * POST /api/machines/relay/code: finds the PC that shows this typed code. This PC's server keeps what it found, the
+ * one-time pairing code in it, under a ticket only this window gets, and answers the ID to compare; addFoundRelayPc then adds that PC.
+ * ApiError code `typed_code_<failure>` (shared/relay-code-offer.ts) when it finds none.
+ */
+export const findRelayPc = (code: string) => machineRequest<{ ticket: string; server_id: string; name: string | null }>("/relay/code", "POST", { code });
+export const addFoundRelayPc = (ticket: string) => machineRequest<{ machine: Machine }>("/relay", "POST", { found: ticket });
 export const startMachineSetup = (request: SetupRequest) => machineRequest<SetupJob>("/setup", "POST", request);
 export const fetchMachineSetup = (id: string) => machineRequest<SetupJob>(`/setup/${encodeURIComponent(id)}`);
 export const answerMachineSetup = (id: string, action: SetupAction) => machineRequest<SetupJob>(`/setup/${encodeURIComponent(id)}`, "POST", action);

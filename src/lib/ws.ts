@@ -276,6 +276,11 @@ export class HerdrSocket {
     }));
   }
 
+  /** when the open connection opened (Date.now()); null while none is open. A later time than an earlier reading means it dropped in between */
+  get connectedSince(): number | null {
+    return this.openedAt;
+  }
+
   get connected(): boolean {
     return this.socket?.readyState === SOCKET_OPEN;
   }
@@ -948,6 +953,11 @@ export class HerdrSocket {
     state.keepSize = false;
     state.releaseSizeOwed = true;
     this.send({ type: "resize", pane_id: paneId, cols, rows });
+  }
+
+  /** Whether the PC searches a pane's conversation (`conversation-search`); false until the features come, and from an older bridge. */
+  canSearchConversation(): boolean {
+    return this.features.has("conversation-search");
   }
 
   /** Whether this connection may take a held pane from another web bridge: a server that knows how, and not observing. */

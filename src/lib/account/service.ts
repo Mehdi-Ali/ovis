@@ -26,6 +26,25 @@ export function accountServiceOf(document: { querySelector(selector: string): { 
 }
 
 /**
+ * The account service a PC's own page signs in with (GitHub's device flow, lib/account/deviceSignIn.ts),
+ * from `<meta name="ovis-pc-account-service">`, which only the PC's server writes (server/static.ts):
+ * an https origin, and only on a secure page, where WebCrypto works and no one on the network could
+ * have rewritten the script that holds the sign-in. The hosted shell has its own meta and redirect.
+ */
+export function pcAccountServiceOf(document: { querySelector(selector: string): { getAttribute(name: string): string | null } | null }, secure: boolean): string | null {
+  const content = document.querySelector('meta[name="ovis-pc-account-service"]')?.getAttribute("content");
+  if (!secure || !content) return null;
+  // new URL in a try: an older WebView has no URL.canParse
+  try {
+    const url = new URL(content);
+    return url.protocol === "https:" ? url.origin : null;
+  } catch (error) {
+    if (error instanceof TypeError) return null;
+    throw error;
+  }
+}
+
+/**
  * The sign-ins this page offers, from `<meta name="ovis-account-providers" content="github,apple">`:
  * GitHub alone without it, and Apple only once the service is set up for it, so no button leads
  * to a sign-in the service would refuse.
@@ -74,7 +93,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** The service's error code only: its message is the service's text, which could echo a token, so it is never kept. */
-async function failure(response: Response): Promise<AccountServiceError> {
+export async function failure(response: Response): Promise<AccountServiceError> {
   let code = "http_error";
   try {
     const body: unknown = await response.json();
@@ -158,6 +177,11 @@ export class AccountService {
   /** Lists a PC in the account's directory, with its relay key and relay so a new device can compare digits with it. */
   async putPc(serverId: string, entry: { label: string; public_key: string; relay: string }): Promise<void> {
     await this.call("PUT", `/v1/pcs/${serverId}`, entry);
+  }
+
+  /** Takes a PC out of the account's directory (it rings nobody and admits nothing either way). */
+  async deletePc(serverId: string): Promise<void> {
+    await this.call("DELETE", `/v1/pcs/${serverId}`);
   }
 
   /**

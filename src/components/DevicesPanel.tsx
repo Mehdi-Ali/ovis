@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Pencil, Trash2, X } from "lucide-react";
 
 import "./DevicesPanel.css";
 
 import { ApiError, fetchDevices, renameDevice, revokeAllDevices, revokeDevice } from "../lib/api.ts";
 import { methodName } from "../lib/portalAuth.ts";
-import { PAIRING_CODE_EVENT } from "../lib/useRelay.ts";
+import { DEVICES_CHANGED_EVENT, PAIRING_CODE_EVENT } from "../lib/useRelay.ts";
 import type { HealthAuth, PairedDevice, PairingCode } from "../../shared/protocol.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { SettingsRow } from "./SettingsControls.tsx";
@@ -23,8 +23,6 @@ import { pairThisBrowser, UnconfirmedPairing } from "../lib/pairing.ts";
 const POLL_MS = 3000;
 
 export interface DevicesPanelProps {
-  /** Pair a device: opens the Connect a phone dialog on its pairing code (ConnectPhoneDialog.tsx) */
-  onPair?: () => void;
   /** a device appeared while a code was out: the code did its work, and the dialog showing it can go */
   onDevicePaired?: () => void;
   /** how this browser got in */
@@ -33,6 +31,10 @@ export interface DevicesPanelProps {
   onPaired?: () => void;
   /** after every device was revoked, this browser's own pairing included: the app asks the server where it stands */
   onRevokedAll?: () => void;
+  /** what each row is (a phone, a browser), shown beside its name; null where that is not known */
+  kindOf?: (label: string) => string | null;
+  /** an action for this device's own row (Use the relay); without such a row, a row of its own */
+  currentAction?: ReactNode;
 }
 
 export const VIA: Record<NonNullable<HealthAuth["via"]>, string> = {
@@ -45,13 +47,22 @@ export const VIA: Record<NonNullable<HealthAuth["via"]>, string> = {
   open: "This browser is in only because nothing is paired yet: from anywhere that can reach this address, so would anyone.",
 };
 
-/** Settings → Devices: the paired devices, and a code to pair one more. */
-export function DevicesPanel({ onPair, onDevicePaired, auth, onPaired, onRevokedAll }: DevicesPanelProps) {
+/**
+ * Whether `row` can be disconnected from every PC from here: another device of the account, and a
+ * `remove` signed with this client's account key would be applied, as the PC takes one only from a
+ * drive member of the account (server/account/records.ts). A browser signed in on the PC's own address,
+ * paired by cookie, holds a key no row has, and every PC would refuse it (`signer_not_member`).
+ */
+export function offersAccountRemove(devices: readonly PairedDevice[], row: PairedDevice, account: string, key: string | null): boolean {
+  return key !== null && !row.current && row.account === account && row.account_key !== undefined && row.account_key !== key
+    && devices.some((d) => d.account === account && d.account_key === key && d.role === "drive");
+}
+
+/** Settings → Devices and PCs → My devices: the paired phones and browsers; Connect a device above it pairs one more. */
+export function DevicesPanel({ onDevicePaired, auth, onPaired, onRevokedAll, kindOf, currentAction = null }: DevicesPanelProps) {
   const t = useT();
   const [devices, setDevices] = useState<PairedDevice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** the demo, or an older server: there is no device list here */
-  const [unavailable, setUnavailable] = useState(false);
   /** the pending code the Connect a phone dialog or the relay started: while it lasts, the list is read again to catch the device it lets in */
   const [code, setCode] = useState<PairingCode | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
@@ -67,14 +78,20 @@ export function DevicesPanel({ onPair, onDevicePaired, auth, onPaired, onRevoked
   /** bumped when every device goes: a read started before that answers for a list that no longer exists */
   const generation = useRef(0);
   const pairingSelfLock = useRef(false);
+  /** reads in the order they started: one answering after a newer one has landed answers for an older list */
+  const reads = useRef({ started: 0, landed: 0 });
 
-  const load = useCallback(async () => {
+  /** `quiet`: a read the page did not ask for, which leaves the warning on screen and, should it fail, the list as it was */
+  const load = useCallback(async ({ quiet = false } = {}) => {
     const started = generation.current;
+    const read = ++reads.current.started;
+    const stale = () => started !== generation.current || read < reads.current.landed;
     try {
       const list = await fetchDevices();
-      if (started !== generation.current) return;
+      if (stale()) return;
+      reads.current.landed = read;
       setDevices(list);
-      setError(null);
+      if (!quiet) setError(null);
       // a device that appeared while a code was out just paired with it
       const fresh = list.filter((d) => !known.current.has(d.id));
       if (loaded.current && fresh.length > 0) {
@@ -84,13 +101,20 @@ export function DevicesPanel({ onPair, onDevicePaired, auth, onPaired, onRevoked
       known.current = new Set(list.map((d) => d.id));
       loaded.current = true;
     } catch (e) {
-      if (started !== generation.current) return;
+      if (quiet || stale()) return;
+      reads.current.landed = read;
       setDevices([]);
-      if (e instanceof ApiError && e.status === 404) setUnavailable(true);
       setError(e instanceof ApiError && e.status === 404 ? t("Devices are managed on a real server.") : e instanceof Error ? e.message : String(e));
     }
   }, [t, onDevicePaired]);
   useEffect(() => { void load(); }, [load]);
+
+  // this client's pairing joined the account behind the app (relay/shell.tsx): the list read before that lists it as no member yet
+  useEffect(() => {
+    const onChanged = () => void load({ quiet: true });
+    window.addEventListener(DEVICES_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(DEVICES_CHANGED_EVENT, onChanged);
+  }, [load]);
 
   // a code started anywhere on this page (the dialog's pairing code, the relay's New code): the server keeps one pending code
   useEffect(() => {
@@ -144,6 +168,14 @@ export function DevicesPanel({ onPair, onDevicePaired, auth, onPaired, onRevoked
     try { await renameDevice(renaming.id, renaming.label); setRenaming(null); await load(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   const signedIn = useAccountSignedIn();
+  /** this client's account key, read only once it is signed in (reading it makes one) */
+  const [accountKey, setAccountKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (signedIn === null) return;
+    let live = true;
+    indexedAccountStore.key().then((key) => { if (live) setAccountKey(key.public_spki); }, () => undefined);
+    return () => { live = false; };
+  }, [signedIn]);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   /** A device of the account, gone from every PC of it: at once here, from the mailbox on the others. */
   const disconnect = async (id: string, key: string, account: string) => {
@@ -237,14 +269,15 @@ export function DevicesPanel({ onPair, onDevicePaired, auth, onPaired, onRevoked
               ) : (
                 <>
                   <div className="devices-name">
-                    <span className="settings-label">{d.label}{d.current && <span className="devices-current">{t("this device")}</span>}{d.via_relay && <span className="devices-via-relay">{t("via relay")}</span>}</span>
+                    <span className="settings-label">{d.label}{kindOf?.(d.label) != null && <span className="devices-kind">{kindOf(d.label)}</span>}{d.current && <span className="devices-current">{t("this device")}</span>}{d.via_relay && <span className="devices-via-relay">{t("via relay")}</span>}</span>
                     <span className="settings-description">{t("Last seen {when}", { when: lastSeen(d.last_seen_at) })}</span>
                   </div>
+                  {d.current && currentAction}
                   {!guest && (
                     <div className="devices-actions">
                       <button type="button" className="icon-button" aria-label={t("Rename {name}", { name: d.label })} onClick={() => setRenaming({ id: d.id, label: d.label })}><Pencil /></button>
-                      {signedIn !== null && d.account === signedIn && d.account_key !== undefined && !d.current && (
-                        <button type="button" className={disconnecting === d.id ? "btn btn-danger" : "btn"} onClick={() => void disconnect(d.id, d.account_key!, signedIn)}>
+                      {signedIn !== null && offersAccountRemove(devices, d, signedIn, accountKey) && (
+                        <button type="button" className={disconnecting === d.id ? "btn btn-danger" : "btn"} onClick={() => void disconnect(d.id, d.account_key!, signedIn!)}>
                           {disconnecting === d.id ? t("Disconnect everywhere?") : t("Disconnect from all PCs")}
                         </button>
                       )}
@@ -262,7 +295,12 @@ export function DevicesPanel({ onPair, onDevicePaired, auth, onPaired, onRevoked
       )}
       {justPaired !== null && <p className="settings-hint" role="status">{t("Paired: {name}.", { name: justPaired })}</p>}
       {revokedAll && <p className="settings-hint" role="status">{t("Every paired device was revoked. The access token, this PC and its Tailscale login get in as before.")}</p>}
-      {!guest && <div className="phone-actions"><button type="button" className="btn btn-primary" onClick={onPair} disabled={unavailable || onPair === undefined}>{t("Pair a device")}</button></div>}
+      {currentAction !== null && devices !== null && !devices.some((d) => d.current) && (
+        <div className="devices-row devices-self">
+          <div className="devices-name"><span className="settings-label">{t("This device")}</span></div>
+          {currentAction}
+        </div>
+      )}
       {devices !== null && devices.length > 0 && !guest && (
         <div className="devices-revoke-all">
           <SettingsRow label={t("Revoke every device")} description={t(watching

@@ -16,6 +16,7 @@ import { ping } from "../herdr/client.ts";
 import { servingCore } from "../herdr-core/runtime.ts";
 import type { PreferenceStore } from "../preferences.ts";
 import { ScheduledMessages } from "../scheduled-messages.ts";
+import { type OmpLookups, OpenCodePromptState, shownPromptText } from "../prompt.ts";
 import { attachableIdentity, sidecarAvailable } from "../pty/sidecar.ts";
 import type { UsageLoginService } from "../usage-login.ts";
 import type { UsageService } from "../usage.ts";
@@ -23,6 +24,7 @@ import { createSubmitText, pendingText } from "./composer.ts";
 import { type Client, createConnections, type SocketData } from "./connections.ts";
 import { createInputLane } from "./input.ts";
 import { createPendingDelivery } from "./pending.ts";
+import { createPromptWatch } from "./prompt-watch.ts";
 import { createSocket } from "./socket.ts";
 import { createStatusHub } from "./status.ts";
 import { ATTACH_HELD_RETRY_MS, ATTACH_HOLD_MS, ATTACH_RELOOKUP_FOR_MS, ATTACH_RETRY_FOR_MS } from "./terminal-process.ts";
@@ -83,10 +85,17 @@ export function createCore({ options, devices, preferences, usage, usageLogin, b
 
   const { pending, holdPending, holdPendingPane, movePendingPane, drainPending, pendingFrames, queueFirstMessage, attached, closeConnection, reconcilePiDeliveries, scheduledIdentity, sendScheduled } = createPendingDelivery({ options, clients, attachments, sight, serialize, lastTyped, submitText, authorizeSocket: (client) => authorizeSocket(client), clientSnapshot: () => clientSnapshot(), omo: { sessionOf: (paneId) => omo.sessionOf(paneId) }, queueHeld: (paneId) => queueHeld(paneId), scheduledUncertain: (paneId) => scheduled.uncertainIn(paneId), SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, TYPED_SETTLE_MS });
 
-  const { mayType, authorizeSocket, admit, setRole, watchPane, unwatchPane, killWatches, end } = createConnections({ clients, present, pending: { close: closeConnection }, devices, detachClaimed, dropClaims });
-  const { push, alertWebhook, omo, gjc, claudeAgents, opencodeAgents, plans, clientSnapshot, currentHerdrLifetime, queueHeld, countVisit, machines, broadcastAll, logPushError, collector, waitTimer } = createStatusHub({ options, devices, preferences, clients, present, pending, holdPendingPane, usage, usageLogin,
+  // the watches read OpenCode's forms and omp's sessions into a state of their own: the route's entries, drafts and
+  // lookups are its answers' (the route's drafts are only read, for the step an answer moved its card to)
+  const watchedOpenCode = new OpenCodePromptState();
+  const watchedOmp: OmpLookups = new Map();
+  const promptWatch = createPromptWatch({ clients, read: (pane, panes) => shownPromptText(pane, panes, { codexHome: options.codexHome, openCodeStateDir: options.openCodeStateDir, openCodeState: watchedOpenCode, ompLookups: watchedOmp, answers: options.openCodeState }) });
+
+  const { mayType, authorizeSocket, admit, setRole, watchPane, unwatchPane, killWatches, end } = createConnections({ clients, present, pending: { close: closeConnection }, devices, detachClaimed,
+    dropClaims: (client) => { dropClaims(client); promptWatch.drop(client); } });
+  const { push, alertWebhook, omo, gjc, claudeAgents, opencodeAgents, plans, clientSnapshot, currentHerdrLifetime, queueHeld, countVisit, machines, broadcastAll, logPushError, collector, waitTimer } = createStatusHub({ options, devices, preferences, clients, present, pending, holdPendingPane,
     // a pane's event also tries its due scheduled messages again
-    drainPending: (paneId) => { drainPending(paneId); scheduled.paneEvent(paneId); },
+    drainPending: (paneId) => { drainPending(paneId); scheduled.paneEvent(paneId); }, usage, usageLogin,
     // the messages first: the old ID's terminal closing holds what it still leases
     paneMoved: (from, to) => { movePendingPane(from, to); scheduled.paneMoved(from, to); paneMoved(from, to); } });
   const scheduled = new ScheduledMessages({
@@ -104,6 +113,7 @@ export function createCore({ options, devices, preferences, usage, usageLogin, b
       "take-over": terminalFrames["take-over"],
       detach: terminalFrames.detach,
       "conversation-watch": terminalFrames["conversation-watch"],
+      "prompt-watch": promptWatch.frames["prompt-watch"],
       "pty-ack": terminalFrames["pty-ack"],
       resize: terminalFrames.resize,
       "release-size": terminalFrames["release-size"],
@@ -143,6 +153,7 @@ export function createCore({ options, devices, preferences, usage, usageLogin, b
       stopped = true;
       scheduled.stop();
       conversations.stop();
+      promptWatch.stop();
       clearInterval(outputTimer);
       collector.stop();
       omo.stop();
