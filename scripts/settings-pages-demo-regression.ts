@@ -6,12 +6,12 @@ import { chromium, type Page } from "playwright-core";
 import panes from "../site/demo/fixtures/panes.json";
 import { buildDemoApp, buildDevelopmentDemoApp } from "./demo-build.ts";
 import { DEMO_FILE_PREVIEW_SCRIPT } from "./demo-file-preview.ts";
-import { openSettingsFolds, openSettingsPage, sheetRisen } from "./settings-page.ts";
+import { openSettingsFolds, openSettingsPage, sheetRisen, themeSide } from "./settings-page.ts";
 import { KO } from "../src/lib/i18n.ko.ts";
 import { JA } from "../src/lib/i18n.ja.ts";
 import { ZH } from "../src/lib/i18n.zh.ts";
 import { terminalTheme } from "../src/lib/settings.ts";
-import { THEME_IDS, type ThemeId } from "../src/lib/themes.ts";
+import { rowFor, THEME_IDS, type ThemeId } from "../src/lib/themes.ts";
 import baseline from "../src/lib/themes.legacy-baseline.json";
 import { comboKey, LEGACY_COMBOS } from "./theme-baseline.ts";
 
@@ -67,11 +67,11 @@ const MATRIX: readonly (readonly ["en" | "ko" | "ja" | "zh", string, string, str
   ["en", "theme", "appearance", "-"],
   ["en", "palette", "appearance", "-"],
   ["en", "interface font size", "appearance", "typography"],
-  ["en", "chat font size", "chat", "-"],
+  ["en", "chat font size", "appearance", "typography"],
   ["en", "chat width", "chat", "-"],
   ["en", "Enter sends", "chat", "composer"],
   ["en", "quick replies", "chat", "quick-replies"],
-  ["en", "terminal font", "terminal", "-"],
+  ["en", "terminal font", "appearance", "typography"],
   ["en", "notifications", "alerts", "-"],
   ["en", "shortcuts", "shortcuts", "-"],
   ["en", "phone", "devices", "-"],
@@ -81,30 +81,30 @@ const MATRIX: readonly (readonly ["en" | "ko" | "ja" | "zh", string, string, str
   ["en", "Suggestion chip", "agents", "-"],
   ["en", "Show above the message box", "chat", "quick-replies"],
   ["ko", "인터페이스 글자 크기", "appearance", "typography"],
-  ["ko", "채팅 글자 크기", "chat", "-"],
+  ["ko", "채팅 글자 크기", "appearance", "typography"],
   ["ko", "Enter로 보내기", "chat", "composer"],
   ["ko", "빠른 답장", "chat", "quick-replies"],
-  ["ko", "터미널 글자 크기", "terminal", "-"],
+  ["ko", "터미널 글자 크기", "appearance", "typography"],
   ["ko", "OpenAI API 키", "chat", "openai-key"],
   ["ko", "단축키", "shortcuts", "-"],
   ["ko", "알림", "alerts", "-"],
   ["ko", "대기 메시지 자동 전송", "chat", "composer-more"],
   ["ko", "입력창 위에 표시", "chat", "quick-replies"],
   ["ja", "インターフェースの文字サイズ", "appearance", "typography"],
-  ["ja", "チャットのフォントサイズ", "chat", "-"],
+  ["ja", "チャットのフォントサイズ", "appearance", "typography"],
   ["ja", "Enter で送信", "chat", "composer"],
   ["ja", "クイック返信", "chat", "quick-replies"],
-  ["ja", "ターミナルのフォントサイズ", "terminal", "-"],
+  ["ja", "ターミナルのフォントサイズ", "appearance", "typography"],
   ["ja", "OpenAI API キー", "chat", "openai-key"],
   ["ja", "ショートカット", "shortcuts", "-"],
   ["ja", "通知", "alerts", "-"],
   ["ja", "送信待ちメッセージを自動で送信", "chat", "composer-more"],
   ["ja", "入力欄の上に表示", "chat", "quick-replies"],
   ["zh", "界面字号", "appearance", "typography"],
-  ["zh", "聊天字号", "chat", "-"],
+  ["zh", "聊天字号", "appearance", "typography"],
   ["zh", "按 Enter 发送", "chat", "composer"],
   ["zh", "快捷回复", "chat", "quick-replies"],
-  ["zh", "终端字号", "terminal", "-"],
+  ["zh", "终端字号", "appearance", "typography"],
   ["zh", "OpenAI API 密钥", "chat", "openai-key"],
   ["zh", "快捷键", "shortcuts", "-"],
   ["zh", "提醒", "alerts", "-"],
@@ -481,8 +481,9 @@ async function dialogSearch(browser: import("playwright-core").Browser, url: str
 
       await search.fill("Font SIZE");
       const found = await shown();
-      assert.deepEqual(found.map(([name]) => name), ["Appearance", "Chat", "Terminal"], `${width}px: "font size" finds settings on those pages only`);
-      for (const [name, label] of [["Appearance", "Interface font size"], ["Chat", "Chat font size"], ["Terminal", "Terminal font size"]] as const) {
+      // every font row is on Appearance: the terminal's and the chat's are found by their sizes' words
+      assert.deepEqual(found.map(([name]) => name), ["Appearance"], `${width}px: "font size" finds settings on Appearance only`);
+      for (const [name, label] of [["Appearance", "Interface font size"], ["Appearance", "Chat font"], ["Appearance", "Terminal font"]] as const) {
         assert.ok(found.find(([page]) => page === name)?.[1].includes(label), `${width}px: ${label} is found under ${name}`);
       }
       assert.equal(await dialog.getByRole("tablist").isVisible(), width !== 390, `${width}px: a phone's results take the list's place`);
@@ -854,13 +855,14 @@ try {
               // The build minifies colors (rgba() to #rrggbbaa), so both sides are compared as the browser
               // computes them on a probe: a color, a box-shadow, or a border for `2px solid <color>`
               const themes = page.getByRole("group", { name: "Theme", exact: true });
-              const pickers = { dark: page.locator("#settings-theme-dark"), light: page.locator("#settings-theme-light") };
-              // both pickers offer every theme, grouped by kind with the side's own kind first (Q1: any theme on either side)
+              const pickers = { dark: themeSide(page, "dark"), light: themeSide(page, "light") };
+              // both sides' cards offer every theme, the side's own kind first (Q1: any theme on either side)
               for (const side of ["dark", "light"] as const) {
-                const listed = await pickers[side].locator("option").evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
-                assert.deepEqual([...listed].sort(), [...THEME_IDS].sort(), `the ${side} picker lists every theme once`);
-                assert.ok(listed.includes("dracula"), `the ${side} picker offers Dracula`);
-                assert.deepEqual(await pickers[side].locator("optgroup").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("label"))), side === "dark" ? ["Dark", "Light"] : ["Light", "Dark"]);
+                const listed = await pickers[side].listed();
+                assert.deepEqual([...listed].sort(), [...THEME_IDS].sort(), `the ${side} cards list every theme once`);
+                assert.ok(listed.includes("dracula"), `the ${side} cards offer Dracula`);
+                const kinds = listed.map((id) => rowFor(id, side).mode === side);
+                assert.deepEqual(kinds, [...kinds].sort((a, b) => Number(b) - Number(a)), `the ${side} cards list the side's own kind first`);
               }
               const drawn = (mode: string, id: string): Promise<unknown> => page.waitForFunction(([mode, id]) => document.documentElement.dataset.theme === mode && document.documentElement.dataset.palette === id && getComputedStyle(document.documentElement).colorScheme === mode, [mode, id]);
               /** The theme keys of the saved record and of the second key old code never touches. */
@@ -1183,11 +1185,12 @@ try {
         await openSettingsPage(page, "Appearance");
         await checkSelectArrows(page);
         if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "select-arrows-desktop.png"), animations: "disabled" });
-        const themePicker = page.getByLabel("Dark theme", { exact: true });
+        // a select on Appearance (the theme pickers are cards now): Interface font
+        const themePicker = page.getByLabel("Interface font", { exact: true });
         await themePicker.focus();
         await page.keyboard.press("ArrowDown");
-        assert.notEqual(await themePicker.inputValue(), "amber", "the native select keeps keyboard selection");
-        await themePicker.selectOption("amber");
+        assert.notEqual(await themePicker.inputValue(), "default", "the native select keeps keyboard selection");
+        await themePicker.selectOption("default");
         await page.emulateMedia({ forcedColors: "active" });
         assert.equal(await themePicker.evaluate((select) => getComputedStyle(select).appearance), "auto", "forced colors restores the native indicator");
         assert.equal(await themePicker.locator("..").locator("svg").evaluate((arrow) => getComputedStyle(arrow).display), "none");
@@ -1202,9 +1205,9 @@ try {
           await openSettings(page);
           await openSettingsPage(page, "Appearance");
           await page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name: "Dark", exact: true }).click();
-          await page.locator("#settings-theme-dark").selectOption(id);
+          await themeSide(page, "dark").selectOption(id);
           await page.waitForFunction((id) => document.documentElement.dataset.palette === id && document.documentElement.dataset.theme === "dark", id);
-          assert.equal(await page.locator("#settings-theme-light").inputValue(), "amber", `${id} has no sibling pre-fill`);
+          assert.equal(await themeSide(page, "light").inputValue(), "amber", `${id} has no sibling pre-fill`);
           const surfaces = await page.evaluate(() => {
             const style = getComputedStyle(document.documentElement);
             return ["--border", "--bg-elevated", "--bg-input"].map((role) => style.getPropertyValue(role).trim());
@@ -1221,7 +1224,7 @@ try {
         }
         await openSettings(page);
         await openSettingsPage(page, "Appearance");
-        await page.locator("#settings-theme-light").selectOption("dracula");
+        await themeSide(page, "light").selectOption("dracula");
         await page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name: "Light", exact: true }).click();
         await page.waitForFunction(() => document.documentElement.dataset.palette === "dracula" && document.documentElement.dataset.theme === "dark" && getComputedStyle(document.documentElement).colorScheme === "dark");
         assert.equal(await page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name: "Light", exact: true }).getAttribute("aria-pressed"), "true");

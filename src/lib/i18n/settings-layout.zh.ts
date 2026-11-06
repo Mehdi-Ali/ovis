@@ -9,6 +9,8 @@ export const SETTINGS_LAYOUT_ZH: Record<string, string> = {
   "Search results": "搜索结果",
   "Open {page}": "打开 {page}",
   "Sidebar": "侧边栏",
+  "Earlier themes": "上一组主题",
+  "Later themes": "下一组主题",
   "More settings": "更多设置",
   "Experimental": "实验功能",
   "{count} changed": "已更改 {count} 项",

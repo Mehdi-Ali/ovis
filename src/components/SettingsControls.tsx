@@ -1,5 +1,5 @@
 import { createContext, isValidElement, useContext, type ComponentProps, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Minus, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw } from "lucide-react";
 
 import { DEFAULT_SETTINGS, useSettings, type Settings } from "../lib/settings.ts";
 import { useT } from "../lib/i18n.ts";
@@ -16,6 +16,9 @@ import "./SettingsControls.css";
  * shows each of its rows. Outside a search it is empty and nothing is filtered.
  */
 export const SettingsQuery = createContext<readonly string[]>([]);
+
+/** A page drawn as herdr-app draws its settings: rows are a label and a control, with no sentences and no group captions. */
+export const SettingsBare = createContext(false);
 
 /** What a search matches by: case and full-width forms folded, so "Font" finds "font". */
 const folded = (text: string): string => text.normalize("NFKC").toLocaleLowerCase();
@@ -65,11 +68,12 @@ export function SettingsFold({ kind, keys, children }: { kind: "more" | "experim
 /** `section`: the group's name in a link to it (`?settings=<page>&section=<name>`, lib/deepLink.ts) */
 export function SettingsGroup({ title, note, className, section, children }: { title?: string; note?: ReactNode; className?: string; section?: string; children: ReactNode }) {
   const words = useContext(SettingsQuery);
+  const bare = useContext(SettingsBare);
   const titled = words.length > 0 && title !== undefined && matchesSettingsQuery(words, title);
   return (
     <section className={className ? `settings-section ${className}` : "settings-section"} data-section={section} data-found={titled ? "" : undefined} tabIndex={section ? -1 : undefined}>
-      {title !== undefined && <h3>{title}</h3>}
-      {note !== undefined && <p className="settings-description settings-note">{note}</p>}
+      {!bare && title !== undefined && <h3>{title}</h3>}
+      {!bare && note !== undefined && <p className="settings-description settings-note">{note}</p>}
       <div className="settings-card">{titled ? <SettingsQuery.Provider value={[]}>{children}</SettingsQuery.Provider> : children}</div>
     </section>
   );
@@ -81,14 +85,27 @@ export function SettingsGroup({ title, note, className, section, children }: { t
  * more words a search finds it by, for a row opened by another. `held`: a row in the middle of a
  * step (a recording, a confirmation) stays in a search whatever its words have become.
  */
-export function SettingsRow({ label, description, keywords, held = false, htmlFor, wide = false, children }: { label: string; description?: ReactNode; keywords?: string; held?: boolean; htmlFor?: string; wide?: boolean; children: ReactNode }) {
+export function SettingsRow({ label, description, keywords, held = false, htmlFor, wide = false, reset, children }: { label: string; description?: ReactNode; keywords?: string; held?: boolean; htmlFor?: string; wide?: boolean; reset?: readonly (keyof Settings)[]; children: ReactNode }) {
   const words = useContext(SettingsQuery);
+  const bare = useContext(SettingsBare);
+  const { settings, update } = useSettings();
+  const t = useT();
   if (!held && words.length > 0 && !matchesSettingsQuery(words, label, description, keywords)) return null;
+  // `reset`: the keys this row sets; once any is off its default, a button beside the label puts them back
+  const changed = reset !== undefined && reset.some((key) => JSON.stringify(settings[key]) !== JSON.stringify(DEFAULT_SETTINGS[key]));
+  const label_ = htmlFor !== undefined ? <label className="settings-label" htmlFor={htmlFor}>{label}</label> : <span className="settings-label">{label}</span>;
   return (
     <div className={wide ? "settings-row is-wide" : "settings-row"} data-setting="">
       <div className="settings-row-text">
-        {htmlFor !== undefined ? <label className="settings-label" htmlFor={htmlFor}>{label}</label> : <span className="settings-label">{label}</span>}
-        {description !== undefined && <span className="settings-description">{description}</span>}
+        {changed ? (
+          <span className="settings-label-line">
+            {label_}
+            <button type="button" className="settings-reset" title={t("Restore defaults")} aria-label={`${t("Restore defaults")}: ${label}`} onClick={() => update(Object.fromEntries(reset.map((key) => [key, DEFAULT_SETTINGS[key]])) as Partial<Settings>)}>
+              <RotateCcw aria-hidden="true" />
+            </button>
+          </span>
+        ) : label_}
+        {!bare && description !== undefined && <span className="settings-description">{description}</span>}
       </div>
       {children}
     </div>
