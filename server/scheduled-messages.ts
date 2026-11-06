@@ -26,7 +26,7 @@ import type { PendingIdentity } from "./pending-input.ts";
 type Reply = { ok: boolean; code?: string; message?: string };
 
 /** refusals that only mean "not yet": the message stays scheduled, says why, and is tried again at the pane's next event */
-const WAIT_CODES = new Set(["cancelled", "pending_wait", "agent_blocked", "agent_not_ready", "input_not_ready", "attach_held", "input_draft", "rewind_dialog_open", "submit_timeout"]);
+const WAIT_CODES = new Set(["cancelled", "pending_wait", "agent_blocked", "agent_not_ready", "input_not_ready", "attach_held", "awaiting_status", "input_draft", "rewind_dialog_open", "submit_timeout"]);
 /** a delivery that may have typed part of the message: never sent again on its own or by Send now */
 const UNCERTAIN_CODES = new Set(["submit_changed", "pasted_not_sent"]);
 export const MAX_SCHEDULED = 64;
@@ -249,7 +249,7 @@ export class ScheduledMessages {
     for (const entry of this.entries.values()) {
       if (this.stopped || entry.message.state !== "scheduled" || Date.parse(entry.message.send_at) > this.now() || !this.behind(entry, "uncertain")) continue;
       entry.message.state = "held";
-      entry.message.error = NEEDS_OK_UNCERTAIN;
+      entry.message.error = { ...NEEDS_OK_UNCERTAIN };
       held = true;
     }
     if (held) this.commit();

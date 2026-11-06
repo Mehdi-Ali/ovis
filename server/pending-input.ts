@@ -295,15 +295,13 @@ export class PendingInputs<Owner, Lease> {
   }
 
   /**
-   * Whether a delivery to the pane may sit in its input: a scheduled message is then never typed on its own (#2919). So
-   * may one a server before this one left, until the pane's status changes under this one (#2951).
+   * Whether the pane's status changed since this store began: until then, what a server before this one left in its input is
+   * unknown, and a scheduled message waits (#2951).
    */
-  uncertainIn(paneId: string): boolean {
-    return !this.statusMoved.has(paneId) || this.pasteUncertainIn(paneId);
-  }
+  statusChangedIn(paneId: string): boolean { return this.statusMoved.has(paneId); }
 
-  /** Whether a delivery this server made, or a connection's, may sit in the pane's input: none is typed over it, even by Send now. */
-  pasteUncertainIn(paneId: string): boolean {
+  /** Whether a delivery to the pane may sit in its input: a scheduled message is then never typed, not even by Send now (#2919). */
+  uncertainIn(paneId: string): boolean {
     return this.stranded.has(paneId) || [...this.records.values()].some((item) => item.paneId === paneId && item.message.state === "uncertain");
   }
 

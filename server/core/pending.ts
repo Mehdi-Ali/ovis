@@ -1280,11 +1280,15 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
   const sendScheduled = (paneId: string, text: string, identity: PendingIdentity, automatic: boolean, authorize: () => void): Promise<SubmitReply> =>
     serialize(paneId, () => {
       // Send now too: the user resolves an earlier paste that may sit in the input before sending over it (#2951)
-      if (!automatic && pending.pasteUncertainIn(paneId)) {
+      if (!automatic && pending.uncertainIn(paneId)) {
         return { ok: false, code: "pending_uncertain", message: "A message to this pane may still be in its input line. Check the terminal, then send or discard that one first." };
       }
       if (automatic && pending.uncertainIn(paneId)) {
         return { ok: false, code: "needs_ok", message: "A message to this pane may still be in its input line. Check the terminal, then send this one or discard it." };
+      }
+      // after a restart, an earlier server's paste may sit in the input: the message waits for the pane's status to change
+      if (automatic && !pending.statusChangedIn(paneId)) {
+        return { ok: false, code: "awaiting_status", message: "This PC's server started since the agent last changed state; the message waits until it does" };
       }
       if (automatic && pending.turnUnconfirmed(paneId)) {
         return { ok: false, code: "pending_turn_unconfirmed", message: "The turn the last message started was not confirmed; review this one and send it explicitly" };

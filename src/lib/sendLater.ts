@@ -72,5 +72,6 @@ export function scheduledStatus(message: Pick<ScheduledMessage, "state" | "send_
   if (code === "input_draft") return t("Due · waits for the terminal's input box to be empty");
   if (code === "agent_blocked") return t("Due · waits for an answer in the terminal");
   if (code === "input_not_ready") return t("Due · waits for a device to open this pane");
+  if (code === "awaiting_status") return t("Due · waits for the agent's next turn after this PC's server restarted");
   return t("Due · waits to send: {reason}", { reason: message.error?.message ?? "" });
 }

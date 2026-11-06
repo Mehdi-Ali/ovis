@@ -279,5 +279,6 @@ export const COMPOSER_KO: Record<string, string> = {
   "Needs your OK: it came due while this PC's server was not running": "확인 필요: 이 PC의 서버가 꺼져 있는 동안 예약 시각이 지났습니다",
   "Pick a time that has not passed yet.": "아직 지나지 않은 시각을 고르세요.",
   "Needs your OK: the pane moved since it was scheduled": "확인 필요: 예약한 뒤 창이 다른 곳으로 옮겨졌습니다",
+  "Due · waits for the agent's next turn after this PC's server restarted": "예약 시각 지남 · 이 PC의 서버가 다시 시작되어 에이전트의 다음 작업을 기다리는 중",
   "Due · waits for a device to open this pane": "예약 시각 지남 · 이 창을 여는 기기를 기다리는 중",
 };

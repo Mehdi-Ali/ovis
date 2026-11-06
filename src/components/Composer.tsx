@@ -111,11 +111,11 @@ export interface ComposerProps {
   inert?: boolean;
   /** opens the folder's earlier sessions instead of submitting /resume */
   onOpenHistory?: () => void;
+  /** Send later (#2919): the PC keeps the message and sends it at `sendAt`; absent where the PC cannot (an older one, or watching) */
+  onSchedule?: (text: string, sendAt: string) => Promise<void>;
   /** opens the New tab dialog on this pane's workspace, to start another agent with its model, effort, skills
    * and first message (NewSessionDialog), on this chat's agent and the model and effort it recorded; none: the pane has no
    * workspace to add a tab to */
-  /** Send later (#2919): the PC keeps the message and sends it at `sendAt`; absent where the PC cannot (an older one, or watching) */
-  onSchedule?: (text: string, sendAt: string) => Promise<void>;
   /** the pane's working folder, named in the strip tucked under the card; nothing is drawn for it while absent */
   cwd?: string | null;
   /** the pane's branch, beside the folder in that strip; nothing is drawn for it while absent */

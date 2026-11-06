@@ -279,5 +279,6 @@ export const COMPOSER_ZH: Record<string, string> = {
   "Needs your OK: it came due while this PC's server was not running": "需要你确认：此电脑的服务器未运行时已到发送时间",
   "Pick a time that has not passed yet.": "请选择一个尚未过去的时间。",
   "Needs your OK: the pane moved since it was scheduled": "需要你确认：预约后窗格已被移动",
+  "Due · waits for the agent's next turn after this PC's server restarted": "已到时间 · 这台电脑的服务器已重启，等待代理的下一轮",
   "Due · waits for a device to open this pane": "已到时间 · 等待设备打开此窗格",
 };

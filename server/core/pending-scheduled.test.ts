@@ -206,12 +206,12 @@ it("types nothing once the last device leaves the pane while the send reads it (
   expect(d.writes).toEqual([]);
 });
 
-it("asks for the user's OK while the pane's status has not changed since this server started (#2951)", async () => {
+it("waits, typing nothing, while the pane's status has not changed since this server started (#2951)", async () => {
   const d = delivery("idle");
   const identity = await d.pending.scheduledIdentity("p");
   d.pending.pending.forget("p");
   d.pending.pending.status("p", "idle");
-  expect(await d.pending.sendScheduled("p", "continue", identity, true, () => {})).toMatchObject({ ok: false, code: "needs_ok" });
+  expect(await d.pending.sendScheduled("p", "continue", identity, true, () => {})).toMatchObject({ ok: false, code: "awaiting_status" });
   expect(d.writes).toEqual([]);
   d.pending.pending.status("p", "working");
   d.pending.pending.status("p", "idle");

@@ -473,3 +473,16 @@ it("keeps a copy of a state file with an entry it cannot read, before writing ov
   expect(kept).toHaveLength(1);
   expect(readFileSync(join(stateDir, kept[0]!), "utf8")).toBe(raw);
 });
+
+it("keeps a message waiting for its pane's first status change since a restart, and sends it at the next event (#2951)", async () => {
+  const { scheduled, sends } = store([{ ok: false, code: "awaiting_status", message: "waits for the agent's next status change" }]);
+  await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T09:59:00Z" }, null);
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(scheduled.list()[0]).toMatchObject({ state: "scheduled", error: { code: "awaiting_status" } });
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(sends).toHaveLength(2);
+  expect(scheduled.list()).toEqual([]);
+});

@@ -279,5 +279,6 @@ export const COMPOSER_JA: Record<string, string> = {
   "Needs your OK: it came due while this PC's server was not running": "確認が必要です: この PC のサーバーが動いていない間に予定時刻を過ぎました",
   "Pick a time that has not passed yet.": "まだ過ぎていない時刻を選んでください。",
   "Needs your OK: the pane moved since it was scheduled": "確認が必要です: 予約したあとでペインが移動しました",
+  "Due · waits for the agent's next turn after this PC's server restarted": "予定時刻を過ぎました · この PC のサーバーが再起動したため、エージェントの次のターン待ち",
   "Due · waits for a device to open this pane": "予定時刻を過ぎました · このペインを開くデバイス待ち",
 };
