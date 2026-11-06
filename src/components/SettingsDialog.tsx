@@ -51,7 +51,7 @@ import { DevicesPanel } from "./DevicesPanel.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RuntimeMove } from "./RuntimeMove.tsx";
 import { SignOutRow } from "./SignOutRow.tsx";
-import { failureText, openOwnOffer, RelayDirectRow, statusText } from "./RelayPanel.tsx";
+import { failureText, openOwnOffer, statusText } from "./RelayPanel.tsx";
 import { AccountSection, accountOffered, type AccountState } from "./AccountSection.tsx";
 import { accountPcStateText } from "./AccountPcs.tsx";
 import { STATE_WORD } from "./MachineSidebar.tsx";
@@ -1266,9 +1266,6 @@ function DevicesPage({ auth, security, onSignOut, onRevokedAll, machines, pcSett
     setConnecting(false);
     // the account's own sign-in, at the top of this page
     const group = document.querySelector<HTMLElement>('.settings-dialog [data-section="account"]');
-    // the account waits in More settings: opened first, so the sign-in shows
-    const fold = group?.closest("details");
-    if (fold) fold.open = true;
     group?.scrollIntoView({ block: "start" });
     group?.querySelector<HTMLElement>("button")?.focus();
   }, []);
@@ -1277,6 +1274,8 @@ function DevicesPage({ auth, security, onSignOut, onRevokedAll, machines, pcSett
   const selfRelay = touchPhone && relayOffered(relay) && relay.status?.phase === "online" && !relayReadOnly ? <UseRelayHere /> : null;
   return (
     <>
+      {/* who is signed in comes first, as T3 Code's Sharing & access and ChatGPT's Connections do: the account decides which PCs show below */}
+      <AccountSection onAccount={setAccount} />
       {/* what is connected to this PC: its name atop one list of the other PCs, phones and browsers, the one in use first */}
       <SettingsGroup title={t("Connected to this PC")} section="devices">
         <div className="settings-item my-devices">
@@ -1324,10 +1323,8 @@ function DevicesPage({ auth, security, onSignOut, onRevokedAll, machines, pcSett
           </SettingsGroup>
         )}
 
-        <AccountSection onAccount={setAccount} />
+        {/* the same Wi-Fi's switch for relay phones is a way in: it waits in Add a connection → Phone or tablet */}
         <SettingsGroup title={t("Devices and access")} section="devices-more">
-          {/* in the hosted shell too (a phone reaching this PC through the relay or directly), there without the switch */}
-          {(relayOffered(relay) || inRelayShell()) && <RelayDirectRow relay={relay} readOnly={relayReadOnly || inRelayShell()} />}
           <div className="settings-item" ref={setDevicesMore} />
           {onSignOut && <SignOutRow viaPortal={auth?.via === "portal"} oidc={auth?.portal?.method === "oidc"} onSignOut={onSignOut} label={t("Sign out of this PC")} />}
         </SettingsGroup>
@@ -1349,7 +1346,7 @@ function DevicesPage({ auth, security, onSignOut, onRevokedAll, machines, pcSett
       {connecting && (
         <ConnectPhoneDialog plan={plan} loading={access === undefined} onRefresh={loadAccess} pairUrl={pairUrl}
           relay={relay} readOnly={relayReadOnly} closesGate={closesGate} canPair={auth?.via !== "portal"}
-          joinBySignIn={joinBySignIn} onSignIn={accountOffered() && !account.signedIn ? signIn : null}
+          joinBySignIn={joinBySignIn} onSignIn={accountOffered() && !account.signedIn ? signIn : null} account={account.account}
           onAddPcSsh={() => { setConnecting(false); openAddPc(); }} onClose={closeConnect} />
       )}
     </>

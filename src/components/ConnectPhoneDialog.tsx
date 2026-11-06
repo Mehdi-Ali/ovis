@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, RefreshCw, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Laptop, RefreshCw, Server, Smartphone, X } from "lucide-react";
 
 import "./ConnectPhoneDialog.css";
 import "./DevicesPanel.css";
@@ -18,7 +18,7 @@ import type { PairedDevice, PairingCode } from "../../shared/protocol.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { PhonePanel, QrReveal, ShareLink } from "./PhonePanel.tsx";
 import { QrCode } from "./QrCode.tsx";
-import { failureText, openOwnOffer, RelayPairing, statusText } from "./RelayPanel.tsx";
+import { failureText, openOwnOffer, RelayDirectRow, RelayPairing, statusText } from "./RelayPanel.tsx";
 import { SettingsQuery, Toggle } from "./SettingsControls.tsx";
 import { AddRelayPc } from "./AddRelayPc.tsx";
 import { TailnetPcs } from "./TailnetPcs.tsx";
@@ -82,24 +82,35 @@ export interface ConnectPhoneDialogProps {
   joinBySignIn: boolean;
   /** signed out where the account is offered: a line that says signing in skips the code, and its button */
   onSignIn: (() => void) | null;
+  /** the account this browser is signed in to, for Another PC: that PC signs in to it too */
+  account?: string | null;
   /** SSH, for a PC without Ovis: the Add PC dialog */
   onAddPcSsh: (() => void) | null;
   onClose: () => void;
 }
 
-type OtherWay = "wifi" | "tailscale" | "portal" | "typed" | "headless";
+type OtherWay = "wifi" | "tailscale" | "portal";
+
+/** what is being connected, asked first: the ways in follow from it, not the other way round */
+type Kind = "phone" | "pc" | "server";
 
 /**
- * Settings → Devices and PCs → Connect a device, as WhatsApp's Link a device: one way first, the rest folded.
+ * Settings → Devices and PCs → Add a connection. It asks first what is being connected, as GOAT's Connect your phone
+ * and Add device or Doriterm's Add a machine do, so nobody has to know a relay from a Wi-Fi code: a phone or tablet,
+ * another PC, or a server with no screen. Where nothing but a phone or browser can be connected from here (a watching
+ * device, the hosted shell) it opens on that straight away.
+ *
+ * A phone or tablet, as WhatsApp's Link a device: one way first, the rest folded.
  * Signed in (`joinBySignIn`), the new device signs in to the same account and is approved once on a device
  * already in it, so no code shows until Connect with a code. Otherwise the Ovis relay's QR code and the code
  * to type sit side by side with Refresh and Copy; a PC's own Ovis or a phone takes either, and which one typed
  * it decides what it becomes (a PC shows its workspaces on both, a phone or browser uses this PC). Other ways
- * holds the rest, one line each: the same Wi-Fi's six-digit code, Tailscale, SSH for a PC without Ovis, Portal.
- * A code another device shows is typed here too (Enter a code from another device). This PC's ID is not
- * shown here: it is atop My devices, where the device that typed a code is told to compare it.
+ * holds the rest, one line each: the same Wi-Fi's six-digit code, Tailscale, Portal, and the switch that lets phones
+ * paired through the relay come straight in on the same Wi-Fi. Another PC: signing in to the same account, or the code
+ * that PC shows typed here, or a PC found on Tailscale. A server: the command for its terminal, or SSH when it has no
+ * Ovis. This PC's ID is not shown here: it is atop My devices, where the device that typed a code is told to compare it.
  */
-export function ConnectPhoneDialog({ plan, loading, onRefresh, pairUrl, relay, readOnly, closesGate, canPair, joinBySignIn, onSignIn, onAddPcSsh, onClose }: ConnectPhoneDialogProps) {
+export function ConnectPhoneDialog({ plan, loading, onRefresh, pairUrl, relay, readOnly, closesGate, canPair, joinBySignIn, onSignIn, account = null, onAddPcSsh, onClose }: ConnectPhoneDialogProps) {
   const t = useT();
   const id = useId();
   const surface = useFocusTrap<HTMLDivElement>(true);
@@ -121,6 +132,15 @@ export function ConnectPhoneDialog({ plan, loading, onRefresh, pairUrl, relay, r
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose, surface]);
 
+  // a watching device or the hosted shell connects nothing but a phone or browser from here
+  const choosing = !readOnly && !inRelayShell();
+  const [kind, setKind] = useState<Kind | null>(choosing ? null : "phone");
+  const firstRender = useRef(true);
+  // a new step starts at its top, read from its title
+  useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return; }
+    surface.current?.focus();
+  }, [kind, surface]);
   const phone = useMediaQuery(PHONE_QUERY);
   const offered = relayOffered(relay);
   // a phone on the relay keeps the relay's card: it says where relay links come from, and points to the pairing code
@@ -149,9 +169,13 @@ export function ConnectPhoneDialog({ plan, loading, onRefresh, pairUrl, relay, r
     ...(canPair && !readOnly && !wifiFirst ? [{ way: "wifi" as const, label: t("Same Wi-Fi"), body: <CodeRoute pairUrl={inRelayShell() ? null : pairUrl} startAtOnce phone={phone} compact /> }] : []),
     { way: "tailscale", label: "Tailscale", body: <PhonePanel plan={plan} loading={loading} onRefresh={onRefresh} phone={phone} /> },
     ...(portal?.supported ? [{ way: "portal" as const, label: "Portal", body: <PortalPanel readOnly={readOnly} /> }] : []),
-    // a PC reached only over SSH links itself from its own terminal (docs/relay.md, "A PC with no screen")
-    ...(!readOnly && !inRelayShell() ? [{ way: "headless" as const, label: t("A PC with no screen"), body: <HeadlessPc /> }] : []),
   ];
+  const kinds: { kind: Kind; icon: typeof Smartphone; name: string; hint: string }[] = [
+    { kind: "phone", icon: Smartphone, name: t("Phone or tablet"), hint: t("Use this PC from a phone, a tablet or another browser.") },
+    { kind: "pc", icon: Laptop, name: t("Another PC"), hint: t("See its terminals and agents here.") },
+    { kind: "server", icon: Server, name: t("Server (a PC with no screen)"), hint: t("Add it with one command.") },
+  ];
+  const title = kind === null || !choosing ? t("Add a connection") : kinds.find((entry) => entry.kind === kind)?.name ?? t("Add a connection");
 
   return createPortal(
     // a Settings search hides no row in here
@@ -159,11 +183,47 @@ export function ConnectPhoneDialog({ plan, loading, onRefresh, pairUrl, relay, r
     <div className="modal-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div ref={surface} className="modal connect-phone-dialog" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} tabIndex={-1}>
         <header className="modal-header">
-          <h2 className="modal-title" id={`${id}-title`}>{t("Add a connection")}</h2>
+          {choosing && kind !== null && <button type="button" className="icon-button connect-back" aria-label={t("Back")} onClick={() => setKind(null)}><ChevronLeft aria-hidden="true" /></button>}
+          <h2 className="modal-title" id={`${id}-title`}>{title}</h2>
           <button type="button" className="icon-button" aria-label={t("Close")} onClick={onClose}><X aria-hidden="true" /></button>
         </header>
         <div className="modal-body connect-phone-body">
-          {signInFirst ? (
+          {kind === null && (
+            <>
+              <p className="connect-question">{t("What do you want to connect?")}</p>
+              <div className="connect-kinds">
+                {kinds.map(({ kind: next, icon: Icon, name, hint }) => (
+                  <button key={next} type="button" className="connect-kind" data-kind={next} onClick={() => setKind(next)}>
+                    <span className="connect-kind-icon"><Icon aria-hidden="true" /></span>
+                    <span className="connect-kind-text"><span className="connect-kind-name">{name}</span><span className="connect-kind-hint">{hint}</span></span>
+                    <ChevronRight className="connect-way-chevron" aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {kind === "pc" && (
+            <>
+              {account !== null ? (
+                <p className="connect-signin-lead">{t("On that PC, sign in to {account} in Settings → Devices and PCs and add it to your account. It then shows in this list.", { account })}</p>
+              ) : onSignIn !== null && (
+                <div className="connect-signin-nudge">
+                  <span>{t("Sign in with GitHub to connect without a code.")}</span>
+                  <button type="button" className="btn" onClick={onSignIn}>{t("Sign in")}</button>
+                </div>
+              )}
+              <p className="settings-hint connect-pc-code">{t("With a code instead: on that PC, open Add a connection → Phone or tablet, then type the code it shows here.")}</p>
+              <div className="settings-card connect-typed"><AddRelayPc /></div>
+              <TailnetPcs />
+            </>
+          )}
+          {kind === "server" && (
+            <>
+              <HeadlessPc />
+              {onAddPcSsh !== null && <button type="button" className="btn btn-ghost connect-link" onClick={onAddPcSsh}>{t("Add a PC over SSH")}</button>}
+            </>
+          )}
+          {kind === "phone" && (signInFirst ? (
             <div className="connect-signin" data-testid="connect-signin">
               <p className="connect-signin-lead">{t("On the new device, open Ovis and sign in with GitHub.")}</p>
               <p className="settings-hint">{t("Then approve it once on a device already in your account.")}</p>
@@ -190,15 +250,9 @@ export function ConnectPhoneDialog({ plan, loading, onRefresh, pairUrl, relay, r
               {wifiFirst && <CodeRoute pairUrl={pairUrl} startAtOnce phone={phone} compact />}
               {!offered && !onRelay && (!canPair || readOnly) && <PhonePanel plan={plan} loading={loading} onRefresh={onRefresh} phone={phone} />}
             </>
-          )}
-          {!readOnly && !inRelayShell() && (
-            <div className="connect-way-item">
-              <button type="button" className="btn btn-ghost connect-link" aria-expanded={open === "typed"} onClick={() => toggle("typed")}>{t("Enter a code from another device")}</button>
-              {open === "typed" && <div className="settings-card connect-typed"><AddRelayPc /></div>}
-            </div>
-          )}
-          {!readOnly && !inRelayShell() && <TailnetPcs />}
-          <details className="settings-details connect-other" open={open !== null && open !== "typed" ? true : undefined}>
+          ))}
+          {kind === "phone" && (
+          <details className="settings-details connect-other" open={open !== null ? true : undefined}>
             <summary><span className="settings-details-toggle">{t("Other ways to connect")}</span></summary>
             <div className="connect-ways">
               {otherWays.map(({ way, label, body }) => (
@@ -209,13 +263,11 @@ export function ConnectPhoneDialog({ plan, loading, onRefresh, pairUrl, relay, r
                   {opened.current.has(way) && <div className="connect-way-body" hidden={open !== way}>{body}</div>}
                 </div>
               ))}
-              {onAddPcSsh !== null && !readOnly && (
-                <div className="connect-way-item">
-                  <button type="button" className="connect-way" onClick={onAddPcSsh}><span>{t("Add a PC over SSH")}</span><ChevronRight className="connect-way-chevron" aria-hidden="true" /></button>
-                </div>
-              )}
+              {/* phones paired through the relay, straight in on the same Wi-Fi; in the hosted shell it is said, not switched */}
+              {(offered || onRelay) && <div className="connect-direct"><RelayDirectRow relay={relay} readOnly={readOnly || inRelayShell()} /></div>}
             </div>
           </details>
+          )}
         </div>
       </div>
     </div>

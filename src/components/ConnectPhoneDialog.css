@@ -11,6 +11,91 @@
   outline: none;
 }
 
+/* a step past the first question: its way back sits before its title */
+.connect-phone-dialog .modal-header:has(.connect-back) {
+  justify-content: flex-start;
+  gap: var(--space-2);
+}
+
+.connect-phone-dialog .modal-header:has(.connect-back) .modal-title {
+  flex: 1;
+}
+
+/* the first question: what is being connected, one large choice each */
+.connect-question {
+  margin: 0;
+  color: var(--text-strong);
+  font-weight: var(--fw-semibold);
+}
+
+.connect-kinds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.connect-kind {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--row-h);
+  padding: var(--space-3);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.connect-kind:hover {
+  border-color: var(--border-strong);
+}
+
+.connect-kind-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-strong);
+}
+
+.connect-kind-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.connect-kind-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.connect-kind-name {
+  color: var(--text-strong);
+  font-weight: var(--fw-semibold);
+}
+
+.connect-kind-hint {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.connect-pc-code {
+  margin: 0;
+}
+
+/* the same-Wi-Fi switch for relay phones: a settings row inside the fold, without its outer padding */
+.connect-direct .settings-row {
+  padding-inline: 0;
+}
+
 .connect-phone-body {
   display: flex;
   flex-direction: column;

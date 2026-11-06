@@ -3687,9 +3687,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   held modifiers. Restore defaults returns the original row. The keyboard mode control stays first.
 - A font family is a text field saved when it is left, on Enter or when the dialog closes, not
   per keystroke.
-- Devices and PCs follows WhatsApp's **Linked devices**: the account on top, then one list of
-  everything connected (**My devices**) under one **Connect a device** row whose **Connect** button
-  opens every way in, as Tailscale's admin **Add device** does. Devices and other PCs are one list
+- Devices and PCs follows WhatsApp's **Linked devices**: the account on top (its own group heading
+  the page, as T3 Code's Sharing & access and ChatGPT's Connections put the sign-in first), then one
+  list of everything connected (**My devices**) under one **Add a connection** button that opens
+  every way in, as Tailscale's admin **Add device** does. Devices and other PCs are one list
   because to the person they are one thing: something connected to this PC. Rows are as short as
   the page allows; what pairing means is one folded sentence, and what few people change is in
   More settings. Old links to the Phone, Remote PCs and Portal groups land on My devices.
@@ -3703,7 +3704,17 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   before, then **Revoke every device**. On a touch phone on this PC's own address, with the relay
   online, the phone's own row carries **Use the relay** (its own offer opens there). **Sign out of
   this PC** (the browser's own pairing) and the account's **Sign out of GitHub** are named apart.
-- Connect a device (`components/ConnectPhoneDialog.tsx`, a `.modal`, a bottom sheet on a phone):
+- Add a connection (`components/ConnectPhoneDialog.tsx`, a `.modal`, a bottom sheet on a phone)
+  first asks **What do you want to connect?**, as GOAT's Connect your phone and Add device and
+  Doriterm's Add a machine split them, so nobody has to tell a relay from a Wi-Fi code: three large
+  bordered choices with an icon, a name and one line (**Phone or tablet**, **Another PC**, **Server
+  (a PC with no screen)**). A picked one takes the title, with a back chevron before it. A watching
+  device or the hosted shell can connect only a phone or browser, so it opens on that. **Another
+  PC**: signed in, one line saying that PC signs in to the same account and is added to it, then
+  shows in the list; signed out where the account is offered, the sign-in line; then the typed-code
+  form for the code that PC shows (the ID match step as before) and the PCs found on Tailscale.
+  **Server**: the command for its terminal (`bun scripts/plugin.ts link`), then **Add a PC over
+  SSH** for one without Ovis (closes Settings and opens the PC setup dialog). **Phone or tablet**,
   signed in to the account, with this PC in it and the relay online, it asks the new device to
   sign in with GitHub and be approved once on a device already in the account (the approval is
   the account's own prompt, picking the number out of three, on that device: never on the PC's
@@ -3713,12 +3724,12 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   account is offered, one bordered line above it says signing in skips the code. While the relay
   is not online its state sentence shows instead, with its switch for the PC's owner (and the gate
   condition), a failed start's reason and **Try again**; a watching device or Portal visitor reads
-  the state and that only the owner controls the relay. **Enter a code from another device** opens
-  the typed-code form for a PC that shows its own code (the ID match step as before). **Other ways
-  to connect** folds the rest, one bordered line each that opens under itself: **Same Wi-Fi** (the
-  six-digit pairing code and its QR code, Refresh and Copy), **Tailscale** (the address and QR
-  code, or the command to run), **Portal** (where the server offers it: the whole Portal group as
-  before) and **Add a PC over SSH** (closes Settings and opens the PC setup dialog). With no relay
+  the state and that only the owner controls the relay. **Other ways to connect** folds the rest,
+  one bordered line each that opens under itself: **Same Wi-Fi** (the six-digit pairing code and
+  its QR code, Refresh and Copy), **Tailscale** (the address and QR code, or the command to run),
+  **Portal** (where the server offers it: the whole Portal group as before), then, while the relay
+  is on, the **Same Wi-Fi direct connection** switch for phones paired through the relay (said, not
+  switched, in the hosted shell and to a read-only device). With no relay
   offered the six-digit code is the first way. The dialog closes by itself once My devices sees the
   device a code let in. A six-digit code started anywhere ends the relay's typed code on the PC,
   so that code goes and Refresh makes another; it is never asked for on its own, or the two would
@@ -3734,7 +3745,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   and **Forget this PC** (a neutral button that asks once in a `ConfirmDialog`, **Forget**, then
   deletes this phone's key for the PC and leaves for the front page). Neither is destructive on the
   PC, which keeps listing the phone until it is revoked there, so neither is a `.btn-danger`.
-- Portal, under Connect a device's Other ways to connect where the server offers it: while it runs,
+- Portal, under Add a connection → Phone or tablet → Other ways to connect where the server offers it: while it runs,
   the address and QR code as the Tailscale way draws them over a Relay row with Stop; otherwise one
   hint for what blocks it (no token, serve-only, no `portal` or an old one, with a link to get it)
   or a wide Relay row whose text field and Start stack on a phone. Starting and stopping are one
