@@ -280,14 +280,17 @@ plugin, run the plugin's script as in [In a terminal](guide.md#in-a-terminal); f
 
 ```bash
 bun scripts/plugin.ts link            # sign in to your account, then approve the device that adds this PC
-bun scripts/plugin.ts link --google   # the same, signed in with Google
+bun scripts/plugin.ts link --google   # the same, at Google's own device page (--github: GitHub's)
 bun scripts/plugin.ts link --code     # a code to type and the relay QR code, renewed until Ctrl+C
 ```
 
 Both turn the relay on first when it is off, and wait until it is online.
 
-- **`link`** signs in with the provider's device flow, the way a PC's own page does: it prints the
-  provider's device page and a code to enter there, on any device. Then it lists this PC in your
+- **`link`** signs in the way a PC's own page does: it prints the Ovis sign-in page
+  (`https://account.ovis.sh/link`), a code and a QR code of the page with the code filled in. On any
+  device, open it, check the code, choose **Continue with GitHub** or **Continue with Google**, sign
+  in, and confirm. An account service without that page, or `--github` / `--google`, uses the
+  provider's own device page and its code instead. Signing in adds nothing by itself. Then it lists this PC in your
   account ([Adding a PC](account.md#adding-a-pc)) and waits. On a phone already in your account,
   tap **Add** on this PC; the terminal shows the request with its six digits
   (**… wants to join your account. Approve it only if its screen shows 123 456**) and asks
@@ -808,8 +811,11 @@ plugin ([native-app.md](native-app.md#direct-on-the-same-network)); a browser st
   every peer outside Tailscale's range (each listener takes only its own network's peers). Removing a device, stopping
   the relay, resetting its identity or turning direct connections off ends them.
 - **The app moves on its own.** An app with a socket for it (`RelayTransport` `directSocket`)
-  tries the PC's direct carriers first, one at a time within 1.5 s, whenever it connects or
-  reconnects, then the relay. While the relay carries it, it probes them (a socket, `assigned` and
+  tries the PC's direct carriers first, all at once, each within 1.5 s, whenever it connects or
+  reconnects. When none is up within 300 ms it opens the relay too and keeps whichever channel is
+  admitted first; the other attempt is ended, and a channel it still admits is closed without
+  being reported as a lost carrier. The reconnect of a planned switch (below) does not open the
+  relay early: the carrier the probe just proved gets its whole 1.5 s first. While the relay carries it, it probes them (a socket, `assigned` and
   the Noise handshake to the pinned key, closed before `HELLO`, so the PC holds no session) after
   each admission (at most every 5 minutes, the next one due even across a reconnect), on `online`
   and when the page comes back to the foreground; once one proves to be the PC, no request is under
