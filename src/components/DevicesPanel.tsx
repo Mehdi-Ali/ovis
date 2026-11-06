@@ -13,7 +13,8 @@ import { useT } from "../lib/i18n.ts";
 import { lastSeen } from "../lib/lastSeen.ts";
 import { removeFromAccount } from "../lib/account/leave.ts";
 import { pcAccountStatus } from "../lib/account/join.ts";
-import { lostCandidates, RemovalTrackingFull, type LostCandidate } from "../lib/account/removals.ts";
+import { foreignRemovals, lostCandidates, RemovalTrackingFull, type ForeignRemoval, type LostCandidate } from "../lib/account/removals.ts";
+import { useSettings } from "../lib/settings.ts";
 import { AccountRemovals } from "./AccountRemovals.tsx";
 import { AccountService } from "../lib/account/service.ts";
 import { indexedAccountStore } from "../lib/account/store.ts";
@@ -186,10 +187,23 @@ export function DevicesPanel({ onDevicePaired, auth, onPaired, onRevokedAll, kin
   const [candidates, setCandidates] = useState<{ from: string; signed: LostCandidate[]; pcSays: LostCandidate[]; picked: ReadonlySet<string> } | null>(null);
   /** bumped after a removal, so the removals below are read again */
   const [removalsVersion, setRemovalsVersion] = useState(0);
+  const { settings } = useSettings();
+  const reports = settings.accountRemovalReports;
+  /** removals another device signed that this PC holds or keeps waiting: shown, never carried, until the person signs one again */
+  const [foreign, setForeign] = useState<ForeignRemoval[]>([]);
+  useEffect(() => {
+    if (!reports || signedIn === null || accountKey === null) { setForeign([]); return; }
+    let live = true;
+    const transport = getTransport();
+    void pcAccountStatus((path, init) => transport.fetch(path, init))
+      .then((status) => foreignRemovals({ status, account: signedIn, own: accountKey, store: indexedAccountStore }))
+      .then((found) => { if (live) setForeign(found); }, () => undefined);
+    return () => { live = false; };
+  }, [reports, signedIn, accountKey, removalsVersion]);
   const removeEverywhere = async (key: string, account: string, label: string) => {
     const transport = getTransport();
     const service = new AccountService({ store: indexedAccountStore });
-    const result = await removeFromAccount({ service, accountStore: indexedAccountStore, relayStore: indexedDeviceStore, key, account, label,
+    const result = await removeFromAccount({ service, accountStore: indexedAccountStore, relayStore: indexedDeviceStore, key, account, label, track: reports,
       here: (path, init) => transport.fetch(path, init), ...(serverIdOfPath(window.location.pathname) ? { hereId: serverIdOfPath(window.location.pathname)! } : {}) });
     setRemovalsVersion((v) => v + 1);
     return { ...result, service };
@@ -208,7 +222,7 @@ export function DevicesPanel({ onDevicePaired, auth, onPaired, onRevokedAll, kin
         const names = new Map((await service.listPcs()).map((pc) => [pc.server_id, pc.label]));
         setError(t("Not removed yet on: {pcs}. Disconnect it from a device that is in the account there.", { pcs: unconfirmed.map((pc) => names.get(pc) ?? pc.slice(0, 8)).join(", ") }));
       }
-      if (lost) {
+      if (reports && lost) {
         const transport = getTransport();
         const status = await pcAccountStatus((path, init) => transport.fetch(path, init), { fresh: true });
         const found = await lostCandidates({ removed: key, account, adds: status.adds, devices: listed });
@@ -309,7 +323,7 @@ export function DevicesPanel({ onDevicePaired, auth, onPaired, onRevokedAll, kin
                       <button type="button" className="icon-button" aria-label={t("Rename {name}", { name: d.label })} onClick={() => setRenaming({ id: d.id, label: d.label })}><Pencil /></button>
                       {signedIn !== null && offersAccountRemove(devices, d, signedIn, accountKey) && (
                         <>
-                          {disconnecting === d.id && (
+                          {reports && disconnecting === d.id && (
                             <label className="devices-lost"><input type="checkbox" checked={lost} onChange={(e) => setLost(e.target.checked)} />{t("It was lost or stolen: also remove the devices it added")}</label>
                           )}
                           <button type="button" className={disconnecting === d.id ? "btn btn-danger" : "btn"} onClick={() => void disconnect(d.id, d.account_key!, signedIn!, d.label)}>
@@ -352,7 +366,8 @@ export function DevicesPanel({ onDevicePaired, auth, onPaired, onRevokedAll, kin
           </div>
         </section>
       )}
-      {signedIn !== null && <AccountRemovals account={signedIn} version={removalsVersion} />}
+      {reports && signedIn !== null && <AccountRemovals account={signedIn} version={removalsVersion} foreign={foreign}
+        onRemoveEverywhere={(key, label) => void removeEverywhere(key, signedIn, label).then(() => load()).catch((e: unknown) => setError(e instanceof RemovalTrackingFull ? t("This device already tracks the most removals it can. Clear the settled ones first.") : e instanceof Error ? e.message : String(e)))} />}
       {justPaired !== null && <p className="settings-hint" role="status">{t("Paired: {name}.", { name: justPaired })}</p>}
       {revokedAll && <p className="settings-hint" role="status">{t("Every paired device was revoked. The access token, this PC and its Tailscale login get in as before.")}</p>}
       {currentAction !== null && devices !== null && !devices.some((d) => d.current) && (

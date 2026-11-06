@@ -10,9 +10,9 @@ import { deriveServerId } from "../../../shared/relay-server-proof.ts";
 import type { RelayDevice } from "../relay/device.ts";
 import { MemoryDeviceStore } from "../relay/device.test.ts";
 import { newRecordId, signAccountRecord } from "../../../shared/account-records.ts";
-import { admitToAccount, approveJoin, enrollOnPc, enrollPc, keepRemovals, linkThisDevice, rememberDevice, needsLink, pcAccountStatus, planEnroll, takeIntroduction, UnverifiedJoinError, sendQueuedAdds } from "./join.ts";
+import { admitToAccount, approveJoin, RemovedDeviceError, enrollOnPc, enrollPc, keepRemovals, linkThisDevice, rememberDevice, needsLink, pcAccountStatus, planEnroll, takeIntroduction, UnverifiedJoinError, sendQueuedAdds } from "./join.ts";
 import { leaveAccount, removeFromAccount } from "./leave.ts";
-import { carryRemovals, clearSettled, lostCandidates, notePcs, RemovalTrackingFull, TRACKED_MAX, type TrackedRemoval } from "./removals.ts";
+import { carriesRemovalOf, carryRemovals, clearSettled, forgetPc, foreignRemovals, lostCandidates, notePcs, RemovalTrackingFull, TRACKED_MAX, type TrackedRemoval } from "./removals.ts";
 import { myPcs } from "./myPcs.ts";
 import { AccountService } from "./service.ts";
 import { memoryAccountStore } from "./store.ts";
@@ -435,7 +435,22 @@ describe("enrolling a PC this device brings into the account", () => {
     if (!devices.hasKey(other.public_spki)) devices.addAccountDevice({ id: accountDeviceId(setup.y.identity.server_id, other.public_spki), key: other.public_spki, label: "Other phone", role: "drive", account: ACCOUNT, addedBy: onY.device_id! });
   };
 
-  it("keeps another member's removal out of the new PC as a held key, never as a record a stolen former key could have signed", async () => {
+  it("relays another member's removal to the new PC as it was signed, with the add that lets its signer in, so the key is tombstoned there", async () => {
+    const setup = await setUp();
+    const { y, accountStore, linkY } = setup;
+    const { mac, other, remove } = await removedByAnother(setup);
+    const onY = await linkY();
+    expect((await enrollPc({ fetch: pcFetch(await connect(y, onY)), store: accountStore, account: ACCOUNT, serverId: y.identity.server_id })).finished).toBe(true);
+    const devices = y.f.app.context.services.devices;
+    // the removal waited for its signer, whose add came in the same enrollment
+    expect(devices.hasKey(other.public_spki)).toBe(true);
+    expect(devices.isTombstoned(mac.public_spki)).toBe(true);
+    // with its own signature and issued_at: Y lists the very record the other phone signed
+    expect(devices.accountRemovals()).toEqual([remove]);
+    expect(devices.hasKey(mac.public_spki)).toBe(false);
+  });
+
+  it("with removal reports on, keeps another member's removal out of the new PC as a held key, never as a record a stolen former key could have signed", async () => {
     const setup = await setUp();
     const { y, accountStore, linkY } = setup;
     const { mac, other, remove } = await removedByAnother(setup);
@@ -445,7 +460,7 @@ describe("enrolling a PC this device brings into the account", () => {
       if (path === "/api/account/enroll") sent.push(...(JSON.parse(String(init?.body)) as { records: { id: string }[] }).records.map(({ id }) => id));
       return pcFetch(await connect(y, onY))(path, init);
     };
-    expect((await enrollPc({ fetch: watching, store: accountStore, account: ACCOUNT, serverId: y.identity.server_id })).finished).toBe(true);
+    expect((await enrollPc({ fetch: watching, store: accountStore, account: ACCOUNT, serverId: y.identity.server_id, ownRemovalsOnly: true })).finished).toBe(true);
     const devices = y.f.app.context.services.devices;
     expect(sent).not.toContain(remove.id);
     expect(devices.hasKey(other.public_spki)).toBe(true);
@@ -454,7 +469,7 @@ describe("enrolling a PC this device brings into the account", () => {
     expect((await pcAccountStatus(pcFetch(await connect(y, onY)))).blocked).toContain(mac.public_spki);
   });
 
-  it("relays only the removals it signed itself to the new PC", async () => {
+  it("relays removals in the order they were signed, so a member's removal comes after the ones it signed", async () => {
     const setup = await setUp();
     const { y, accountStore, disconnect, linkY } = setup;
     const { other, remove } = await removedByAnother(setup);
@@ -467,6 +482,22 @@ describe("enrolling a PC this device brings into the account", () => {
       return pcFetch(await connect(y, onY))(path, init);
     };
     expect((await enrollPc({ fetch: watching, store: accountStore, account: ACCOUNT, serverId: y.identity.server_id })).finished).toBe(true);
+    expect(sent).toEqual([remove.id, removal.id]);
+  });
+
+  it("with removal reports on, relays only the removals it signed itself to the new PC", async () => {
+    const setup = await setUp();
+    const { y, accountStore, disconnect, linkY } = setup;
+    const { other, remove } = await removedByAnother(setup);
+    // this phone then removes the other phone itself
+    const { remove: removal } = await disconnect(other);
+    const onY = await linkY();
+    const sent: string[] = [];
+    const watching = async (path: string, init?: RequestInit) => {
+      if (path === "/api/account/enroll") sent.push(...(JSON.parse(String(init?.body)) as { records: { id: string }[] }).records.map(({ id }) => id));
+      return pcFetch(await connect(y, onY))(path, init);
+    };
+    expect((await enrollPc({ fetch: watching, store: accountStore, account: ACCOUNT, serverId: y.identity.server_id, ownRemovalsOnly: true })).finished).toBe(true);
     expect(sent).toEqual([removal.id]);
     expect(sent).not.toContain(remove.id);
   });
@@ -682,7 +713,24 @@ it("lists as lost-device candidates the keys its signed adds let in, transitivel
   expect(found.pcSays.map((c) => c.label)).toEqual(["Laptop"]);
 });
 
-describe("carrying a removal this device signed to every PC it knows", () => {
+it("with removal reports off, a disconnect tracks nothing and goes to the linked PCs only, as before", async () => {
+  const [x, y] = [pc(), pc()];
+  const phone = new MemoryDeviceStore();
+  const accountStore = memoryAccountStore();
+  const key = await accountStore.key();
+  const onX = await linkThisDevice({ fetch: pcFetch(await connect(x, await qrPairing(x, phone, "p620"))), device: (await phone.get(x.identity.server_id))!, key, account: ACCOUNT, store: phone });
+  const lost = await accountKey();
+  x.f.app.context.services.devices.addAccountDevice({ id: accountDeviceId(x.identity.server_id, lost.public_spki), key: lost.public_spki, label: "Lost phone", role: "drive", account: ACCOUNT, addedBy: onX.device_id! });
+  const service = new FakeAccountService();
+  await accountStore.set("session", { service: SERVICE, account: ACCOUNT, provider: "github", access_token: service.issueToken(ACCOUNT), refresh_token: "r", expires_at: Date.now() + 3600_000 });
+  const account = new AccountService({ store: accountStore, fetch: service.fetch });
+  for (const at of [x, y]) await account.putPc(at.identity.server_id, { label: "pc", public_key: Array.from(importPublicKey(at.identity.public_key), (byte) => byte.toString(16).padStart(2, "0")).join(""), relay: "wss://relay.example" });
+  await removeFromAccount({ service: account, accountStore, relayStore: phone, key: lost.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here: pcFetch(await connect(x, onX)) });
+  expect(await accountStore.get("tracked")).toBeUndefined();
+  expect(service.mailbox(y.identity.server_id, ACCOUNT)).toEqual([]);
+});
+
+describe("with removal reports on: carrying a removal this device signed to every PC it knows", () => {
   /** A phone that is a member of PCs X and Y, both in the account, with a Mac it approved on both. */
   async function both() {
     const service = new FakeAccountService();
@@ -698,9 +746,9 @@ describe("carrying a removal this device signed to every PC it knows", () => {
     for (const [at, label] of [[x, "p620"], [y, "nuc"]] as const) await account.putPc(at.identity.server_id, { label, public_key: Array.from(importPublicKey(at.identity.public_key), (byte) => byte.toString(16).padStart(2, "0")).join(""), relay: "wss://relay.example" });
     const mac = await accountKey();
     for (const [at, on] of [[x, onX], [y, onY]] as const) at.f.app.context.services.devices.addAccountDevice({ id: accountDeviceId(at.identity.server_id, mac.public_spki), key: mac.public_spki, label: "Mac app", role: "drive", account: ACCOUNT, addedBy: on.device_id! });
-    const disconnect = async () => removeFromAccount({ service: account, accountStore, relayStore: phone, key: mac.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here: pcFetch(await connect(x, onX)) });
+    const disconnect = async () => removeFromAccount({ service: account, accountStore, relayStore: phone, key: mac.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here: pcFetch(await connect(x, onX)), track: true });
     const tracked = async (): Promise<TrackedRemoval[]> => Object.values(await accountStore.get("tracked") ?? {});
-    return { x, y, onX, onY, accountStore, account, mac, disconnect, tracked };
+    return { x, y, onX, onY, service, accountStore, account, mac, disconnect, tracked };
   }
 
   it("brings it to a PC whose mailbox hid it on the next connection, and reads each PC's report", async () => {
@@ -761,6 +809,59 @@ describe("carrying a removal this device signed to every PC it knows", () => {
     const later = "e".repeat(32);
     expect(await notePcs(accountStore, ACCOUNT, [x.identity.server_id, later])).toBe(1);
     expect((await tracked())[0]?.pcs[later]?.state).toBe("not-reached");
+  });
+
+  it("keeps the removal and its record for a later PC in one write, and refuses to approve, add or resend an add for the removed key", async () => {
+    const { x, onX, service, accountStore, account, mac, disconnect } = await both();
+    const { remove } = await disconnect();
+    expect((await accountStore.get("devices"))?.[mac.public_spki]).toEqual(remove);
+    expect(await carriesRemovalOf(accountStore, ACCOUNT, mac.public_spki)).toBe(true);
+    const decided: string[] = [];
+    await expect(approveJoin({ request: { id: "r", label: "Mac app", intent: "account", choices: ["1", "2", "3"], expires_at: new Date().toISOString(), key: mac.public_spki }, digits: "1", through: x.identity.server_id, service: account,
+      decide: async (decision) => { decided.push(decision); }, admit: async () => undefined, carried: (key) => carriesRemovalOf(accountStore, ACCOUNT, key) })).rejects.toBeInstanceOf(RemovedDeviceError);
+    expect(decided).toEqual(["decline"]);
+    await expect(admitToAccount({ fetch: pcFetch(await connect(x, onX)), service: account, key: await accountStore.key(), account: ACCOUNT, joining: { key: mac.public_spki, label: "Mac app" },
+      through: x.identity.server_id, paired: [], directory: [], store: accountStore })).rejects.toBeInstanceOf(RemovedDeviceError);
+    const queued = await signAccountRecord({ v: 1, kind: "add", account: ACCOUNT, key: mac.public_spki, label: "Mac app", role: "drive", issued_at: new Date().toISOString(), id: newRecordId(), signer: (await accountStore.key()).public_spki }, (await accountStore.key()).private_key);
+    await accountStore.set("adds", { [queued.id]: { account: ACCOUNT, record: queued, to: [x.identity.server_id] } });
+    await sendQueuedAdds({ service: account, store: accountStore, account: ACCOUNT });
+    expect(await accountStore.get("adds")).toBeUndefined();
+    expect(service.mailbox(x.identity.server_id, ACCOUNT)).not.toContainEqual(queued);
+  });
+
+  it("still sends the removal to every other PC's mailbox when the PC in view does not answer, then says so", async () => {
+    const { x, y, service, accountStore, account, mac, tracked } = await both();
+    const failing = async (): Promise<Response> => { throw new Error("the PC went away"); };
+    await expect(removeFromAccount({ service: account, accountStore, relayStore: new MemoryDeviceStore(), key: mac.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here: failing, track: true })).rejects.toThrow("the PC went away");
+    const [entry] = await tracked();
+    // both PCs' mailboxes have it, the one in view included, since it did not answer
+    expect(service.mailbox(y.identity.server_id, ACCOUNT)).toEqual([entry!.record]);
+    expect(service.mailbox(x.identity.server_id, ACCOUNT)).toEqual([entry!.record]);
+  });
+
+  it("keeps on show a removal a PC says it paired again, and forgets a PC only when the person does", async () => {
+    const { x, onX, accountStore, mac, disconnect, tracked } = await both();
+    await disconnect();
+    expect((await (await relayConnection(x.f, { serverId: x.identity.server_id })).pair(x.f.app.context.services.devices.startPairing().code, mac.public_spki)).role).toBe("drive");
+    await carryRemovals({ fetch: pcFetch(await connect(x, onX)), store: accountStore, account: ACCOUNT, serverId: x.identity.server_id });
+    expect((await tracked())[0]?.pcs[x.identity.server_id]?.state).toBe("repaired");
+    expect(await clearSettled(accountStore, ACCOUNT)).toBe(0);
+    const y = Object.keys((await tracked())[0]!.pcs).find((id) => id !== x.identity.server_id)!;
+    await forgetPc(accountStore, y);
+    expect(Object.keys((await tracked())[0]!.pcs)).toEqual([x.identity.server_id]);
+    await notePcs(accountStore, ACCOUNT, [y]);
+    expect(Object.keys((await tracked())[0]!.pcs)).toEqual([x.identity.server_id]);
+  });
+
+  it("offers to remove everywhere what another device removed on the PC in view, and nothing this device carries already", async () => {
+    const { x, onX, accountStore, mac, disconnect } = await both();
+    const other = await accountKey();
+    const foreignKey = (await accountKey()).public_spki;
+    const status = await pcAccountStatus(pcFetch(await connect(x, onX)));
+    const signedByOther = await signAccountRecord({ v: 1, kind: "remove", account: ACCOUNT, key: foreignKey, issued_at: new Date().toISOString(), id: newRecordId(), signer: other.public_spki }, other.private_key);
+    await disconnect();
+    const found = await foreignRemovals({ status: { ...status, removals: [signedByOther, "junk"], blocked: [mac.public_spki, "k".repeat(4)], tombstones: [] }, account: ACCOUNT, own: (await accountStore.key()).public_spki, store: accountStore });
+    expect(found).toEqual([{ key: foreignKey, signer: other.public_spki, waiting: false }, { key: "k".repeat(4), signer: null, waiting: true }]);
   });
 
   it("signs no new removal once it tracks the most it can, until the person clears the settled ones", async () => {
@@ -905,7 +1006,7 @@ it("keeps a pairing the account does not list when this device leaves, and says 
   expect((await phone.get(hidden.identity.server_id))!.public_spki).toBe(key.public_spki);
 });
 
-it("names the PCs where this device is not a member, and still leaves the removal in their mailboxes to wait for it", async () => {
+it("names the PCs a disconnect cannot reach, where this device is not a member, instead of claiming every PC", async () => {
   const [x, y] = [pc(), pc()];
   const phone2 = new MemoryDeviceStore();
   const accountStore = memoryAccountStore();
@@ -917,7 +1018,26 @@ it("names the PCs where this device is not a member, and still leaves the remova
   await accountStore.set("session", { service: SERVICE, account: ACCOUNT, provider: "github", access_token: service.issueToken(ACCOUNT), refresh_token: "r", expires_at: Date.now() + 3600_000 });
   const account = new AccountService({ store: accountStore, fetch: service.fetch });
   for (const at of [x, y]) await account.putPc(at.identity.server_id, { label: "pc", public_key: Array.from(importPublicKey(at.identity.public_key), (byte) => byte.toString(16).padStart(2, "0")).join(""), relay: "wss://relay.example" });
-  const { unconfirmed, remove } = await removeFromAccount({ service: account, accountStore, relayStore: phone2, key: lost.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here: pcFetch(await connect(x, onX)) });
+  const { unconfirmed } = await removeFromAccount({ service: account, accountStore, relayStore: phone2, key: lost.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here: pcFetch(await connect(x, onX)) });
+  expect(unconfirmed).toEqual([y.identity.server_id]);
+  expect(service.mailbox(y.identity.server_id, ACCOUNT)).toEqual([]);
+  expect(x.f.app.context.services.devices.hasKey(lost.public_spki)).toBe(false);
+});
+
+
+it("with removal reports on, names the PCs where this device is not a member, and still leaves the removal in their mailboxes to wait for it", async () => {
+  const [x, y] = [pc(), pc()];
+  const phone2 = new MemoryDeviceStore();
+  const accountStore = memoryAccountStore();
+  const key = await accountStore.key();
+  const onX = await linkThisDevice({ fetch: pcFetch(await connect(x, await qrPairing(x, phone2, "p620"))), device: (await phone2.get(x.identity.server_id))!, key, account: ACCOUNT, store: phone2 });
+  const lost = await accountKey();
+  x.f.app.context.services.devices.addAccountDevice({ id: accountDeviceId(x.identity.server_id, lost.public_spki), key: lost.public_spki, label: "Lost phone", role: "drive", account: ACCOUNT, addedBy: onX.device_id! });
+  const service = new FakeAccountService();
+  await accountStore.set("session", { service: SERVICE, account: ACCOUNT, provider: "github", access_token: service.issueToken(ACCOUNT), refresh_token: "r", expires_at: Date.now() + 3600_000 });
+  const account = new AccountService({ store: accountStore, fetch: service.fetch });
+  for (const at of [x, y]) await account.putPc(at.identity.server_id, { label: "pc", public_key: Array.from(importPublicKey(at.identity.public_key), (byte) => byte.toString(16).padStart(2, "0")).join(""), relay: "wss://relay.example" });
+  const { unconfirmed, remove } = await removeFromAccount({ service: account, accountStore, relayStore: phone2, key: lost.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here: pcFetch(await connect(x, onX)), track: true });
   expect(unconfirmed).toEqual([y.identity.server_id]);
   expect(service.mailbox(y.identity.server_id, ACCOUNT)).toEqual([remove]);
   expect(x.f.app.context.services.devices.hasKey(lost.public_spki)).toBe(false);

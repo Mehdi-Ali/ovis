@@ -371,6 +371,12 @@ is what authenticates the PC.
 
 ## Removing a device
 
+Experimental: all of this section's client behaviour is on only where **Settings → Experimental →
+Account: confirm removals on every PC** is on (default off). Off, a removal goes as before: to the
+PC in view and the mailboxes of the PCs this device is linked on, and an enrollment relays the
+removals this device kept. The PC's `tombstones` field is always there; a client that does not
+read it is unaffected.
+
 A client that removes a device keeps the removal and brings it to every PC it knows until each PC
 reports it applied, then shows where it is still missing. Nothing here needs the account service:
 it stays a mailbox that can hide records ([Rules](#rules)), and the client works around it.
@@ -438,17 +444,6 @@ signed are not settled on every PC of their lists; confirming leaves anyway, and
 the sign-in. The device's own `remove` goes to the mailbox of every PC the account lists; a refused
 post fails the leave and keeps everything, and a PC the account does not list is named so the
 person revokes the device there.
-
-**On the PC, settling.** A `remove` for a key is decided from what the PC already keeps for that
-key, so an old one never waits: when its signer is not a member here and the key has an account
-tombstone (not a Revoke on this PC, which a signed removal still takes over as before) made at or
-after the remove's `issued_at`, or a row paired on this PC with that key (no `added_by`, never
-moved onto it by a `link`) made after it, it answers `unchanged` instead of waiting. Nothing new is stored: the tombstone's and the row's own times, in the files
-they already live in, decide it. After a `remove` applies (tombstone written, row gone), the PC
-drops every waiting `remove` for that key from `account-pending.json`; a stop in between leaves
-one waiting, which the next pull decides `unchanged` by the same rule. So a removal re-signed with
-**Remove everywhere**, or a pairing made there, leaves no old record waiting that would hold that
-key's adds, even one the service delivers late.
 
 **Lost or stolen.** Removing a device offers **It was lost or stolen: also remove the devices it
 added**, off by default (retiring an old phone keeps the devices it approved). On, the client reads
@@ -729,6 +724,9 @@ the account service gets an answer the relay refuses.
   enrolled (and the mailbox).
 - **A clock that is off** on a PC can make it judge a removal older than a pairing made there
   (`repaired`), as it already can for any late `remove`.
+- **An old removal waiting for a signer who is no member any more** keeps holding its key on that
+  PC until its signer joins again; **Remove everywhere** signs a new one, which removes the device,
+  but the old one still waits beside it.
 - **An older client** still approves and adds for a key on a PC that has not applied its removal.
 - **Lost or stolen** finds only the devices that the PC in view shows signed adds for.
 - **A client from before enrollments** links a new PC and never enrolls it: that PC's barrier stays,

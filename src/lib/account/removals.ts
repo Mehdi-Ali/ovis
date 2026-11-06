@@ -4,7 +4,7 @@
  * key may come from a stolen former key, so it is shown, never spread.
  */
 import { AccountRecordError, readAccountRecord, type RemoveRecord } from "../../../shared/account-records.ts";
-import { pcAccountStatus, post, type PcAccountStatus, type PcFetch } from "./join.ts";
+import { pcAccountStatus, post, withDevice, type PcAccountStatus, type PcFetch } from "./join.ts";
 import type { AccountStore } from "./store.ts";
 
 /** At most this many removals are tracked; past it no new one is signed until settled ones are cleared. */
@@ -28,6 +28,8 @@ export interface TrackedRemoval {
   readonly account: string;
   readonly record: RemoveRecord;
   readonly label?: string;
+  /** PCs the person forgot on this device: never added back from the directory */
+  readonly forgotten?: readonly string[];
   /** by server_id: every PC the removal must reach; one leaves only by forgetPc */
   readonly pcs: Readonly<Record<string, PcRemovalReport>>;
 }
@@ -51,13 +53,22 @@ export function unsettledPcs(tracked: TrackedRemoval): string[] {
  */
 export async function trackRemoval(store: AccountStore, record: RemoveRecord, pcs: readonly string[], label?: string): Promise<void> {
   let full = false;
-  await store.update("tracked", (current) => {
-    if (Object.keys(current ?? {}).length >= TRACKED_MAX) { full = true; return current; }
+  // one transaction with the record enrollPc hands a PC brought in later, so neither is kept without the other
+  await store.updateMany(["tracked", "devices"], (current) => {
+    if (Object.keys(current.tracked ?? {}).length >= TRACKED_MAX) { full = true; return current; }
     const reports: Record<string, PcRemovalReport> = {};
     for (const id of pcs) reports[id] = { state: "not-reached", at: null };
-    return { ...current, [record.id]: { account: record.account, record, pcs: reports, ...(label === undefined ? {} : { label }) } };
+    return {
+      tracked: { ...current.tracked, [record.id]: { account: record.account, record, pcs: reports, ...(label === undefined ? {} : { label }) } },
+      devices: withDevice(current.devices, record),
+    };
   });
   if (full) throw new RemovalTrackingFull();
+}
+
+/** Whether this device carries a removal of `key` for `account`: it then approves, adds and introduces nothing for it. */
+export async function carriesRemovalOf(store: AccountStore, account: string, key: string): Promise<boolean> {
+  return Object.values(await store.get("tracked") ?? {}).some((entry) => entry.account === account && entry.record.key === key);
 }
 
 export async function clearSettled(store: AccountStore, account: string): Promise<number> {
@@ -65,7 +76,8 @@ export async function clearSettled(store: AccountStore, account: string): Promis
   await store.update("tracked", (current) => {
     const next: Record<string, TrackedRemoval> = {};
     for (const [id, tracked] of Object.entries(current ?? {})) {
-      if (tracked.account === account && unsettledPcs(tracked).length === 0) dropped++;
+      // only a removal every PC reports: `repaired` is a PC's word about a pairing, kept on show
+      if (tracked.account === account && Object.values(tracked.pcs).every((report) => report.state === "reported")) dropped++;
       else next[id] = tracked;
     }
     return Object.keys(next).length === 0 ? undefined : next;
@@ -82,7 +94,7 @@ export async function notePcs(store: AccountStore, account: string, serverIds: r
     for (const [id, tracked] of Object.entries(current)) {
       if (tracked.account !== account) { next[id] = tracked; continue; }
       const pcs = { ...tracked.pcs };
-      for (const serverId of serverIds) pcs[serverId] ??= { state: "not-reached", at: null };
+      for (const serverId of serverIds) if (!(tracked.forgotten ?? []).includes(serverId)) pcs[serverId] ??= { state: "not-reached", at: null };
       next[id] = { ...tracked, pcs };
       if (unsettledPcs(next[id]).length > 0) unsettled++;
     }
@@ -97,7 +109,7 @@ export async function forgetPc(store: AccountStore, serverId: string): Promise<v
     const next: Record<string, TrackedRemoval> = {};
     for (const [id, tracked] of Object.entries(current)) {
       const { [serverId]: _gone, ...pcs } = tracked.pcs;
-      next[id] = { ...tracked, pcs };
+      next[id] = { ...tracked, pcs, forgotten: [...new Set([...tracked.forgotten ?? [], serverId])] };
     }
     return next;
   });
@@ -196,4 +208,31 @@ export async function lostCandidates(options: {
     .filter((row) => row.account === options.account && row.account_key !== undefined && !reached.has(row.account_key) && row.added_by !== undefined && rowsOf.has(row.added_by))
     .map((row) => ({ key: row.account_key!, label: row.label }));
   return { signed, pcSays };
+}
+
+/** A removal another device signed that the PC in view holds (`signer`) or keeps waiting (no signer known). */
+export interface ForeignRemoval { readonly key: string; readonly signer: string | null; readonly waiting: boolean }
+
+/**
+ * What the PC in view says other devices removed (docs/account.md, "What a client carries"): verified
+ * `removals` not signed by this device, and `blocked` keys it keeps waiting, minus the ones this device
+ * already carries. Shown with Remove everywhere, never carried as they are.
+ */
+export async function foreignRemovals(options: { status: PcAccountStatus; account: string; own: string; store: AccountStore }): Promise<ForeignRemoval[]> {
+  const carried = new Set(Object.values(await options.store.get("tracked") ?? {}).filter((entry) => entry.account === options.account).map((entry) => entry.record.key));
+  const found = new Map<string, ForeignRemoval>();
+  for (const value of options.status.removals) {
+    let record;
+    try { record = await readAccountRecord(value); } catch (error) {
+      if (error instanceof AccountRecordError) continue;
+      throw error;
+    }
+    if (record?.kind !== "remove" || record.account !== options.account || record.signer === options.own || carried.has(record.key)) continue;
+    found.set(record.key, { key: record.key, signer: record.signer, waiting: false });
+  }
+  for (const key of options.status.blocked) {
+    if (found.has(key) || carried.has(key) || options.status.tombstones?.includes(key)) continue;
+    found.set(key, { key, signer: null, waiting: true });
+  }
+  return [...found.values()];
 }

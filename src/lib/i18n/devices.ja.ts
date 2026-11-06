@@ -231,4 +231,10 @@ export const DEVICES_JA: Record<string, string> = {
   "the PC says": "PCの記録",
   "Remove selected": "選択したデバイスを削除",
   "Keep them": "そのままにする",
+  "Removed or kept out by another device": "他のデバイスが削除・ブロックしたデバイス",
+  "A device ({key})": "デバイス ({key})",
+  "This PC keeps it out. Remove it everywhere to sign the removal yourself.": "このPCが締め出しています。自分で削除に署名するには、すべてのPCから削除してください。",
+  "Another device removed it on this PC. Remove it everywhere to sign the removal yourself.": "他のデバイスがこのPCで削除しました。自分で削除に署名するには、すべてのPCから削除してください。",
+  "Remove everywhere?": "すべてのPCから削除しますか?",
+  "Remove everywhere": "すべてのPCから削除",
 };

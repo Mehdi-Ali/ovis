@@ -231,4 +231,10 @@ export const DEVICES_KO: Record<string, string> = {
   "the PC says": "PC 기록",
   "Remove selected": "선택한 기기 삭제",
   "Keep them": "그대로 두기",
+  "Removed or kept out by another device": "다른 기기가 지웠거나 막아 둔 기기",
+  "A device ({key})": "기기 ({key})",
+  "This PC keeps it out. Remove it everywhere to sign the removal yourself.": "이 PC가 막아 두고 있습니다. 직접 삭제에 서명하려면 모든 PC에서 제거하세요.",
+  "Another device removed it on this PC. Remove it everywhere to sign the removal yourself.": "다른 기기가 이 PC에서 지웠습니다. 직접 삭제에 서명하려면 모든 PC에서 제거하세요.",
+  "Remove everywhere?": "모든 PC에서 제거할까요?",
+  "Remove everywhere": "모든 PC에서 제거",
 };

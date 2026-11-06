@@ -60,6 +60,8 @@ export async function removeFromAccount(options: {
   service: AccountService; accountStore: AccountStore; relayStore: RelayDeviceStore; key: string; account: string; here?: PcFetch; hereId?: string; now?: () => number;
   /** the device's name, shown with the removal until every PC settled it */
   label?: string;
+  /** Settings' accountRemovalReports: the removal is tracked and carried (docs/account.md, "Removing a device") */
+  track?: boolean;
 }): Promise<LeaveResult> {
   const session = await options.service.session();
   if (session === undefined) throw new Error("Sign in first, so every PC of the account hears of it");
@@ -73,28 +75,43 @@ export async function removeFromAccount(options: {
   }, own.private_key);
   // a PC applies the remove only where this device is a member: pairings that PC confirmed for this account
   const linked = new Set((await options.relayStore.list()).filter((device) => device.public_spki === own.public_spki && device.account === session.account).map((device) => device.server_id));
-  const listed = (await options.service.listPcs()).map((pc) => pc.server_id);
-  // tracked with every PC it must reach before it goes anywhere (refused when full), then kept for a PC brought in later
-  await trackRemoval(options.accountStore, remove, [...new Set([...listed, ...linked])], options.label);
-  await rememberDevice(options.accountStore, remove);
+  const listPcs = async () => (await options.service.listPcs()).map((pc) => pc.server_id);
+  // tracked: the directory is read first, as the PCs the removal must reach; otherwise after the PC in view answered, as before
+  const listed = options.track ? await listPcs() : null;
+  if (options.track) {
+    // kept with every PC it must reach before it goes anywhere (refused when full), in one write with the record a PC brought in later gets
+    await trackRemoval(options.accountStore, remove, [...new Set([...listed ?? [], ...linked])], options.label);
+  } else {
+    // kept before it is sent: a PC this device brings into the account later tombstones the key, and never gets an add for it
+    await rememberDevice(options.accountStore, remove);
+  }
+  let refusedHere: Error | null = null;
   // the PC in view first: it answers at once, whatever the account service does next
   if (options.here) {
-    // the PC answers every record's outcome with 200: a refusal there is a failure here
-    const answer = await (await post(options.here, "/api/account/records", { records: [remove] })).json() as { results?: { outcome?: string; code?: string }[] };
-    const outcome = answer.results?.[0];
-    if (outcome?.outcome === "refused") throw new Error(`This PC refused the removal (${outcome.code ?? "refused"})`);
-    if (options.hereId !== undefined) await carryRemovals({ fetch: options.here, store: options.accountStore, account: session.account, serverId: options.hereId, now: options.now });
+    try {
+      // the PC answers every record's outcome with 200: a refusal there is a failure here
+      const answer = await (await post(options.here, "/api/account/records", { records: [remove] })).json() as { results?: { outcome?: string; code?: string }[] };
+      const outcome = answer.results?.[0];
+      if (outcome?.outcome === "refused") throw new Error(`This PC refused the removal (${outcome.code ?? "refused"})`);
+      if (options.track && options.hereId !== undefined) await carryRemovals({ fetch: options.here, store: options.accountStore, account: session.account, serverId: options.hereId, now: options.now });
+    } catch (error) {
+      // tracked: the other PCs' mailboxes still get it; the failure is told once they did
+      if (!options.track) throw error;
+      refusedHere = error instanceof Error ? error : new Error(String(error));
+    }
   }
-  const done = (id: string) => options.here !== undefined && id === options.hereId;
-  // every PC the account lists: one where this device is no member yet keeps it waiting for that
-  const reached = listed.filter((id) => !done(id));
+  const done = (id: string) => options.here !== undefined && id === options.hereId && refusedHere === null;
+  const pcs = listed ?? await listPcs();
+  // tracked: every PC the account lists (one where this device is no member yet keeps it waiting for that); otherwise the linked ones
+  const reached = pcs.filter((id) => (options.track || linked.has(id)) && !done(id));
   const failed: string[] = [];
   for (let start = 0; start < reached.length; start += 32) {
     const batch = reached.slice(start, start + 32);
     // a refused or failed post leaves those PCs to be named, not the whole disconnect undone
     try { await options.service.postRecord(batch, remove); } catch { failed.push(...batch); }
   }
+  if (refusedHere !== null) throw refusedHere;
   // not reached: listed PCs this device is not a member of, linked PCs the account does not list, and failed posts
-  const unconfirmed = [...listed.filter((id) => !linked.has(id)), ...[...linked].filter((id) => !listed.includes(id)), ...failed].filter((id) => !done(id));
+  const unconfirmed = [...pcs.filter((id) => !linked.has(id)), ...[...linked].filter((id) => !pcs.includes(id)), ...failed].filter((id) => !done(id));
   return { remove, unconfirmed, queued: reached.filter((id) => !failed.includes(id)) };
 }

@@ -17,7 +17,7 @@ import { accountProvidersOf, accountServiceOf, AccountService, offeredProviders,
 import { beginSignIn, finishSignIn, SignInError, signInReturn } from "../account/signin.ts";
 import { enrollOnPc, keepRemovals, PEER_STATUS_MS, linkThisDevice, needsLink, pcAccountStatus, planEnroll, sendQueuedAdds, takeIntroduction } from "../account/join.ts";
 import { leaveAccount } from "../account/leave.ts";
-import { carryRemovals, notePcs } from "../account/removals.ts";
+import { carryRemovals, forgetPc, notePcs } from "../account/removals.ts";
 import { nativeSignIn, nativeSignInAvailable } from "../account/native.ts";
 import { indexedAccountStore } from "../account/store.ts";
 import { importPublicKey } from "../../../shared/relay-e2ee.ts";
@@ -130,6 +130,8 @@ interface Attempt {
 /** Settings' Forget this PC: the phone's key for the PC is gone; the PC lists the device until it is revoked there. */
 export async function forgetSavedPc(serverId: string, store: RelayDeviceStore = indexedDeviceStore): Promise<void> {
   await store.remove(serverId);
+  // nor does a removal this device carries wait for it any more (docs/account.md, "Which PCs")
+  await forgetPc(indexedAccountStore, serverId).catch((error: unknown) => console.warn("Ovis: the removals still list the forgotten PC", error instanceof Error ? error.name : error));
 }
 
 /** What a failed sign-in says on the front page. */
@@ -241,7 +243,7 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
       // an add this device signed that some PCs missed goes out again whenever the account answers
       sendQueuedAdds({ service: account, store: accountStore, account: session.account }).catch((error: unknown) => console.warn("Ovis: kept adds could not be sent", error instanceof Error ? error.name : error));
       // a PC the directory lists joins the list of every removal this device signed (docs/account.md, "Which PCs")
-      const unsettled = await notePcs(accountStore, session.account, directory.map((pc) => pc.server_id));
+      const unsettled = loadSettings().accountRemovalReports ? await notePcs(accountStore, session.account, directory.map((pc) => pc.server_id)) : 0;
       accountView = { ...signedIn, unsettled, pcs: myPcs(directory, await store.list(), { now: Date.now(), accountKey: (await accountStore.key()).public_spki, account: session.account }) };
     } catch (error) {
       if (error instanceof SignedOutError) accountView = { kind: "signed-out", error: t("Your sign-in ended. Sign in again to see every PC of your account.") };
@@ -434,7 +436,7 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
       // the account's removals this PC holds, checked and kept as signed, for a PC this client enrolls later (#2956)
       if (!linking) await keepRemovals({ store: accountStore, account: session.account, removals: status.removals });
       // the removals this device signed reach this PC now, whatever the account service did, and its report is kept
-      if (!linking) await carryRemovals({ fetch, store: accountStore, account: session.account, serverId });
+      if (!linking && loadSettings().accountRemovalReports) await carryRemovals({ fetch, store: accountStore, account: session.account, serverId });
       // the PC lists this row as a member: only now does it count as in the account here
       if (!linking && device.account !== session.account && device.device_id !== null && !status.unlinked.includes(device.device_id)) {
         const known = device;
@@ -464,7 +466,7 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
           // the directory unread counts as one more PC this device cannot read
           const listed = await account.listPcs().then((pcs) => pcs.filter((entry) => entry.server_id !== serverId).length, () => 1);
           await enrollOnPc({
-            fetch: (path, init) => signedIn.fetch(path, init), store: accountStore, account: session.account, serverId, pc, listed,
+            fetch: (path, init) => signedIn.fetch(path, init), store: accountStore, account: session.account, serverId, pc, listed, ownRemovalsOnly: loadSettings().accountRemovalReports,
             // a PC that could not be opened is one more that was not checked
             others: reached.map((result) => result.status === "fulfilled" ? result.value : { serverId: "", fetch: () => Promise.reject(result.reason) }),
           });

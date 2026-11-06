@@ -231,4 +231,10 @@ export const DEVICES_ZH: Record<string, string> = {
   "the PC says": "电脑记录",
   "Remove selected": "移除所选设备",
   "Keep them": "保留",
+  "Removed or kept out by another device": "其他设备移除或阻止的设备",
+  "A device ({key})": "设备（{key}）",
+  "This PC keeps it out. Remove it everywhere to sign the removal yourself.": "此电脑正在阻止它。要亲自签署移除，请从所有电脑移除。",
+  "Another device removed it on this PC. Remove it everywhere to sign the removal yourself.": "另一台设备已在此电脑上移除它。要亲自签署移除，请从所有电脑移除。",
+  "Remove everywhere?": "从所有电脑移除？",
+  "Remove everywhere": "从所有电脑移除",
 };
