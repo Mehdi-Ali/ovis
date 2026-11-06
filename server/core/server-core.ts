@@ -97,10 +97,12 @@ export function createCore({ options, devices, preferences, usage, usageLogin, b
     // a pane's event also tries its due scheduled messages again
     drainPending: (paneId) => { drainPending(paneId); scheduled.paneEvent(paneId); }, usage, usageLogin,
     // the messages first: the old ID's terminal closing holds what it still leases
-    paneMoved: (from, to) => { movePendingPane(from, to); scheduled.paneMoved(from, to); paneMoved(from, to); } });
+    paneMoved: (from, to) => { movePendingPane(from, to); scheduled.paneMoved(from, to); paneMoved(from, to); },
+    paneGone: (paneId) => scheduled.paneGone(paneId) });
   const scheduled = new ScheduledMessages({
     stateDir: options.stateDir, checkText: pendingText, identity: scheduledIdentity, send: sendScheduled, changed: () => broadcastAll({ type: "scheduled-changed" }),
     uncertain: (paneId) => pending.holdPane(paneId, { code: "pending_held", message: "A scheduled message may be in the terminal's input line; send this one after it is cleared or sent" }),
+    released: (paneId) => drainPending(paneId),
     // the device that scheduled a message must still be paired, and still drive, when it goes
     mayDrive: (device) => device === null || devices.list(null).some((entry) => entry.id === device && entry.role === "drive"),
   });

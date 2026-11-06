@@ -58,7 +58,6 @@ export function scheduledStatus(message: Pick<ScheduledMessage, "state" | "send_
     if (code === "pending_target_changed") return t("Not sent: the pane now runs another agent session");
     if (code === "needs_ok") return t("Needs your OK: a message to this pane may still be in its input line. Check the terminal first.");
     if (code === "needs_ok_moved") return t("Needs your OK: the pane moved since it was scheduled");
-    if (code === "needs_ok_prompt") return t("Needs your OK: the terminal may be asking for a password. Check it first.");
     if (code === "needs_ok_restart") return t("Needs your OK: it came due while this PC's server was not running");
     if (code === "device_revoked") return t("Not sent: the device that scheduled it can no longer send here");
     return t("Not sent: {reason}", { reason: message.error?.message ?? "" });
@@ -67,5 +66,6 @@ export function scheduledStatus(message: Pick<ScheduledMessage, "state" | "send_
   if (code === "pending_wait") return t("Due · waits for the agent's turn to end");
   if (code === "input_draft") return t("Due · waits for the terminal's input box to be empty");
   if (code === "agent_blocked") return t("Due · waits for an answer in the terminal");
+  if (code === "input_not_ready") return t("Due · waits for a device to open this pane");
   return t("Due · waits to send: {reason}", { reason: message.error?.message ?? "" });
 }

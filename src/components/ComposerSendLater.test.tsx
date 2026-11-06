@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, beforeEach, expect, it, mock, setSystemTime, spyOn } from "bun:test";
 import * as reactDom from "react-dom";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { Composer, type ComposerProps } from "./Composer.tsx";
@@ -51,6 +51,7 @@ afterEach(() => {
   renderer = undefined;
   composerDrafts.set(draftKey, "");
   mock.restore();
+  setSystemTime();
   for (const [key, descriptor] of saved) {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor);
     else Reflect.deleteProperty(globalThis, key);
@@ -109,6 +110,20 @@ it("asks for a time that has not passed instead of scheduling one that has", asy
   await act(async () => { when.props.onChange({ target: { value: "2020-01-01T09:00" } }); });
   const submit = renderer!.root.findAll((node) => node.type === "button" && node.props.type === "submit")[0]!;
   expect(submit.props.disabled).toBe(true);
+  await act(async () => { renderer!.root.findByType("form").props.onSubmit({ preventDefault() {} }); });
+  expect(scheduled).toEqual([]);
+  expect(renderer!.root.findAll((node) => node.props.role === "status" && node.children.includes("Pick a time that has not passed yet."))).toHaveLength(1);
+});
+
+it("schedules nothing when the time picked passed while the dialog stood open (#2951)", async () => {
+  const scheduled: Array<[string, string]> = [];
+  setSystemTime(new Date(2026, 10, 5, 10, 0));
+  composerDrafts.set(draftKey, "continue");
+  await act(async () => { renderer = create(<Composer {...props(scheduled)} />); });
+  await act(async () => { button()!.props.onClick(); });
+  const when = renderer!.root.findAll((node) => node.type === "input" && node.props.type === "datetime-local")[0]!;
+  await act(async () => { when.props.onChange({ target: { value: "2026-11-05T10:05" } }); });
+  setSystemTime(new Date(2026, 10, 5, 10, 6));
   await act(async () => { renderer!.root.findByType("form").props.onSubmit({ preventDefault() {} }); });
   expect(scheduled).toEqual([]);
   expect(renderer!.root.findAll((node) => node.props.role === "status" && node.children.includes("Pick a time that has not passed yet."))).toHaveLength(1);

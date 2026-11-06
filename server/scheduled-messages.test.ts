@@ -398,3 +398,27 @@ it("asks for the user's OK when herdr moved the pane while a send to it was refu
   expect(sends).toHaveLength(1);
   expect(scheduled.list()[0]).toMatchObject({ pane_id: "p9", state: "held", error: { code: "needs_ok_moved" } });
 });
+
+it("holds every message of a pane that ended, one left uncertain included, so every pane's list shows it (#2951)", async () => {
+  const { scheduled } = store([{ ok: false, code: "pasted_not_sent", message: "pasted" }]);
+  await scheduled.create({ pane_id: "p1", text: "first", send_at: "2026-11-05T09:59:00Z" }, null);
+  await scheduled.create({ pane_id: "p1", text: "second", send_at: "2026-11-05T11:00:00Z" }, null);
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  expect(scheduled.list()[0]!.state).toBe("uncertain");
+  scheduled.paneGone("p1");
+  expect(scheduled.list().map((message) => [message.text, message.state, message.error?.code])).toEqual([["first", "held", "pane_not_found"], ["second", "held", "pane_not_found"]]);
+  expect(scheduled.uncertainIn("p1")).toBe(false);
+});
+
+it("lets the pane's queued messages go again once its uncertain scheduled message is discarded (#2951)", async () => {
+  const released: string[] = [];
+  const { scheduled } = store([{ ok: false, code: "pasted_not_sent", message: "pasted" }], { released: (paneId) => { released.push(paneId); } });
+  const message = await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T09:59:00Z" }, null);
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  scheduled.discard({ id: message.id });
+  expect(released).toEqual(["p1"]);
+});

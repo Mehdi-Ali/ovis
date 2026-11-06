@@ -37,6 +37,6 @@ it("says why a due message has not gone, and why a held one will not", () => {
   expect(scheduledStatus({ ...due, state: "held", error: { code: "needs_ok_restart", message: "" } }, now, t)).toStartWith("Needs your OK");
   expect(scheduledStatus({ ...due, state: "held", error: { code: "needs_ok", message: "" } }, now, t)).toStartWith("Needs your OK");
   expect(scheduledStatus({ ...due, state: "held", error: { code: "needs_ok_moved", message: "" } }, now, t)).toStartWith("Needs your OK");
-  expect(scheduledStatus({ ...due, state: "held", error: { code: "needs_ok_prompt", message: "" } }, now, t)).toStartWith("Needs your OK");
+  expect(scheduledStatus({ ...due, error: { code: "input_not_ready", message: "" } }, now, t)).toBe("Due · waits for a device to open this pane");
   expect(scheduledStatus({ state: "scheduled", send_at: "2026-11-05T12:00:00Z" }, now, t)).toStartWith("Sends ");
 });

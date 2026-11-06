@@ -43,6 +43,8 @@ export function SendLaterDialog({ title, text: initialText, sendAt, planReset, s
   const [text, setText] = useState(initialText);
   const [when, setWhen] = useState(() => localInputValue(sendAt ? new Date(sendAt) : quick.inHour));
   const [error, setError] = useState<string | null>(null);
+  // drawn again when a send finds its time passed, so the note below says so
+  const [, redraw] = useState(0);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -66,7 +68,8 @@ export function SendLaterDialog({ title, text: initialText, sendAt, planReset, s
   const past = at !== null && at.getTime() <= Date.now();
 
   const submit = async (): Promise<void> => {
-    if (at === null || empty || past) return;
+    // read again as it is sent: a dialog left open can pass the time it shows (#2951)
+    if (at === null || empty || at.getTime() <= Date.now()) { redraw((count) => count + 1); return; }
     setPending(true);
     setError(null);
     try { await onSubmit(text, at.toISOString()); done.current = true; }
@@ -96,7 +99,7 @@ export function SendLaterDialog({ title, text: initialText, sendAt, planReset, s
           <input id={`${id}-when`} className="input send-later-when" type="datetime-local" value={when} required disabled={pending}
             onChange={(event) => setWhen(event.target.value)} />
           {past && <p className="confirm-error" role="status">{t("Pick a time that has not passed yet.")}</p>}
-          <p className="send-later-note">{t("This PC sends it at that time, also with every device closed. It waits for the agent's turn to end, and is not sent if the pane is gone or runs another session.")}</p>
+          <p className="send-later-note">{t("This PC keeps it and sends it at that time while a device has this pane open; otherwise it waits until one does. It waits for the agent's turn to end, and is not sent if the pane is gone or runs another session.")}</p>
           {error && <p className="confirm-error" role="alert">{error}</p>}
         </div>
         <footer className="modal-footer">

@@ -25,7 +25,7 @@ import type { PendingIdentity } from "./pending-input.ts";
 type Reply = { ok: boolean; code?: string; message?: string };
 
 /** refusals that only mean "not yet": the message stays scheduled, says why, and is tried again at the pane's next event */
-const WAIT_CODES = new Set(["cancelled", "pending_wait", "agent_blocked", "agent_not_ready", "input_not_ready", "input_draft", "rewind_dialog_open", "submit_timeout"]);
+const WAIT_CODES = new Set(["cancelled", "pending_wait", "agent_blocked", "agent_not_ready", "input_not_ready", "attach_held", "input_draft", "rewind_dialog_open", "submit_timeout"]);
 /** a delivery that may have typed part of the message: never sent again on its own or by Send now */
 const UNCERTAIN_CODES = new Set(["submit_changed", "pasted_not_sent"]);
 export const MAX_SCHEDULED = 64;
@@ -37,6 +37,7 @@ const MAX_TIMER_MS = 2_147_483_647;
 const FILE = "scheduled-messages.json";
 const NEEDS_OK_UNCERTAIN = { code: "needs_ok", message: "A message to this pane may still be in its input line. Check the terminal, then send this one or discard it." };
 const NEEDS_OK_MOVED = { code: "needs_ok_moved", message: "The pane moved to another workspace after this was scheduled. Send it now or discard it." };
+const PANE_GONE = { code: "pane_not_found", message: "The pane is gone" };
 const NEEDS_OK_RESTART = { code: "needs_ok_restart", message: "This came due while this PC's server was not running. Send it now or discard it." };
 
 interface Entry { message: ScheduledMessage; identity: PendingIdentity; device: string | null; triedAt?: number }
@@ -59,6 +60,8 @@ export interface ScheduledDeps {
   changed: () => void;
   /** a send left this pane's input uncertain: the pane's queued messages are held behind it, as behind their own */
   uncertain?: (paneId: string) => void;
+  /** a message that may have sat in this pane's input was discarded: the pane's queued messages may go again */
+  released?: (paneId: string) => void;
   now?: () => number;
   retryMs?: number;
 }
@@ -146,6 +149,7 @@ export class ScheduledMessages {
     // a discard that cannot be written is no discard: it would come back with the next start
     try { this.save(); } catch (error) { this.entries.set(entry.message.id, entry); throw error; }
     this.announce();
+    if (entry.message.state === "uncertain") this.deps.released?.(entry.message.pane_id);
   }
 
   /**
@@ -188,6 +192,21 @@ export class ScheduledMessages {
     }
     // a move that cannot be written is logged: the terminals' own move after this hook still runs
     if (moved) try { this.commit(); } catch (error) { console.error(`scheduled messages: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+
+  /**
+   * The pane ended or closed: its messages are held as gone, one left uncertain included, so every pane's list shows them to
+   * read or discard (#2951). One on its way settles with its own outcome.
+   */
+  paneGone(paneId: string): void {
+    let gone = false;
+    for (const entry of this.entries.values()) {
+      if (entry.message.pane_id !== paneId || entry.message.state === "sending") continue;
+      entry.message.state = "held";
+      entry.message.error = { ...PANE_GONE };
+      gone = true;
+    }
+    if (gone) try { this.commit(); } catch (error) { console.error(`scheduled messages: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
   start(): void {

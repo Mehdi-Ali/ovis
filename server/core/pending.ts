@@ -55,9 +55,7 @@ export type PendingOwner = Client | FirstMessageOwner;
  * user scheduled (server/scheduled-messages.ts), which keeps no Pi receipt. `authorize` throws once it may no
  * longer type; `cols`: the grid a password prompt is read for.
  */
-/** Whether the screen's last row with text ends with a colon, as every password prompt secretPrompt knows does. */
-const lastRowEndsWithColon = (screen: string): boolean => /:\s*$/.test(screen.split(/\r?\n/).filter((row) => row.trim()).at(-1) ?? "");
-interface Sender { owner: Client | null; authorize(): void; cols(): number | undefined; promptUnknown?: boolean }
+interface Sender { owner: Client | null; authorize(): void; cols(): number | undefined }
 const isClient = (owner: PendingOwner): owner is Client => owner !== FIRST_MESSAGE_OWNER;
 /** a first message's lease is the delivering connection's, taken at each attempt: none is kept on the record */
 type PendingItem = PendingRecord<PendingOwner, PendingLease | null>;
@@ -556,12 +554,6 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     const screen = (await paneRead({ paneId, source: "detection", format: "text" })).text;
     if (secretPrompt(screen, sender.cols()) !== null) {
       throw new HerdrError("agent_blocked", "The terminal is waiting for masked input; answer it with the secret-input form first");
-    }
-    // with no client attached nothing tells the pane's width, so a wrapped prompt cannot be told from text: every password
-    // prompt secretPrompt knows ends its last row with a colon, and such a screen waits for the user's OK, never guessed (#2919)
-    // only before this delivery's own paste: a message ending with a colon, pasted into the input row, is not a prompt
-    if (sender.promptUnknown && !pasted && lastRowEndsWithColon(screen)) {
-      throw new HerdrError("needs_ok_prompt", "The terminal may be asking for a password, and with no device attached its lines cannot be read whole. Check it, then send this or discard it.");
     }
     const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);
     // a message Claude Code holds for its invisible characters is a card to answer first, also once its hint has gone.
@@ -1260,6 +1252,17 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     },
   };
 
+  /**
+   * The device attachment a scheduled message is typed under, read again at every check and before every key (#2951): its
+   * width is the one a wrapped password prompt is read at, so with no device on the pane, or another bridge holding it,
+   * nothing is typed and the message waits.
+   */
+  const openView = (paneId: string): AttachmentView => {
+    const view = attachments.get(paneId);
+    if (view === undefined) throw new HerdrError("input_not_ready", "No device has this pane open; the message waits until one does");
+    if (view.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
+    return view;
+  };
   /** The identity of what runs in the pane now, which a scheduled message is bound to as it is scheduled. */
   const scheduledIdentity = (paneId: string): Promise<PendingIdentity> => serialize(paneId, async () => (await currentIdentity(paneId)).identity);
   /**
@@ -1267,7 +1270,8 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    * the agent's turn (pending_wait), behind the pane's queued messages and the turn the last send started, never goes over
    * a draft or an open question, and only into the terminal and session `identity` names, with that agent's own program
    * in front (agent-only: never a shell left at its PID). Send now (`automatic` false) steers a working agent as a pending
-   * message's Send now does. `authorize` is asked before every write, as a connection's lease is.
+   * message's Send now does. `authorize` is asked before every write, as a connection's lease is, and so is a device's
+   * attachment to the pane: one goes only while a device has the pane open (openView), never with every device closed.
    */
   const sendScheduled = (paneId: string, text: string, identity: PendingIdentity, automatic: boolean, authorize: () => void): Promise<SubmitReply> =>
     serialize(paneId, () => {
@@ -1281,7 +1285,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
         return { ok: false, code: "pending_wait", message: "The pane's queued messages, or the turn the last one started, go first" };
       }
       const id = `scheduled:${crypto.randomUUID()}`;
-      return dispatchPendingText({ owner: null, authorize, cols: () => attachments.get(paneId)?.cols, promptUnknown: !attachments.has(paneId) }, paneId, pendingText(text), identity,
+      return dispatchPendingText({ owner: null, authorize: () => { authorize(); openView(paneId); }, cols: () => openView(paneId).cols }, paneId, pendingText(text), identity,
         automatic, Date.now(), (working, restarting) => pending.committingUnrecorded(paneId, id, working, restarting), !automatic, 0, true);
     });
 
