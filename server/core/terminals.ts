@@ -26,7 +26,7 @@ const REPAINT_MIN_INTERVAL_MS = 1000;
 type Frame<T extends ClientMessage["type"]> = Extract<ClientMessage, { type: T }>;
 
 /** What the server outside the registry reads of a pane's attachment: its grid, and whether another web bridge holds its terminal. */
-export type AttachmentView = { readonly cols: number; readonly rows: number; readonly held?: boolean };
+export type AttachmentView = { readonly cols: number; readonly rows: number; readonly held?: boolean; readonly regrids?: number };
 
 /**
  * What a connection saw of a pane's terminal before an await, held as references and never
@@ -248,6 +248,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     attachment.cols = cols;
     attachment.rows = rows;
     attachment.resizes = (attachment.resizes ?? 0) + 1;
+    attachment.regrids = (attachment.regrids ?? 0) + 1;
     attachment.resizedTo = [...(attachment.resizedTo ?? []).slice(-15), `${cols}x${rows}`];
     attachment.process.resize(cols, rows);
     // herdr redraws the whole screen for a new size: a repaint still waiting would send it twice

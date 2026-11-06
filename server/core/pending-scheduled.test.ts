@@ -3,6 +3,7 @@ import * as herdr from "../herdr/client.ts";
 import * as processStart from "../process-start.ts";
 import { connectionData } from "./connections.ts";
 import { createPendingDelivery, FIRST_MESSAGE_OWNER } from "./pending.ts";
+import { ScheduledMessages } from "../scheduled-messages.ts";
 
 afterEach(() => mock.restore());
 
@@ -23,7 +24,7 @@ function delivery(status: string, startTimeoutMs?: number, cols = 80) {
   const pane = { pane_id: "p", terminal_id: "p", workspace_id: "w", tab_id: "t", agent: "codex", agent_status: status, focused: false, revision: 0 };
   let tail: Promise<unknown> = Promise.resolve();
   const serialize = <T,>(_pane: string, run: () => T | Promise<T>): Promise<T> => { const next = tail.catch(() => {}).then(run); tail = next; return next; };
-  const attachments = new Map<string, { cols: number; rows: number; held?: boolean }>([["p", { cols, rows: 24 }]]);
+  const attachments = new Map<string, { cols: number; rows: number; held?: boolean; regrids?: number }>([["p", { cols, rows: 24 }]]);
   const pending = createPendingDelivery({
     options: { submitDelayMs: 0, ...(startTimeoutMs === undefined ? {} : { pendingStartTimeoutMs: startTimeoutMs }) }, clients: new Set(), attachments, sight: () => { throw new Error("no connection"); }, serialize,
     lastTyped: new Map(), submitText: async () => { throw new Error("not the immediate path"); }, authorizeSocket: () => {},
@@ -269,4 +270,49 @@ it("refuses Send now, typing nothing, while a queued message to the pane may sit
   d.pending.pending.settle(queued, { code: "submit_changed", message: "not confirmed" }, true);
   expect(await d.pending.sendScheduled("p", "continue", identity, false, () => {})).toMatchObject({ ok: false, code: "pending_uncertain" });
   expect(d.writes).toEqual([]);
+});
+
+it("types nothing when the pane's attachment is replaced while its screen is read, even at the same width (#3169)", async () => {
+  const d = delivery("idle");
+  const identity = await d.pending.scheduledIdentity("p");
+  spyOn(herdr, "paneRead").mockImplementation(async () => {
+    d.attachments.set("p", { cols: 15, rows: 24 });
+    d.attachments.set("p", { cols: 80, rows: 24 });
+    return { text: "Enter passphras\ne for key '/tmp\n/key': " } as Awaited<ReturnType<typeof herdr.paneRead>>;
+  });
+  expect((await d.pending.sendScheduled("p", "continue", identity, true, () => {})).ok).toBe(false);
+  expect(d.writes).toEqual([]);
+});
+
+it("types nothing when the pane is resized away and back while its screen is read (#3169)", async () => {
+  const d = delivery("idle");
+  const identity = await d.pending.scheduledIdentity("p");
+  const view = d.attachments.get("p")!;
+  spyOn(herdr, "paneRead").mockImplementation(async () => {
+    view.cols = 15; view.regrids = (view.regrids ?? 0) + 1;
+    view.cols = 80; view.regrids += 1;
+    return { text: "Enter passphras\ne for key '/tmp\n/key': " } as Awaited<ReturnType<typeof herdr.paneRead>>;
+  });
+  expect((await d.pending.sendScheduled("p", "continue", identity, true, () => {})).ok).toBe(false);
+  expect(d.writes).toEqual([]);
+});
+
+it("refuses a second Send now while another of the pane's messages is on its way (#3169)", async () => {
+  const d = delivery("idle");
+  let release!: () => void;
+  let pasted!: () => void;
+  const atPaste = new Promise<void>((resolve) => { pasted = resolve; });
+  const pause = new Promise<void>((resolve) => { release = resolve; });
+  spyOn(herdr, "paneSendText").mockImplementation(async (_pane, text) => { d.writes.push(text); if (text.includes("first")) { pasted(); await pause; } });
+  spyOn(herdr, "paneSendKeys").mockImplementation(async () => { throw new Error("write uncertain"); });
+  const scheduled = new ScheduledMessages({ checkText: (text) => text, identity: d.pending.scheduledIdentity, send: d.pending.sendScheduled, mayDrive: () => true, changed: () => {} });
+  const sendAt = new Date(Date.now() + 60_000).toISOString();
+  const first = await scheduled.create({ pane_id: "p", text: "first", send_at: sendAt }, null);
+  const second = await scheduled.create({ pane_id: "p", text: "second", send_at: sendAt }, null);
+  const one = scheduled.sendNow({ id: first.id }, null);
+  await atPaste;
+  await expect(scheduled.sendNow({ id: second.id }, null)).rejects.toMatchObject({ code: "pending_busy" });
+  release();
+  expect((await one).ok).toBe(false);
+  expect(d.writes).toEqual(["\u001b[200~first\u001b[201~"]);
 });

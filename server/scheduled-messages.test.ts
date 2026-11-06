@@ -1,4 +1,5 @@
 import { afterEach, expect, it, spyOn } from "bun:test";
+import * as fs from "node:fs";
 import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -485,4 +486,33 @@ it("keeps a message waiting for its pane's first status change since a restart, 
   await settle();
   expect(sends).toHaveLength(2);
   expect(scheduled.list()).toEqual([]);
+});
+
+it("holds as gone a message whose pane moved and then ended while a send to it was refused (#3169)", async () => {
+  let release: (answer: { ok: boolean; code?: string; message?: string }) => void = () => {};
+  let started: () => void = () => {};
+  const inSend = new Promise<void>((resolve) => { started = resolve; });
+  const { scheduled } = store([], { send: () => { started(); return new Promise((resolve) => { release = resolve; }); } });
+  const message = await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null);
+  const sending = scheduled.sendNow({ id: message.id }, null);
+  await inSend;
+  scheduled.paneMoved("p1", "p2");
+  scheduled.paneGone("p2");
+  release({ ok: false, code: "input_not_ready", message: "no device" });
+  await sending;
+  expect(scheduled.list()[0]).toMatchObject({ pane_id: "p2", state: "held", error: { code: "pane_not_found" } });
+});
+
+it("sends nothing while it cannot write its state file, so a restart never sends a message twice (#3169)", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-scheduled-"));
+  dirs.push(stateDir);
+  const valid = { identity: IDENTITY, device: null, message: { id: "one", pane_id: "p1", text: "first", send_at: "2026-11-05T11:00:00Z", created_at: "2026-11-05T08:00:00Z", state: "scheduled" } };
+  writeFileSync(join(stateDir, "scheduled-messages.json"), JSON.stringify([valid, { message: { id: "bad" } }]));
+  spyOn(fs, "copyFileSync").mockImplementation(() => { throw new Error("no space"); });
+  const before = store([], { stateDir });
+  expect((await before.scheduled.sendNow({ id: "one" }, null)).ok).toBe(false);
+  expect(before.sends).toEqual([]);
+  expect(() => before.scheduled.discard({ id: "one" })).toThrow();
+  const restarted = store([], { stateDir });
+  expect(restarted.scheduled.list().map((message) => message.id)).toEqual(["one"]);
 });

@@ -188,6 +188,9 @@ interface AttachmentState {
   repaint?: ReturnType<typeof setTimeout>;
   /** when herdr was last asked to repaint (or redrew for a resize), for REPAINT_MIN_INTERVAL_MS */
   repaintedAt?: number;
+  /** how many times the grid changed, by a browser or by herdr's layout: a check that read the screen tells from it that
+   * the grid stayed the same meanwhile, also through a resize away and back (#3169) */
+  regrids?: number;
 }
 
 /**
@@ -304,6 +307,7 @@ export function createSpawnAttachment({ attachments, retiringAttachments, termin
           if (attachments.get(paneId) !== attachment) return;
           attachment.cols = cols;
           attachment.rows = rows;
+          attachment.regrids = (attachment.regrids ?? 0) + 1;
           broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols, rows, fixed: true });
         },
         read: async () => (await paneRead({ paneId, source: "visible", format: "ansi" })).text,

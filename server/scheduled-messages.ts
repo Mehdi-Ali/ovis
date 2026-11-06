@@ -163,6 +163,8 @@ export class ScheduledMessages {
     const entry = this.entry(object(body)["id"]);
     if (entry.message.state === "sending") throw busy();
     if (entry.message.state === "uncertain" || this.behind(entry, "uncertain")) throw uncertain();
+    // one of the pane's messages on its way may still leave a paste in the input: this one waits for its outcome (#3169)
+    if (this.behind(entry, "sending")) throw busy();
     const before = entry.message.state;
     let identity = entry.identity;
     if (before === "held" && entry.message.error?.code === "pending_target_changed") {
@@ -290,7 +292,8 @@ export class ScheduledMessages {
       const fault = { code: reply.code ?? "submit_failed", message: reply.message ?? "The message was not sent" };
       if (UNCERTAIN_CODES.has(fault.code)) { message.state = "uncertain"; this.deps.uncertain?.(message.pane_id); }
       // herdr moved the pane while this send ran: it waits for the user's OK, as every message of a moved pane does
-      else if (message.pane_id !== paneAtStart) { message.state = "held"; message.error = { ...NEEDS_OK_MOVED }; this.commit(); return reply; }
+      // (gone since, it is listed in every pane as gone)
+      else if (message.pane_id !== paneAtStart) { message.state = "held"; message.error = entry.gone ? { ...PANE_GONE } : { ...NEEDS_OK_MOVED }; this.commit(); return reply; }
       // Send now's refusal leaves it as it was; the timer's waits stay scheduled and say why
       else if (!automatic) message.state = before.state;
       else message.state = WAIT_CODES.has(fault.code) ? "scheduled" : "held";
@@ -413,7 +416,9 @@ export class ScheduledMessages {
 
   private save(): void {
     const path = this.path;
-    if (path === null || this.unavailable) return;
+    if (path === null) return;
+    // nothing counts that is not written: a claim, an edit or a discard kept only in memory could send a message twice (#3169)
+    if (this.unavailable) throw new ScheduledError("scheduled_unavailable", "This PC cannot keep scheduled messages: its scheduled-messages.json could not be read or kept aside", 503);
     mkdirSync(this.deps.stateDir!, { recursive: true, mode: 0o700 });
     const temporary = `${path}.${process.pid}.tmp`;
     writeFileSync(temporary, JSON.stringify([...this.entries.values()].map(({ message, identity, device }) => ({ message, identity, device }))), { mode: 0o600 });

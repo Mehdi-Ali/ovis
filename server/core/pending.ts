@@ -55,7 +55,7 @@ export type PendingOwner = Client | FirstMessageOwner;
  * user scheduled (server/scheduled-messages.ts), which keeps no Pi receipt. `authorize` throws once it may no
  * longer type; `cols`: the grid a password prompt is read for.
  */
-interface Sender { owner: Client | null; authorize(): void; cols(): number | undefined }
+interface Sender { owner: Client | null; authorize(): void; cols(): number | undefined; /** the attachment and its grid count, compared across a screen read */ grid?(): string }
 const isClient = (owner: PendingOwner): owner is Client => owner !== FIRST_MESSAGE_OWNER;
 /** a first message's lease is the delivering connection's, taken at each attempt: none is kept on the record */
 type PendingItem = PendingRecord<PendingOwner, PendingLease | null>;
@@ -552,11 +552,12 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     // the live screen, not the viewport: a pane scrolled into its history still draws its next
     // menu or password prompt at the bottom (server/prompt.ts liveScreen)
     const width = sender.cols();
+    const grid = sender.grid?.();
     const screen = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-    // a scheduled message reads the screen at the width it was drawn at: a resize during the read leaves its rows
-    // unknown, and the message waits (#2951)
-    if (sender.owner === null && sender.cols() !== width) throw new HerdrError("input_not_ready", "The pane was resized while its screen was read; the message waits");
-    if (secretPrompt(screen, sender.owner === null ? width : sender.cols()) !== null) {
+    // a scheduled message reads the screen at the grid it was drawn at: another attachment, or any change of its grid
+    // during the read (also away and back), leaves its rows unknown, and the message waits (#2951, #3169)
+    if (sender.grid && (sender.grid() !== grid || sender.cols() !== width)) throw new HerdrError("input_not_ready", "The pane was resized while its screen was read; the message waits");
+    if (secretPrompt(screen, sender.grid ? width : sender.cols()) !== null) {
       throw new HerdrError("agent_blocked", "The terminal is waiting for masked input; answer it with the secret-input form first");
     }
     const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);
@@ -1267,6 +1268,15 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     if (view.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
     return view;
   };
+  /** Which attachment the pane has and how often its grid changed: equal before and after a read only if neither changed. */
+  const attachmentIds = new WeakMap<AttachmentView, number>();
+  let nextAttachmentId = 0;
+  const gridOf = (paneId: string): string => {
+    const view = openView(paneId);
+    let id = attachmentIds.get(view);
+    if (id === undefined) { id = ++nextAttachmentId; attachmentIds.set(view, id); }
+    return `${id}:${view.regrids ?? 0}:${view.cols}x${view.rows}`;
+  };
   /** The identity of what runs in the pane now, which a scheduled message is bound to as it is scheduled. */
   const scheduledIdentity = (paneId: string): Promise<PendingIdentity> => serialize(paneId, async () => (await currentIdentity(paneId)).identity);
   /**
@@ -1279,12 +1289,11 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    */
   const sendScheduled = (paneId: string, text: string, identity: PendingIdentity, automatic: boolean, authorize: () => void): Promise<SubmitReply> =>
     serialize(paneId, () => {
-      // Send now too: the user resolves an earlier paste that may sit in the input before sending over it (#2951)
-      if (!automatic && pending.uncertainIn(paneId)) {
+      // Send now too: the user resolves an earlier paste that may sit in the input before sending over it (#2951), a
+      // scheduled one included, read here in the pane's lane where no other send runs (#3169)
+      if (pending.uncertainIn(paneId) || scheduledUncertain(paneId)) {
+        if (automatic) return { ok: false, code: "needs_ok", message: "A message to this pane may still be in its input line. Check the terminal, then send this one or discard it." };
         return { ok: false, code: "pending_uncertain", message: "A message to this pane may still be in its input line. Check the terminal, then send or discard that one first." };
-      }
-      if (automatic && pending.uncertainIn(paneId)) {
-        return { ok: false, code: "needs_ok", message: "A message to this pane may still be in its input line. Check the terminal, then send this one or discard it." };
       }
       // after a restart, an earlier server's paste may sit in the input: the message waits for the pane's status to change
       if (automatic && !pending.statusChangedIn(paneId)) {
@@ -1297,7 +1306,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
         return { ok: false, code: "pending_wait", message: "The pane's queued messages, or the turn the last one started, go first" };
       }
       const id = `scheduled:${crypto.randomUUID()}`;
-      return dispatchPendingText({ owner: null, authorize: () => { authorize(); openView(paneId); }, cols: () => openView(paneId).cols }, paneId, pendingText(text), identity,
+      return dispatchPendingText({ owner: null, authorize: () => { authorize(); openView(paneId); }, cols: () => openView(paneId).cols, grid: () => gridOf(paneId) }, paneId, pendingText(text), identity,
         automatic, Date.now(), (working, restarting) => pending.committingUnrecorded(paneId, id, working, restarting), !automatic, 0, true);
     });
 
