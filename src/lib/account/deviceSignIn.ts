@@ -129,11 +129,13 @@ export async function startDeviceSignIn(options: DeviceSignInOptions): Promise<D
         if (answer.ok) {
           const session = sessionOf(await answer.json(), options.service, now());
           // under the lock sign-out and refresh take, and never once this sign-in was cancelled or a sign-out came after its start
+          let replaced: AccountSession | undefined;
           const kept = await lock(async () => {
             if (signal.aborted) return false;
             let stored = false;
             await options.store.updateMany(["session", "epoch"], (current) => {
               stored = current.epoch === epoch;
+              if (stored) replaced = current.session;
               return stored ? { session, epoch } : current;
             });
             if (!stored || !signal.aborted) return stored;
@@ -141,7 +143,11 @@ export async function startDeviceSignIn(options: DeviceSignInOptions): Promise<D
             await options.store.update("session", (current) => current?.refresh_token === session.refresh_token ? undefined : current);
             return false;
           });
-          if (kept) return session;
+          if (kept) {
+            // the sign-in it replaced would otherwise live on at the service until it runs out
+            if (replaced !== undefined && replaced.refresh_token !== session.refresh_token) await endSignIn(replaced, "the replaced sign-in", { store: options.store, fetch: fetchImpl, now });
+            return session;
+          }
           // a sign-in nobody keeps ends at the service too, so its tokens do not outlive the page
           await endSignIn(session, "a sign-in nobody keeps", { store: options.store, fetch: fetchImpl, now });
           signal.throwIfAborted();

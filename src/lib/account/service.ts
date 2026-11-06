@@ -368,7 +368,9 @@ export class AccountService {
     }
     if (outcome === "moved-on") {
       await end(after, "a link's sign-in no tab keeps");
-      return (await this.session()) ?? after;
+      const current = await this.session();
+      if (current === undefined) throw new SignedOutError();
+      return current;
     }
     // the old sign-in's tokens would otherwise live on at the service until they expire
     await end(before, "the replaced sign-in");
@@ -482,8 +484,12 @@ export class AccountService {
 
   private async call(method: string, path: string, body?: unknown): Promise<unknown> {
     let stale: string | undefined;
+    let account: string | undefined;
     for (const retry of [false, true]) {
       const session = await this.fresh(stale);
+      // a request is repeated only for the account it was made for, never one signed in meanwhile
+      if (account !== undefined && session.account !== account) throw new SignedOutError();
+      account = session.account;
       const response = await this.fetch(new URL(path, session.service), {
         method,
         headers: { authorization: `Bearer ${session.access_token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
