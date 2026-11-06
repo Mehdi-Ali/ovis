@@ -211,6 +211,9 @@ export const DEVICES_ZH: Record<string, string> = {
   "Phones paired through the relay always go through the relay.": "通过中继配对的手机始终经由中继。",
   "Same Wi-Fi direct connection": "同一 Wi-Fi 直接连接",
   "This PC takes connections at {host} on your home network. Only devices paired through the relay can sign in there; nothing new pairs.": "这台电脑在家庭网络的 {host} 上接受连接。只有通过中继配对的设备能在这里登录，不能在这里配对新设备。",
+  "This PC takes connections on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "这台电脑在 Tailscale 上接受连接。只有通过中继配对的设备能在这里登录，不能在这里配对新设备。",
+  "This PC takes connections on your home network and on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "这台电脑在家庭网络和 Tailscale 上接受连接。只有通过中继配对的设备能在这里登录，不能在这里配对新设备。",
+  "This PC takes connections at {host} on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "这台电脑在 Tailscale 的 {host} 上接受连接。只有通过中继配对的设备能在这里登录，不能在这里配对新设备。",
   "Removed devices": "已移除的设备",
   "A device": "设备",
   "Settled on every PC this device knows": "已在此设备知道的所有电脑上处理",
@@ -237,8 +240,4 @@ export const DEVICES_ZH: Record<string, string> = {
   "Another device removed it on this PC. Remove it everywhere to sign the removal yourself.": "另一台设备已在此电脑上移除它。要亲自签署移除，请从所有电脑移除。",
   "Remove everywhere?": "从所有电脑移除？",
   "Remove everywhere": "从所有电脑移除",
-||||||| 6dfcc178e
-  "This PC takes connections on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "这台电脑在 Tailscale 上接受连接。只有通过中继配对的设备能在这里登录，不能在这里配对新设备。",
-  "This PC takes connections on your home network and on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "这台电脑在家庭网络和 Tailscale 上接受连接。只有通过中继配对的设备能在这里登录，不能在这里配对新设备。",
-  "This PC takes connections at {host} on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "这台电脑在 Tailscale 的 {host} 上接受连接。只有通过中继配对的设备能在这里登录，不能在这里配对新设备。",
 };
