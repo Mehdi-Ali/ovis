@@ -60,6 +60,8 @@ export interface PcAccountStatus {
   readonly enrolling?: boolean;
   /** the keys it removed and has no row for, as it says; absent from an Ovis from before removal reports */
   readonly tombstones?: readonly string[];
+  /** the keys of rows paired on the PC itself, as it says; absent from an Ovis from before removal reports */
+  readonly pairedHere?: readonly string[];
 }
 
 /** `fresh`: the PC reads its mailbox first, so a removal waiting there is counted (docs/account.md, "PC API"). */
@@ -77,6 +79,7 @@ export async function pcAccountStatus(fetch: PcFetch, options: { fresh?: boolean
     ...((body as { blocked_all?: unknown }).blocked_all === true ? { blockedAll: true } : {}),
     ...(typeof (body as { enrolling?: unknown }).enrolling === "boolean" ? { enrolling: (body as { enrolling: boolean }).enrolling } : {}),
     ...(Array.isArray((body as { tombstones?: unknown }).tombstones) ? { tombstones: ((body as { tombstones: unknown[] }).tombstones).filter(isAccountKey) } : {}),
+    ...(Array.isArray((body as { paired_here?: unknown }).paired_here) ? { pairedHere: ((body as { paired_here: unknown[] }).paired_here).filter(isAccountKey) } : {}),
   };
 }
 

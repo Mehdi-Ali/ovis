@@ -196,7 +196,7 @@ the relay too. Mutations need the app's mutation guard, like the other routes.
 `GET /api/account/status`
 
 ```json
-{ "account": "acct_1" , "members": 3, "unlinked": ["6a1f0c9e2b7d4a10"], "removals": [<remove>, …], "adds": [<add>, …], "blocked": ["<key>", …], "tombstones": ["<key>", …], "enrolling": false, "mailbox": { "last_pull_at": "2026-11-05T01:02:03.000Z", "error": null } }
+{ "account": "acct_1" , "members": 3, "unlinked": ["6a1f0c9e2b7d4a10"], "removals": [<remove>, …], "adds": [<add>, …], "blocked": ["<key>", …], "tombstones": ["<key>", …], "paired_here": ["<key>", …], "enrolling": false, "mailbox": { "last_pull_at": "2026-11-05T01:02:03.000Z", "error": null } }
 ```
 
 `account` is `null` before the first member. `unlinked` lists relay rows that are not members.
@@ -206,7 +206,8 @@ that made a row, or the approver's own for a row its remote approval made. `bloc
 an add cannot bring in here: every tombstone (signed or not), every key a waiting remove names, and
 every key an enrollment held ([Enrolling a PC](#enrolling-a-pc)). `tombstones` lists every key
 this PC has removed (a tombstone, signed or not, with no row left for it): what a client reads as
-this PC's acknowledgement of a removal ([Removing a device](#removing-a-device)). `enrolling` is true while the PC
+this PC's acknowledgement of a removal ([Removing a device](#removing-a-device)). `paired_here` lists
+the keys of rows paired on this PC itself (no `added_by`, never moved onto their key by a `link`). `enrolling` is true while the PC
 waits for its first member's enrollment. `blocked_all` is true when the PC holds every add back
 (removal evidence was lost to a full queue, or its waiting records cannot be read): then `blocked`
 may not name every key it keeps out, and a client enrolling another PC sends that PC no add and
@@ -374,8 +375,8 @@ is what authenticates the PC.
 Experimental: all of this section's client behaviour is on only where **Settings → Experimental →
 Account: confirm removals on every PC** is on (default off). Off, a removal goes as before: to the
 PC in view and the mailboxes of the PCs this device is linked on, and an enrollment relays the
-removals this device kept. The PC's `tombstones` field is always there; a client that does not
-read it is unaffected.
+removals this device kept. The PC's `tombstones` and `paired_here` fields are always there; a client
+that does not read them is unaffected.
 
 A client that removes a device keeps the removal and brings it to every PC it knows until each PC
 reports it applied, then shows where it is still missing. Nothing here needs the account service:
@@ -398,14 +399,14 @@ directory or pairs with are added to the list; none leaves it except by **Forget
 device. Done means done on the PCs in that list; a PC the device never heard of, hidden by the
 service, cannot be shown.
 
-**Carrying.** The removal is kept before it is sent, then posted to the account service for every
-PC in the directory (not only the ones this client is linked on; a PC where the signer is not a
-member yet keeps it waiting) and to the PC in view. Then, on every connection to a PC of the
+**Carrying.** The removal is kept before it is sent, then sent to the PC in view and, at the same
+time, posted to the account service for every PC in the directory (not only the ones this client is
+linked on; a PC where the signer is not a member yet keeps it waiting), each post with a deadline of
+10 seconds after which its PCs are named as not reached. Then, on every connection to a PC of the
 account, not only when enrolling one, the client sends that PC (`POST /api/account/records`, 32 at
 a time) each removal it carries that the PC does not report removed. The PC decides every case
 itself, as before: a removal signed before a pairing made on that PC answers `unchanged` and
-leaves the pairing be. A refused post to the service (`mailbox_full`, an error) never stops the
-direct sends; the device's row says the service did not take it.
+leaves the pairing be.
 
 **What a PC reports.** `GET /api/account/status` adds `tombstones`: every key this PC removed and
 has no row for. A client reads it fresh on each connection and keeps, per removal and PC, the
@@ -414,7 +415,7 @@ state it last read and when:
 | state | read on that PC | shown |
 |---|---|---|
 | `reported` | the key is in `tombstones` | **Removed** (the PC's word: a compromised PC can say so and still let the key in) |
-| `repaired` | the carried removal answered `unchanged`, the key is not in `tombstones` and the PC has a row for it | **Paired again on this PC**: the PC judged, by its clock against the removal's `issued_at`, that a pairing approved there came after it |
+| `repaired` | the carried removal answered `unchanged`, the key is not in `tombstones`, and `paired_here` lists it | **Paired again on this PC**: the PC judged, by its clock against the removal's `issued_at`, that a pairing approved there came after it; `unchanged` with no such row is `unknown` |
 | `waiting` | the key is in `blocked` but not in `tombstones` | **Waiting** |
 | `unknown` | anything else: the send or the read failed, `account_unavailable`, `blocked_all`, a malformed answer | **Could not confirm**, with the reason |
 | `unconfirmed` | a PC from before `tombstones` (its status has no such field) | **Update Ovis on this PC to confirm** |

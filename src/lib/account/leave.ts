@@ -56,12 +56,17 @@ export async function leaveAccount(options: { service: AccountService; accountSt
  * then at once on the PC this window is in (`here`); the account's other PCs are named back as not
  * reached, for another member to disconnect it there.
  */
+/** How long a tracked removal waits for the account service to take it for a batch of PCs. */
+export const MAIL_TIMEOUT_MS = 10_000;
+
 export async function removeFromAccount(options: {
   service: AccountService; accountStore: AccountStore; relayStore: RelayDeviceStore; key: string; account: string; here?: PcFetch; hereId?: string; now?: () => number;
   /** the device's name, shown with the removal until every PC settled it */
   label?: string;
   /** Settings' accountRemovalReports: the removal is tracked and carried (docs/account.md, "Removing a device") */
   track?: boolean;
+  /** tracked: how long each mailbox post may take before its PCs are named as not reached */
+  mailTimeoutMs?: number;
 }): Promise<LeaveResult> {
   const session = await options.service.session();
   if (session === undefined) throw new Error("Sign in first, so every PC of the account hears of it");
@@ -89,20 +94,31 @@ export async function removeFromAccount(options: {
     }
   };
   if (options.track) {
-    // tracked: kept with every PC it must reach before it goes anywhere (refused when full), in one write with the record a
-    // PC brought in later gets; then every PC the account lists by mailbox first (one where this device is no member yet keeps
-    // it waiting for that), so a PC in view that never answers holds none of them back
     // a directory it cannot read stops the removal from being called done, not from going out
     const read = await listPcs().then((ids) => ({ ids, error: null }), (error: unknown) => ({ ids: [] as string[], error }));
     const listed = read.error === null ? read.ids : [...linked];
+    // kept with every PC it must reach before it goes anywhere (refused when full), in one write with the record a PC brought in later gets
     await trackRemoval(options.accountStore, remove, [...new Set([...listed, ...linked])], options.label, read.error !== null);
-    await mail(listed);
+    // the PC in view right after, as untracked; the mailboxes at the same time, each with a deadline, so neither holds the other or the screen
+    const timeout = options.mailTimeoutMs ?? MAIL_TIMEOUT_MS;
+    const mailing = Promise.all(Array.from({ length: Math.ceil(listed.length / 32) }, (_, index) => listed.slice(index * 32, index * 32 + 32)).map(async (batch) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      // fixed wait: a deadline for an account service that does not answer, not a pause
+      const deadline = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("The account service did not answer in time")), timeout); });
+      try { await Promise.race([options.service.postRecord(batch, remove), deadline]); } catch { failed.push(...batch); }
+      finally { clearTimeout(timer); }
+    }));
+    let refusedHere: Error | null = null;
     if (options.here) {
-      const answer = await (await post(options.here, "/api/account/records", { records: [remove] })).json() as { results?: { outcome?: string; code?: string }[] };
-      const outcome = answer.results?.[0];
-      if (outcome?.outcome === "refused") throw new Error(`This PC refused the removal (${outcome.code ?? "refused"})`);
-      if (options.hereId !== undefined) await carryRemovals({ fetch: options.here, store: options.accountStore, account: session.account, serverId: options.hereId, now: options.now });
+      try {
+        const answer = await (await post(options.here, "/api/account/records", { records: [remove] })).json() as { results?: { outcome?: string; code?: string }[] };
+        const outcome = answer.results?.[0];
+        if (outcome?.outcome === "refused") throw new Error(`This PC refused the removal (${outcome.code ?? "refused"})`);
+        if (options.hereId !== undefined) await carryRemovals({ fetch: options.here, store: options.accountStore, account: session.account, serverId: options.hereId, now: options.now });
+      } catch (error) { refusedHere = error instanceof Error ? error : new Error(String(error)); }
     }
+    await mailing;
+    if (refusedHere !== null) throw refusedHere;
     if (read.error !== null) throw new Error("Removed here and on your paired PCs, but your account's PC list could not be read. It is sent to the others when this device next reads it.");
     // the PC in view applied it (it threw otherwise): never named as not reached
     const here = (id: string) => options.here !== undefined && id === options.hereId;

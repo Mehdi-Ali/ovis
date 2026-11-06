@@ -74,7 +74,7 @@ it("moves QR pairings into the account one PC at a time, and calls a PC it has n
   expect(needsLink(await pcAccountStatus(pcFetch(link)), onA, ACCOUNT)).toBe(true);
   const linked = await linkThisDevice({ fetch: pcFetch(link), device: onA, key, account: ACCOUNT, store });
   expect(linked.public_spki).toBe(key.public_spki);
-  expect(await pcAccountStatus(pcFetch(link))).toEqual({ account: ACCOUNT, unlinked: [], removals: [], adds: [], blocked: [], enrolling: true, tombstones: [] });
+  expect(await pcAccountStatus(pcFetch(link))).toEqual({ account: ACCOUNT, unlinked: [], removals: [], adds: [], blocked: [], enrolling: true, tombstones: [], pairedHere: [] });
   // the linked pairing signs in with the account key from now on
   await connect(a, linked);
   const listed = [a, b].map((at) => ({ server_id: at.identity.server_id, label: "pc", added_at: new Date().toISOString(), last_seen_at: null, public_key: null, relay: null }));
@@ -852,14 +852,28 @@ describe("with removal reports on: carrying a removal this device signed to ever
     expect(Object.values(await accountStore.get("tracked") ?? {})[0]?.directoryUnread).toBeUndefined();
   });
 
-  it("sends every mailbox before it waits on the PC in view, so a PC that never answers holds none back", async () => {
-    const { x, y, service, accountStore, account, mac } = await both();
+  it("calls a PC paired again only when it shows a pairing made there for the key, not on unchanged alone", async () => {
+    const { x, accountStore, disconnect, tracked } = await both();
+    const { remove } = await disconnect();
+    const id = x.identity.server_id;
+    const claims = async (path: string) => path.startsWith("/api/account/status")
+      ? Response.json({ account: ACCOUNT, unlinked: [], removals: [], adds: [], blocked: [], tombstones: [], paired_here: [] })
+      : Response.json({ results: [{ id: remove.id, outcome: "unchanged" }] });
+    await carryRemovals({ fetch: claims, store: accountStore, account: ACCOUNT, serverId: id });
+    expect((await tracked())[0]?.pcs[id]?.state).toBe("unknown");
+  });
+
+  it("sends the removal to the PC in view right after keeping it, and finishes when the account service never answers", async () => {
+    const { x, onX, accountStore, mac } = await both();
     let reached!: () => void;
     const asked = new Promise<void>((resolve) => { reached = resolve; });
-    const hanging = (): Promise<Response> => { reached(); return new Promise<Response>(() => undefined); };
-    void removeFromAccount({ service: account, accountStore, relayStore: new MemoryDeviceStore(), key: mac.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here: hanging, track: true });
+    const here = async (path: string, init?: RequestInit) => { if (path === "/api/account/records") reached(); return pcFetch(await connect(x, onX))(path, init); };
+    const stuck = { session: async () => ({ account: ACCOUNT }), listPcs: async () => [{ server_id: x.identity.server_id }, { server_id: "b".repeat(32) }], postRecord: () => new Promise<never>(() => undefined) } as unknown as AccountService;
+    const done = removeFromAccount({ service: stuck, accountStore, relayStore: new MemoryDeviceStore(), key: mac.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here, track: true, mailTimeoutMs: 50 });
     await asked;
-    expect(service.mailbox(y.identity.server_id, ACCOUNT)).toHaveLength(1);
+    const result = await done;
+    expect(x.f.app.context.services.devices.hasKey(mac.public_spki)).toBe(false);
+    expect(result.unconfirmed).toContain("b".repeat(32));
   });
 
   it("does not bring back a PC forgotten while a carry to it was under way", async () => {
@@ -944,7 +958,7 @@ it("links a device that just paired over a connection of its own, as the session
   await expect(linkThisDevice({ fetch: pcFetch(pairing), device, key, account: ACCOUNT, store })).rejects.toMatchObject({ code: "link_not_owner" });
   // a connection that signs in with the saved key links it
   await linkThisDevice({ fetch: pcFetch(await connect(x, device)), device, key, account: ACCOUNT, store });
-  expect(await pcAccountStatus(pcFetch(await connect(x, device)))).toEqual({ account: ACCOUNT, unlinked: [], removals: [], adds: [], blocked: [], enrolling: true, tombstones: [] });
+  expect(await pcAccountStatus(pcFetch(await connect(x, device)))).toEqual({ account: ACCOUNT, unlinked: [], removals: [], adds: [], blocked: [], enrolling: true, tombstones: [], pairedHere: [] });
 });
 it("leaves the account from this device: every PC revokes it from its mailbox, and this device forgets the key and its pairings", async () => {
   const [a, b] = [pc(), pc()];

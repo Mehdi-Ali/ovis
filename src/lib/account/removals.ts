@@ -136,7 +136,9 @@ function report(record: RemoveRecord, status: PcAccountStatus | null, outcome: O
   if (status.tombstones === undefined) return { state: "unconfirmed", at };
   if (status.tombstones.includes(record.key)) return { state: "reported", at };
   if (status.blocked.includes(record.key)) return { state: "waiting", at };
-  if (outcome?.outcome === "unchanged") return { state: "repaired", at };
+  // paired again only where the PC shows a row it paired itself for the key (not one a link moved onto it)
+  if (outcome?.outcome === "unchanged" && (status.pairedHere?.includes(record.key) ?? false)) return { state: "repaired", at };
+  if (outcome?.outcome === "unchanged") return { state: "unknown", at, reason: "no pairing shown" };
   const reason = failure ?? (outcome?.outcome === "refused" ? String(outcome.code) : status.blockedAll === true ? "blocked_all" : "no answer");
   return { state: "unknown", at, reason };
 }

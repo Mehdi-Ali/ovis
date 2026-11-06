@@ -285,6 +285,18 @@ test("an add right behind a remove for its key in one batch meets that remove wa
   expect(f.app.context.services.devices.hasKey(mac.spki)).toBe(false);
 });
 
+test("the status lists as paired_here only keys paired on this PC, never a member's linked key or an added device", async () => {
+  const f = fixture();
+  const { key, link } = await member(f);
+  const [local, added] = [await accountKey(), await accountKey()];
+  expect((await (await relayConnection(f)).pair(f.app.context.services.devices.startPairing().code, local.spki)).role).toBe("drive");
+  await post(link, "/api/account/records", { records: [await add(key, added.spki)] });
+  const paired = ((await status(link)) as { paired_here?: string[] }).paired_here;
+  expect(paired).toContain(local.spki);
+  expect(paired).not.toContain(key.spki);
+  expect(paired).not.toContain(added.spki);
+});
+
 test("the status lists as tombstones every key this PC removed and has no row for", async () => {
   const f = fixture();
   const { key, link } = await member(f);
