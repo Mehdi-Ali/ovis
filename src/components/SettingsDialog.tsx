@@ -142,7 +142,10 @@ function FontFamilyInput({ value, label, onCommit, placeholder = FONT_FAMILY_PLA
   const t = useT();
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
+  // typed and not yet saved: only that is saved when the field goes, never a value put back meanwhile (a row's ↺)
+  const typed = useRef(false);
   const commit = (): void => {
+    typed.current = false;
     const next = sanitizeFontFamily(draft);
     setDraft(next);
     if (next !== value) onCommit(next);
@@ -150,7 +153,7 @@ function FontFamilyInput({ value, label, onCommit, placeholder = FONT_FAMILY_PLA
   // closing the dialog with Escape unmounts the field without a blur
   const commitRef = useRef(commit);
   commitRef.current = commit;
-  useEffect(() => () => commitRef.current(), []);
+  useEffect(() => () => { if (typed.current) commitRef.current(); }, []);
   const [families, setFamilies] = useState<string[] | null>(null);
   const [browsing, setBrowsing] = useState(false);
   const [query, setQuery] = useState("");
@@ -198,7 +201,7 @@ function FontFamilyInput({ value, label, onCommit, placeholder = FONT_FAMILY_PLA
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => { typed.current = true; setDraft(event.target.value); }}
           onBlur={commit}
           onKeyDown={(event) => {
             // an IME keeps its Enter, including the committing one WebKit can send after compositionend as key code 229

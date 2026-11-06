@@ -112,7 +112,7 @@ export function SettingsRow({ label, description, keywords, held = false, htmlFo
             {label_}
             {changed && <button type="button" className="settings-reset" title={t("Restore defaults")} aria-label={`${t("Restore defaults")}: ${label}`} onClick={(event) => {
               // the button goes once the values are back: the row's own control takes the focus first
-              event.currentTarget.closest(".settings-row")?.querySelector<HTMLElement>("input, select, [role='radio'], button:not(.settings-reset)")?.focus();
+              event.currentTarget.closest(".settings-row")?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), [role='radio'], button:not(.settings-reset):not(:disabled)")?.focus();
               update(Object.fromEntries(reset.map((key) => [key, DEFAULT_SETTINGS[key]])) as Partial<Settings>);
             }}>
               <RotateCcw aria-hidden="true" />

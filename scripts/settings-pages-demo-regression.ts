@@ -707,6 +707,20 @@ async function rowResets(browser: import("playwright-core").Browser, url: string
     const fonts = await saved();
     assert.deepEqual([fonts["terminalFontSize"], fonts["terminalFontFamily"] ?? DEFAULT_SETTINGS.terminalFontFamily], [DEFAULT_SETTINGS.terminalFontSize, DEFAULT_SETTINGS.terminalFontFamily], "↺ puts back the size and the font of its row");
 
+    // a custom interface font put back: the field closes and the typed list is not saved again as it goes
+    const uiFont = page.getByLabel("Interface font", { exact: true });
+    await uiFont.selectOption("custom");
+    const custom = page.getByRole("textbox", { name: "Custom interface font", exact: true });
+    await custom.fill('"Noto Sans JP"');
+    await custom.press("Enter");
+    await reset("Interface font").click();
+    await custom.waitFor({ state: "detached" });
+    assert.equal(await uiFont.inputValue(), "default", "the select shows Default once the font is put back");
+    // a reload closes Settings: open the page again from its address
+    await page.goto(`${url}?settings=appearance`);
+    await page.locator(".theme-cards").waitFor();
+    assert.equal(await page.getByLabel("Interface font", { exact: true }).inputValue(), "default", "the font put back stays put back after a reload");
+
     const dark = themeSide(page, "dark");
     await dark.selectOption("dracula");
     await page.waitForFunction(() => document.documentElement.dataset.palette === "dracula");
