@@ -45,6 +45,7 @@ import { Composer } from "./Composer.tsx";
 import { ComposerNotices, type ComposerNoticeRow } from "./ComposerNotices.tsx";
 import { PendingMessages } from "./PendingMessages.tsx";
 import { ScheduledMessages, useScheduledMessages } from "./ScheduledMessages.tsx";
+import { shownInPane } from "../lib/sendLater.ts";
 import { scheduleMessage } from "../lib/api.ts";
 import type { AgentStatus, ClientRole, PlanSummary, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneControls, PaneView } from "../lib/actions.ts";
@@ -669,7 +670,7 @@ export function PaneTerminal({
   const scheduling = machineId === "local" && connected && !observing && socketRef.current?.canSchedule() === true;
   // one held for a pane that is gone has no pane of its own to show in: every pane lists it, to read or discard
   const scheduled = useScheduledMessages(machineId, scheduling ? socketRef.current : null, scheduling)
-    .filter((message) => message.pane_id === paneId || (message.state === "held" && message.error?.code === "pane_not_found"));
+    .filter((message) => shownInPane(message, paneId));
   useEffect(() => {
     if (!paneId || !queueOwner || !submitRetention) return;
     let release: (() => void) | undefined;

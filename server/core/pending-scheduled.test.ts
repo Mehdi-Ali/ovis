@@ -252,3 +252,21 @@ it("sends a message ending with a colon whose own paste is the input's last row"
   expect(await d.pending.sendScheduled("p", "Next steps:", identity, true, () => {})).toEqual({ ok: true });
   expect(d.writes).toEqual(["\u001b[200~Next steps:\u001b[201~", "Enter"]);
 });
+
+it("types nothing when the open device resizes the pane while its screen is read (#2951)", async () => {
+  const d = delivery("idle", undefined, 15);
+  const identity = await d.pending.scheduledIdentity("p");
+  spyOn(herdr, "paneRead").mockImplementation(async () => { d.attachments.set("p", { cols: 80, rows: 24 }); return { text: "Enter passphras\ne for key '/tmp\n/key': " } as Awaited<ReturnType<typeof herdr.paneRead>>; });
+  expect((await d.pending.sendScheduled("p", "continue", identity, true, () => {})).ok).toBe(false);
+  expect(d.writes).toEqual([]);
+});
+
+it("refuses Send now, typing nothing, while a queued message to the pane may sit in its input (#2951)", async () => {
+  const d = delivery("idle");
+  const identity = await d.pending.scheduledIdentity("p");
+  const queued = d.pending.pending.enqueue(FIRST_MESSAGE_OWNER, "p", -1, "earlier", null, identity);
+  expect(d.pending.pending.claim(queued, false)).toBe(true);
+  d.pending.pending.settle(queued, { code: "submit_changed", message: "not confirmed" }, true);
+  expect(await d.pending.sendScheduled("p", "continue", identity, false, () => {})).toMatchObject({ ok: false, code: "pending_uncertain" });
+  expect(d.writes).toEqual([]);
+});

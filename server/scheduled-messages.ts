@@ -16,7 +16,7 @@
  *   POST /api/scheduled/discard         { id }                     -> { ok }
  *   POST /api/scheduled/send            { id }                     -> { ok }, or the refusal
  */
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ScheduledMessage } from "../shared/protocol.ts";
 import { HerdrError } from "./herdr/client.ts";
@@ -41,7 +41,8 @@ const NEEDS_OK_MOVED = { code: "needs_ok_moved", message: "The pane moved to ano
 const PANE_GONE = { code: "pane_not_found", message: "The pane is gone" };
 const NEEDS_OK_RESTART = { code: "needs_ok_restart", message: "This came due while this PC's server was not running. Send it now or discard it." };
 
-interface Entry { message: ScheduledMessage; identity: PendingIdentity; device: string | null; triedAt?: number }
+/** `gone`: the pane ended while this one was on its way; it settles as gone */
+interface Entry { message: ScheduledMessage; identity: PendingIdentity; device: string | null; triedAt?: number; gone?: boolean }
 
 export class ScheduledError extends Error {
   constructor(readonly code: string, message: string, readonly status = 400) { super(message); }
@@ -154,20 +155,23 @@ export class ScheduledMessages {
   }
 
   /**
-   * The user's Send now: to what runs in the pane now (the user saw why it was held), steering a working agent as a
-   * pending message's Send now does. A refusal leaves the message as it was, with the reason.
+   * The user's Send now, steering a working agent as a pending message's Send now does: to the session it was scheduled
+   * for, or to what runs in the pane now once its row said that changed (#2951). Never while another of the pane's
+   * messages may sit in its input. A refusal leaves the message as it was, with the reason.
    */
   async sendNow(body: unknown, device: string | null): Promise<Reply> {
     const entry = this.entry(object(body)["id"]);
     if (entry.message.state === "sending") throw busy();
-    if (entry.message.state === "uncertain") throw uncertain();
+    if (entry.message.state === "uncertain" || this.behind(entry, "uncertain")) throw uncertain();
     const before = entry.message.state;
-    let identity: PendingIdentity;
-    try { identity = await this.deps.identity(entry.message.pane_id); } catch (error) {
-      const fault = faultOf(error);
-      return { ok: false, ...fault };
+    let identity = entry.identity;
+    if (before === "held" && entry.message.error?.code === "pending_target_changed") {
+      try { identity = await this.deps.identity(entry.message.pane_id); } catch (error) {
+        const fault = faultOf(error);
+        return { ok: false, ...fault };
+      }
+      if (this.entries.get(entry.message.id) !== entry || entry.message.state !== before) throw busy();
     }
-    if (this.entries.get(entry.message.id) !== entry || entry.message.state !== before) throw busy();
     // sent to what runs now, under the pressing device, for this attempt alone: a refusal keeps the binding it had
     return await this.deliver(entry, false, identity, device);
   }
@@ -202,8 +206,10 @@ export class ScheduledMessages {
   paneGone(paneId: string): void {
     let gone = false;
     for (const entry of this.entries.values()) {
-      if (entry.message.pane_id !== paneId || entry.message.state === "sending") continue;
-      entry.message.state = "held";
+      if (entry.message.pane_id !== paneId) continue;
+      if (entry.message.state === "sending") { entry.gone = true; continue; }
+      // one that may have gone already stays never-resendable: only Discard
+      if (entry.message.state !== "uncertain") entry.message.state = "held";
       entry.message.error = { ...PANE_GONE };
       gone = true;
     }
@@ -289,6 +295,11 @@ export class ScheduledMessages {
       else if (!automatic) message.state = before.state;
       else message.state = WAIT_CODES.has(fault.code) ? "scheduled" : "held";
       message.error = fault;
+      // its pane ended while it was on its way: it is listed in every pane as gone, an uncertain one still never resent
+      if (entry.gone) {
+        if (message.state !== "uncertain") message.state = "held";
+        message.error = { ...PANE_GONE };
+      }
     }
     this.commit(automatic && !reply.ok && message.state === "scheduled" && sameFault(before.error, message.error));
     return reply;
@@ -373,19 +384,29 @@ export class ScheduledMessages {
       return [];
     }
     const entries: Entry[] = [];
+    let unreadable = false;
     for (const item of raw as Entry[]) {
       const message = item?.message;
       if (!message || typeof message.id !== "string" || typeof message.pane_id !== "string" || typeof message.text !== "string"
-        || !Number.isFinite(Date.parse(message.send_at)) || !item.identity || typeof item.identity.terminalId !== "string") continue;
+        || !Number.isFinite(Date.parse(message.send_at)) || !item.identity || typeof item.identity.terminalId !== "string") { unreadable = true; continue; }
       // stopped in the middle of its send: it may have been typed, so it is the user's to check
       if (message.state === "sending") {
         message.state = "uncertain";
         message.error = { code: "submit_changed", message: "This PC's server stopped while sending this message. Check the terminal before sending it again." };
       }
-      if (!["scheduled", "held", "uncertain"].includes(message.state)) continue;
+      if (!["scheduled", "held", "uncertain"].includes(message.state)) { unreadable = true; continue; }
       // due already as the server starts: it is the user's to send, never typed unattended after a restart
       if (message.state === "scheduled" && Date.parse(message.send_at) <= this.now()) { message.state = "held"; message.error = { ...NEEDS_OK_RESTART }; }
       entries.push({ message, identity: item.identity, device: typeof item.device === "string" ? item.device : null });
+    }
+    // an entry it cannot read is kept in a copy beside the file before the next save writes over it (#2951)
+    if (unreadable) {
+      const kept = `${path}.unreadable-${this.now()}`;
+      try { copyFileSync(path, kept); chmodSync(kept, 0o600); console.error(`scheduled messages: an entry of ${path} could not be read; the file is kept as ${kept}`); }
+      catch (error) {
+        this.unavailable = true;
+        console.error(`scheduled messages: ${path} has an entry that could not be read, and it could not be copied aside: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
     return entries;
   }

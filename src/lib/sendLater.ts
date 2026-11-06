@@ -48,6 +48,11 @@ export function sendTimeLabel(sendAt: string, now: Date): string {
   return at.toLocaleString(undefined, today ? { hour: "numeric", minute: "2-digit" } : { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+/** Whether a pane's list shows the message: its own, and in every pane one whose pane is gone, to read or discard (#2951). */
+export function shownInPane(message: Pick<ScheduledMessage, "pane_id" | "error">, paneId: string | null): boolean {
+  return message.pane_id === paneId || message.error?.code === "pane_not_found";
+}
+
 /** What a scheduled message's row says of it. */
 export function scheduledStatus(message: Pick<ScheduledMessage, "state" | "send_at" | "error">, now: Date, t: T): string {
   if (message.state === "sending") return t("Sending…");

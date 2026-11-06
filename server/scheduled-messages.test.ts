@@ -212,7 +212,8 @@ it("keeps the session a message was scheduled for when a Send now to another one
   scheduled.start();
   scheduled.paneEvent("p1");
   await settle();
-  expect(sends.map((send) => send[2].session)).toEqual(["claude:herdr:s2", "claude:herdr:s1"]);
+  // Send now goes to the session it was scheduled for until its row says the pane runs another (#2951)
+  expect(sends.map((send) => send[2].session)).toEqual(["claude:herdr:s1", "claude:herdr:s1"]);
 });
 
 it("leaves a message as it was when an edit is refused", async () => {
@@ -408,8 +409,8 @@ it("holds every message of a pane that ended, one left uncertain included, so ev
   await settle();
   expect(scheduled.list()[0]!.state).toBe("uncertain");
   scheduled.paneGone("p1");
-  expect(scheduled.list().map((message) => [message.text, message.state, message.error?.code])).toEqual([["first", "held", "pane_not_found"], ["second", "held", "pane_not_found"]]);
-  expect(scheduled.uncertainIn("p1")).toBe(false);
+  // the uncertain one stays never-resendable: it may have gone already
+  expect(scheduled.list().map((message) => [message.text, message.state, message.error?.code])).toEqual([["first", "uncertain", "pane_not_found"], ["second", "held", "pane_not_found"]]);
 });
 
 it("lets the pane's queued messages go again once its uncertain scheduled message is discarded (#2951)", async () => {
@@ -421,4 +422,54 @@ it("lets the pane's queued messages go again once its uncertain scheduled messag
   await settle();
   scheduled.discard({ id: message.id });
   expect(released).toEqual(["p1"]);
+});
+
+it("sends a Send now to the session the message was scheduled for, not one that replaced it unseen (#2951)", async () => {
+  const other: PendingIdentity = { ...IDENTITY, session: "claude:herdr:s2", processPid: 8 };
+  const { scheduled, sends } = store([], { identity: async () => ({ ...other }) });
+  const message = await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null);
+  await scheduled.sendNow({ id: message.id }, null);
+  expect(sends[0]![2]).toEqual(other);
+  const bound = store([]);
+  const kept = await bound.scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null);
+  // the pane now runs another session, which the row has not said
+  (bound.scheduled as unknown as { deps: ScheduledDeps }).deps.identity = async () => ({ ...other });
+  await bound.scheduled.sendNow({ id: kept.id }, null);
+  expect(bound.sends[0]![2]).toEqual(IDENTITY);
+});
+
+it("refuses Send now while another of the pane's messages may sit in its input (#2951)", async () => {
+  const { scheduled, sends } = store([{ ok: false, code: "pasted_not_sent", message: "pasted" }]);
+  await scheduled.create({ pane_id: "p1", text: "first", send_at: "2026-11-05T09:59:00Z" }, null);
+  const second = await scheduled.create({ pane_id: "p1", text: "second", send_at: "2026-11-05T11:00:00Z" }, null);
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  await expect(scheduled.sendNow({ id: second.id }, null)).rejects.toMatchObject({ code: "pending_uncertain" });
+  expect(sends.map((send) => send[1])).toEqual(["first"]);
+});
+
+it("holds a message whose pane ended while it was being sent, once that send is refused (#2951)", async () => {
+  let release: (answer: { ok: boolean; code?: string; message?: string }) => void = () => {};
+  const { scheduled } = store([], { send: () => new Promise((resolve) => { release = resolve; }) });
+  await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T09:59:00Z" }, null);
+  scheduled.start();
+  scheduled.paneEvent("p1");
+  await settle();
+  scheduled.paneGone("p1");
+  release({ ok: false, code: "input_not_ready", message: "no device" });
+  await settle();
+  expect(scheduled.list()[0]).toMatchObject({ state: "held", error: { code: "pane_not_found" } });
+});
+
+it("keeps a copy of a state file with an entry it cannot read, before writing over it (#2951)", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-scheduled-"));
+  dirs.push(stateDir);
+  const raw = JSON.stringify([{ identity: IDENTITY, device: null, message: { id: "a", pane_id: "p1", text: "a", send_at: "not a date", created_at: "2026-11-05T08:00:00Z", state: "scheduled" } }]);
+  writeFileSync(join(stateDir, "scheduled-messages.json"), raw);
+  const { scheduled } = store([], { stateDir });
+  await scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null);
+  const kept = readdirSync(stateDir).filter((name) => name.startsWith("scheduled-messages.json.unreadable-"));
+  expect(kept).toHaveLength(1);
+  expect(readFileSync(join(stateDir, kept[0]!), "utf8")).toBe(raw);
 });

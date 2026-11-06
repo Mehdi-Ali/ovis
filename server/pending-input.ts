@@ -299,7 +299,12 @@ export class PendingInputs<Owner, Lease> {
    * may one a server before this one left, until the pane's status changes under this one (#2951).
    */
   uncertainIn(paneId: string): boolean {
-    return !this.statusMoved.has(paneId) || this.stranded.has(paneId) || [...this.records.values()].some((item) => item.paneId === paneId && item.message.state === "uncertain");
+    return !this.statusMoved.has(paneId) || this.pasteUncertainIn(paneId);
+  }
+
+  /** Whether a delivery this server made, or a connection's, may sit in the pane's input: none is typed over it, even by Send now. */
+  pasteUncertainIn(paneId: string): boolean {
+    return this.stranded.has(paneId) || [...this.records.values()].some((item) => item.paneId === paneId && item.message.state === "uncertain");
   }
 
   /** Whether the pane's last turn gate ran out with no status since: such a message is held for review, as `expire` holds the records. */

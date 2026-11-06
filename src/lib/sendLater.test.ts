@@ -1,6 +1,6 @@
 import { expect, it } from "bun:test";
 import type { UsageWindow } from "../../shared/protocol.ts";
-import { localInputValue, parseLocalInput, planResetTime, quickTimes, scheduledStatus } from "./sendLater.ts";
+import { localInputValue, parseLocalInput, planResetTime, quickTimes, scheduledStatus, shownInPane } from "./sendLater.ts";
 
 const t = (text: string, vars?: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (_, name: string) => String(vars?.[name]));
 const window = (kind: "session" | "week", used: number, resets: string | null) => ({ kind, scope: null, used_percent: used, resets_at: resets }) as unknown as UsageWindow;
@@ -39,4 +39,11 @@ it("says why a due message has not gone, and why a held one will not", () => {
   expect(scheduledStatus({ ...due, state: "held", error: { code: "needs_ok_moved", message: "" } }, now, t)).toStartWith("Needs your OK");
   expect(scheduledStatus({ ...due, error: { code: "input_not_ready", message: "" } }, now, t)).toBe("Due · waits for a device to open this pane");
   expect(scheduledStatus({ state: "scheduled", send_at: "2026-11-05T12:00:00Z" }, now, t)).toStartWith("Sends ");
+});
+
+it("lists a pane's own messages, and in every pane those whose pane is gone, an uncertain one included (#2951)", () => {
+  expect(shownInPane({ pane_id: "a" }, "a")).toBe(true);
+  expect(shownInPane({ pane_id: "b" }, "a")).toBe(false);
+  expect(shownInPane({ pane_id: "b", error: { code: "pane_not_found", message: "" } }, "a")).toBe(true);
+  expect(shownInPane({ pane_id: "b", error: { code: "pane_not_found", message: "" } }, "a")).toBe(true);
 });

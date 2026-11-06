@@ -551,8 +551,12 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     }
     // the live screen, not the viewport: a pane scrolled into its history still draws its next
     // menu or password prompt at the bottom (server/prompt.ts liveScreen)
+    const width = sender.cols();
     const screen = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-    if (secretPrompt(screen, sender.cols()) !== null) {
+    // a scheduled message reads the screen at the width it was drawn at: a resize during the read leaves its rows
+    // unknown, and the message waits (#2951)
+    if (sender.owner === null && sender.cols() !== width) throw new HerdrError("input_not_ready", "The pane was resized while its screen was read; the message waits");
+    if (secretPrompt(screen, sender.owner === null ? width : sender.cols()) !== null) {
       throw new HerdrError("agent_blocked", "The terminal is waiting for masked input; answer it with the secret-input form first");
     }
     const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);
@@ -1275,6 +1279,10 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    */
   const sendScheduled = (paneId: string, text: string, identity: PendingIdentity, automatic: boolean, authorize: () => void): Promise<SubmitReply> =>
     serialize(paneId, () => {
+      // Send now too: the user resolves an earlier paste that may sit in the input before sending over it (#2951)
+      if (!automatic && pending.pasteUncertainIn(paneId)) {
+        return { ok: false, code: "pending_uncertain", message: "A message to this pane may still be in its input line. Check the terminal, then send or discard that one first." };
+      }
       if (automatic && pending.uncertainIn(paneId)) {
         return { ok: false, code: "needs_ok", message: "A message to this pane may still be in its input line. Check the terminal, then send this one or discard it." };
       }
