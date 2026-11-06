@@ -58,6 +58,8 @@ export interface PcAccountStatus {
   readonly blockedAll?: boolean;
   /** it waits for its first member's enrollment; absent from an Ovis from before enrollments */
   readonly enrolling?: boolean;
+  /** the keys it removed and has no row for, as it says; absent from an Ovis from before removal reports */
+  readonly tombstones?: readonly string[];
 }
 
 /** `fresh`: the PC reads its mailbox first, so a removal waiting there is counted (docs/account.md, "PC API"). */
@@ -74,6 +76,7 @@ export async function pcAccountStatus(fetch: PcFetch, options: { fresh?: boolean
     ...(options.fresh && "fresh" in body ? { fresh: (body as { fresh?: unknown }).fresh === true } : {}),
     ...((body as { blocked_all?: unknown }).blocked_all === true ? { blockedAll: true } : {}),
     ...(typeof (body as { enrolling?: unknown }).enrolling === "boolean" ? { enrolling: (body as { enrolling: boolean }).enrolling } : {}),
+    ...(Array.isArray((body as { tombstones?: unknown }).tombstones) ? { tombstones: ((body as { tombstones: unknown[] }).tombstones).filter(isAccountKey) } : {}),
   };
 }
 
@@ -337,7 +340,8 @@ export interface Enrollment { readonly finished: boolean; readonly checked: numb
  * first reads every other PC of the account it can reach (`others`): what each keeps out
  * (`blocked`), its signed removals and its signed adds. Then, in one enrollment, which also ends
  * the PC's wait for this client:
- * - the removes this client signed and the ones it kept (keepRemovals), as signed;
+ * - the removes this client signed, as signed; the ones it kept (keepRemovals) only as `held` keys,
+ *   since a stolen former key could have signed them (docs/account.md, "Removing a device");
  * - the adds this client signed and the ones those PCs list, as signed, except any for a key that
  *   one of them keeps out or that any removal it saw names, whoever signed it (fail closed: that
  *   device asks once by comparing digits); a PC applies an add only when its signer is a member there;
@@ -379,16 +383,15 @@ export async function enrollPc(options: {
   if (others.length > 0 && answered.length === 0 && legacy === 0 && unvouched === 0) return { finished: false, checked: 0, of: others.length, admitted: [] };
   await keepRemovals({ store: options.store, account: options.account, removals: seen.flatMap((status) => status.removals) });
   const collected = await verified(seen.flatMap((status) => [...status.removals, ...status.adds]), options.account);
-  /** the removals to send: this client's own and the ones it kept, not answered yet */
-  const pending = (devices: KnownDevices | undefined, kept: Readonly<Record<string, RemoveRecord>> | undefined) => [
-    ...Object.values(devices ?? {}).filter((record): record is RemoveRecord => record.kind === "remove"),
-    ...Object.values(kept ?? {}),
-  ].filter((record, index, all) => record.account === options.account && !planned.done.includes(record.id) && all.findIndex((other) => other.id === record.id) === index)
+  /** the removals to send: this client's own, not answered yet */
+  const pending = (devices: KnownDevices | undefined) => Object.values(devices ?? {})
+    .filter((record): record is RemoveRecord => record.kind === "remove")
+    .filter((record, index, all) => record.account === options.account && !planned.done.includes(record.id) && all.findIndex((other) => other.id === record.id) === index)
     // in the order they were signed: a removal of a member then comes after the removals that member signed before it
     .sort((a, b) => a.issued_at < b.issued_at ? -1 : a.issued_at > b.issued_at ? 1 : 0);
   const known = await options.store.get("devices");
   const kept = await options.store.get("removals");
-  const removes = pending(known, kept);
+  const removes = pending(known);
   const held = new Set([
     ...seen.flatMap((status) => status.blocked),
     ...collected.filter((record) => record.kind === "remove").map((record) => record.key),
@@ -439,7 +442,7 @@ export async function enrollPc(options: {
   await options.store.updateMany(["enrolls", "devices", "removals"], (current) => {
     const entry = current.enrolls?.[options.serverId];
     if (current.enrolls === undefined || entry === undefined || entry.account !== options.account) return current;
-    finished = sent && pending(current.devices, current.removals).every((record) => done.includes(record.id));
+    finished = sent && pending(current.devices).every((record) => done.includes(record.id));
     const rest = { ...current.enrolls };
     // enrolled: the plan stays only for the introductions, until every PC that answered took them
     const pc = options.pc;
@@ -498,7 +501,7 @@ async function enrollLegacy(options: { fetch: PcFetch; store: AccountStore; acco
   await options.store.updateMany(["enrolls", "devices", "removals"], (current) => {
     const entry = current.enrolls?.[options.serverId];
     if (current.enrolls === undefined || entry === undefined) return current;
-    const signed = [...Object.values(current.devices ?? {}).filter((record): record is RemoveRecord => record.kind === "remove"), ...Object.values(current.removals ?? {})]
+    const signed = Object.values(current.devices ?? {}).filter((record): record is RemoveRecord => record.kind === "remove")
       .filter((record) => record.account === options.account && !entry.done.includes(record.id));
     finished = sent && signed.every((record) => done.includes(record.id));
     const rest = { ...current.enrolls };

@@ -430,14 +430,14 @@ these rules; a PC that has applied the removal refuses its adds and approvals an
 client signs no new removal until the person clears settled ones (**Clear settled removals**, which
 keeps every one that some PC of its list has not reported, and first says: a PC added to the
 account later gets these removals only from the PCs that hold them when it is enrolled). Each removal and its PC list are
-written before it is signed; a store that cannot be written makes the removal fail before anything
-is signed. Signing out keeps them (only the sign-in goes).
+written before it is sent anywhere; a store that cannot be written makes the removal fail before
+anything leaves this device. Signing out keeps them (only the sign-in goes).
 
-**Leaving.** A device that leaves signs its own `remove`, writes it with its PC list, sends it to
-every PC of the list it reaches and posts it to the service, then shows each PC that did not report
-it (and each removal it signed that some PC has not reported): **This device is still on {PCs}.
-Revoke it there, or leave anyway.** Only **Leave anyway** clears the store; until then it keeps
-carrying them.
+**Leaving.** **Remove this device from your account** first says how many removals this device
+signed are not settled on every PC of their lists; confirming leaves anyway, and the store goes with
+the sign-in. The device's own `remove` goes to the mailbox of every PC the account lists; a refused
+post fails the leave and keeps everything, and a PC the account does not list is named so the
+person revokes the device there.
 
 **On the PC, settling.** A `remove` for a key is decided from what the PC already keeps for that
 key, so an old one never waits: when its signer is not a member here and the key has an account
@@ -452,9 +452,8 @@ key's adds, even one the service delivers late.
 
 **Lost or stolen.** Removing a device offers **It was lost or stolen: also remove the devices it
 added**, off by default (retiring an old phone keeps the devices it approved). On, the client reads
-every PC of the account it reaches (`?fresh=1`) and lists as candidates every key whose signed
-`add` (in a PC's `adds`, signature checked) was signed by the removed key, then the same for those
-keys, each with the PC that showed it. Rows a PC says the device added (`added_by`) without a
+the PC in view (`?fresh=1`) and lists as candidates every key whose signed `add` (in its `adds`,
+signature checked) was signed by the removed key, then the same for those keys. Rows a PC says the device added (`added_by`) without a
 signed add are listed apart, as **the PC says**, unchecked. A signed add shows who approved a key,
 not that the row there came from it. The person ticks which to remove; the client signs one plain
 `remove` per ticked key, carried as above. Nothing is removed later on its own.
@@ -731,7 +730,7 @@ the account service gets an answer the relay refuses.
 - **A clock that is off** on a PC can make it judge a removal older than a pairing made there
   (`repaired`), as it already can for any late `remove`.
 - **An older client** still approves and adds for a key on a PC that has not applied its removal.
-- **Lost or stolen** finds only the devices that the PCs this client reaches show signed adds for.
+- **Lost or stolen** finds only the devices that the PC in view shows signed adds for.
 - **A client from before enrollments** links a new PC and never enrolls it: that PC's barrier stays,
   and the account's devices join it by comparing digits.
 - **A coding agent on the desktop app's machine** can drive the app's account key (rule 3). The same

@@ -17,6 +17,7 @@ import { accountProvidersOf, accountServiceOf, AccountService, offeredProviders,
 import { beginSignIn, finishSignIn, SignInError, signInReturn } from "../account/signin.ts";
 import { enrollOnPc, keepRemovals, PEER_STATUS_MS, linkThisDevice, needsLink, pcAccountStatus, planEnroll, sendQueuedAdds, takeIntroduction } from "../account/join.ts";
 import { leaveAccount } from "../account/leave.ts";
+import { carryRemovals, notePcs } from "../account/removals.ts";
 import { nativeSignIn, nativeSignInAvailable } from "../account/native.ts";
 import { indexedAccountStore } from "../account/store.ts";
 import { importPublicKey } from "../../../shared/relay-e2ee.ts";
@@ -239,7 +240,9 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
       const directory = await account.listPcs();
       // an add this device signed that some PCs missed goes out again whenever the account answers
       sendQueuedAdds({ service: account, store: accountStore, account: session.account }).catch((error: unknown) => console.warn("Ovis: kept adds could not be sent", error instanceof Error ? error.name : error));
-      accountView = { ...signedIn, pcs: myPcs(directory, await store.list(), { now: Date.now(), accountKey: (await accountStore.key()).public_spki, account: session.account }) };
+      // a PC the directory lists joins the list of every removal this device signed (docs/account.md, "Which PCs")
+      const unsettled = await notePcs(accountStore, session.account, directory.map((pc) => pc.server_id));
+      accountView = { ...signedIn, unsettled, pcs: myPcs(directory, await store.list(), { now: Date.now(), accountKey: (await accountStore.key()).public_spki, account: session.account }) };
     } catch (error) {
       if (error instanceof SignedOutError) accountView = { kind: "signed-out", error: t("Your sign-in ended. Sign in again to see every PC of your account.") };
       else {
@@ -430,6 +433,8 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
       if (device.public_spki !== key.public_spki || (!linking && status.account !== session.account)) return;
       // the account's removals this PC holds, checked and kept as signed, for a PC this client enrolls later (#2956)
       if (!linking) await keepRemovals({ store: accountStore, account: session.account, removals: status.removals });
+      // the removals this device signed reach this PC now, whatever the account service did, and its report is kept
+      if (!linking) await carryRemovals({ fetch, store: accountStore, account: session.account, serverId });
       // the PC lists this row as a member: only now does it count as in the account here
       if (!linking && device.account !== session.account && device.device_id !== null && !status.unlinked.includes(device.device_id)) {
         const known = device;

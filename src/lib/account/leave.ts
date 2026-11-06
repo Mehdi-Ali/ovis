@@ -11,6 +11,7 @@ import type { RelayDeviceStore } from "../relay/device.ts";
 import type { AccountService } from "./service.ts";
 import type { AccountStore } from "./store.ts";
 import { post, rememberDevice, type PcFetch } from "./join.ts";
+import { carryRemovals, trackRemoval } from "./removals.ts";
 
 export interface LeaveResult {
   readonly remove: RemoveRecord;
@@ -57,6 +58,8 @@ export async function leaveAccount(options: { service: AccountService; accountSt
  */
 export async function removeFromAccount(options: {
   service: AccountService; accountStore: AccountStore; relayStore: RelayDeviceStore; key: string; account: string; here?: PcFetch; hereId?: string; now?: () => number;
+  /** the device's name, shown with the removal until every PC settled it */
+  label?: string;
 }): Promise<LeaveResult> {
   const session = await options.service.session();
   if (session === undefined) throw new Error("Sign in first, so every PC of the account hears of it");
@@ -68,20 +71,23 @@ export async function removeFromAccount(options: {
     v: 1, kind: "remove", account: session.account, key: options.key,
     issued_at: new Date((options.now ?? Date.now)()).toISOString(), id: newRecordId(), signer: own.public_spki,
   }, own.private_key);
-  // kept before it is sent: a PC this device brings into the account later tombstones the key, and never gets an add for it
-  await rememberDevice(options.accountStore, remove);
   // a PC applies the remove only where this device is a member: pairings that PC confirmed for this account
   const linked = new Set((await options.relayStore.list()).filter((device) => device.public_spki === own.public_spki && device.account === session.account).map((device) => device.server_id));
+  const listed = (await options.service.listPcs()).map((pc) => pc.server_id);
+  // tracked with every PC it must reach before it goes anywhere (refused when full), then kept for a PC brought in later
+  await trackRemoval(options.accountStore, remove, [...new Set([...listed, ...linked])], options.label);
+  await rememberDevice(options.accountStore, remove);
   // the PC in view first: it answers at once, whatever the account service does next
   if (options.here) {
     // the PC answers every record's outcome with 200: a refusal there is a failure here
     const answer = await (await post(options.here, "/api/account/records", { records: [remove] })).json() as { results?: { outcome?: string; code?: string }[] };
     const outcome = answer.results?.[0];
     if (outcome?.outcome === "refused") throw new Error(`This PC refused the removal (${outcome.code ?? "refused"})`);
+    if (options.hereId !== undefined) await carryRemovals({ fetch: options.here, store: options.accountStore, account: session.account, serverId: options.hereId, now: options.now });
   }
   const done = (id: string) => options.here !== undefined && id === options.hereId;
-  const listed = (await options.service.listPcs()).map((pc) => pc.server_id);
-  const reached = listed.filter((id) => linked.has(id) && !done(id));
+  // every PC the account lists: one where this device is no member yet keeps it waiting for that
+  const reached = listed.filter((id) => !done(id));
   const failed: string[] = [];
   for (let start = 0; start < reached.length; start += 32) {
     const batch = reached.slice(start, start + 32);
