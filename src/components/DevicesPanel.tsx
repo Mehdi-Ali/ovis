@@ -215,12 +215,18 @@ export function DevicesPanel({ onDevicePaired, auth, onPaired, onRevokedAll, kin
     setDisconnecting(null);
     try {
       const listed = devices ?? [];
-      const { unconfirmed, service } = await removeEverywhere(key, account, label);
+      const { unconfirmed, queued = [], service } = await removeEverywhere(key, account, label);
       await load();
-      if (unconfirmed.length > 0) {
-        // the account does not list them: named, rather than claimed
+      // with removal reports on, the list below shows each PC; off, the PCs are named as before
+      const sent = reports ? [] : queued;
+      if (unconfirmed.length > 0 || sent.length > 0) {
+        // only this PC answered: the others are named, rather than claimed (one may have revoked this device and refuse it)
         const names = new Map((await service.listPcs()).map((pc) => [pc.server_id, pc.label]));
-        setError(t("Not removed yet on: {pcs}. Disconnect it from a device that is in the account there.", { pcs: unconfirmed.map((pc) => names.get(pc) ?? pc.slice(0, 8)).join(", ") }));
+        const named = (ids: readonly string[]) => ids.map((id) => names.get(id) ?? id.slice(0, 8)).join(", ");
+        setError([
+          unconfirmed.length > 0 ? t("Not removed yet on: {pcs}. Disconnect it from a device that is in the account there.", { pcs: named(unconfirmed) }) : "",
+          sent.length > 0 ? t("Sent to {pcs}: each removes it when it next comes online. If it still shows there, disconnect it from another device in the account.", { pcs: named(sent) }) : "",
+        ].filter(Boolean).join(" "));
       }
       if (reports && lost) {
         const transport = getTransport();

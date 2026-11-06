@@ -10,7 +10,7 @@ import { deriveServerId } from "../../../shared/relay-server-proof.ts";
 import type { RelayDevice } from "../relay/device.ts";
 import { MemoryDeviceStore } from "../relay/device.test.ts";
 import { newRecordId, signAccountRecord } from "../../../shared/account-records.ts";
-import { admitToAccount, approveJoin, RemovedDeviceError, enrollOnPc, enrollPc, keepRemovals, linkThisDevice, rememberDevice, needsLink, pcAccountStatus, planEnroll, takeIntroduction, UnverifiedJoinError, sendQueuedAdds } from "./join.ts";
+import { ADMITTED_MS, admitToAccount, approveJoin, RemovedDeviceError, enrollOnPc, enrollPc, keepRemovals, linkThisDevice, rememberDevice, needsLink, pcAccountStatus, planEnroll, takeIntroduction, UnverifiedJoinError, sendQueuedAdds } from "./join.ts";
 import { leaveAccount, removeFromAccount } from "./leave.ts";
 import { carriesRemovalOf, carryRemovals, clearSettled, forgetPc, foreignRemovals, lostCandidates, notePcs, RemovalTrackingFull, TRACKED_MAX, type TrackedRemoval } from "./removals.ts";
 import { myPcs } from "./myPcs.ts";
@@ -821,10 +821,10 @@ describe("with removal reports on: carrying a removal this device signed to ever
       decide: async (decision) => { decided.push(decision); }, admit: async () => undefined, carried: (key) => carriesRemovalOf(accountStore, ACCOUNT, key) })).rejects.toBeInstanceOf(RemovedDeviceError);
     expect(decided).toEqual(["decline"]);
     await expect(admitToAccount({ fetch: pcFetch(await connect(x, onX)), service: account, key: await accountStore.key(), account: ACCOUNT, joining: { key: mac.public_spki, label: "Mac app" },
-      through: x.identity.server_id, paired: [], directory: [], store: accountStore })).rejects.toBeInstanceOf(RemovedDeviceError);
+      through: x.identity.server_id, paired: [], directory: [], store: accountStore, refuseCarried: true })).rejects.toBeInstanceOf(RemovedDeviceError);
     const queued = await signAccountRecord({ v: 1, kind: "add", account: ACCOUNT, key: mac.public_spki, label: "Mac app", role: "drive", issued_at: new Date().toISOString(), id: newRecordId(), signer: (await accountStore.key()).public_spki }, (await accountStore.key()).private_key);
     await accountStore.set("adds", { [queued.id]: { account: ACCOUNT, record: queued, to: [x.identity.server_id] } });
-    await sendQueuedAdds({ service: account, store: accountStore, account: ACCOUNT });
+    await sendQueuedAdds({ service: account, store: accountStore, account: ACCOUNT, refuseCarried: true });
     expect(await accountStore.get("adds")).toBeUndefined();
     expect(service.mailbox(x.identity.server_id, ACCOUNT)).not.toContainEqual(queued);
   });
@@ -837,6 +837,56 @@ describe("with removal reports on: carrying a removal this device signed to ever
     // both PCs' mailboxes have it, the one in view included, since it did not answer
     expect(service.mailbox(y.identity.server_id, ACCOUNT)).toEqual([entry!.record]);
     expect(service.mailbox(x.identity.server_id, ACCOUNT)).toEqual([entry!.record]);
+  });
+
+  it("still keeps and sends a removal when the account's PC list cannot be read, and calls it done only once a read adds the PCs", async () => {
+    const { x, y, onX, accountStore, mac } = await both();
+    const phone = new MemoryDeviceStore();
+    const blind = { session: async () => ({ account: ACCOUNT }), listPcs: async () => { throw new Error("service down"); }, postRecord: async () => undefined } as unknown as AccountService;
+    await expect(removeFromAccount({ service: blind, accountStore, relayStore: phone, key: mac.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here: pcFetch(await connect(x, onX)), track: true })).rejects.toThrow("PC list could not be read");
+    expect(x.f.app.context.services.devices.hasKey(mac.public_spki)).toBe(false);
+    const [entry] = Object.values(await accountStore.get("tracked") ?? {});
+    expect(entry?.directoryUnread).toBe(true);
+    expect(await clearSettled(accountStore, ACCOUNT)).toBe(0);
+    expect(await notePcs(accountStore, ACCOUNT, [x.identity.server_id, y.identity.server_id])).toBe(1);
+    expect(Object.values(await accountStore.get("tracked") ?? {})[0]?.directoryUnread).toBeUndefined();
+  });
+
+  it("sends every mailbox before it waits on the PC in view, so a PC that never answers holds none back", async () => {
+    const { x, y, service, accountStore, account, mac } = await both();
+    let reached!: () => void;
+    const asked = new Promise<void>((resolve) => { reached = resolve; });
+    const hanging = (): Promise<Response> => { reached(); return new Promise<Response>(() => undefined); };
+    void removeFromAccount({ service: account, accountStore, relayStore: new MemoryDeviceStore(), key: mac.public_spki, account: ACCOUNT, hereId: x.identity.server_id, here: hanging, track: true });
+    await asked;
+    expect(service.mailbox(y.identity.server_id, ACCOUNT)).toHaveLength(1);
+  });
+
+  it("does not bring back a PC forgotten while a carry to it was under way", async () => {
+    const { y, onY, accountStore, disconnect, tracked } = await both();
+    await disconnect();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => { entered = resolve; });
+    const slow = async (path: string, init?: RequestInit) => {
+      if (path === "/api/account/records") { entered(); await gate; }
+      return pcFetch(await connect(y, onY))(path, init);
+    };
+    const carrying = carryRemovals({ fetch: slow, store: accountStore, account: ACCOUNT, serverId: y.identity.server_id });
+    await inside;
+    await forgetPc(accountStore, y.identity.server_id);
+    release();
+    await carrying;
+    expect(Object.keys((await tracked())[0]!.pcs)).not.toContain(y.identity.server_id);
+  });
+
+  it("with removal reports off, ignores a removal tracked while it was on", async () => {
+    const { x, onX, accountStore, account, mac, disconnect } = await both();
+    await disconnect();
+    // off: no refusal before X is asked; X then refuses only because it holds the removal itself
+    await expect(admitToAccount({ fetch: pcFetch(await connect(x, onX)), service: account, key: await accountStore.key(), account: ACCOUNT, joining: { key: mac.public_spki, label: "Mac app" },
+      through: x.identity.server_id, paired: [], directory: [], store: accountStore, wait: async () => undefined, now: (() => { let at = Date.now(); return () => (at += ADMITTED_MS); })() })).rejects.not.toBeInstanceOf(RemovedDeviceError);
   });
 
   it("keeps on show a removal a PC says it paired again, and forgets a PC only when the person does", async () => {
@@ -861,7 +911,8 @@ describe("with removal reports on: carrying a removal this device signed to ever
     const signedByOther = await signAccountRecord({ v: 1, kind: "remove", account: ACCOUNT, key: foreignKey, issued_at: new Date().toISOString(), id: newRecordId(), signer: other.public_spki }, other.private_key);
     await disconnect();
     const found = await foreignRemovals({ status: { ...status, removals: [signedByOther, "junk"], blocked: [mac.public_spki, "k".repeat(4)], tombstones: [] }, account: ACCOUNT, own: (await accountStore.key()).public_spki, store: accountStore });
-    expect(found).toEqual([{ key: foreignKey, signer: other.public_spki, waiting: false }, { key: "k".repeat(4), signer: null, waiting: true }]);
+    // a key the PC only lists in blocked is not offered: nothing signed backs it
+    expect(found).toEqual([{ key: foreignKey, signer: other.public_spki, waiting: false }]);
   });
 
   it("signs no new removal once it tracks the most it can, until the person clears the settled ones", async () => {

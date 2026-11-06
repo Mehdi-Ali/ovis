@@ -386,8 +386,8 @@ a device's removal of its own key, one by a device this client approved, or one 
 the client and never feeds a cascade: a compromised PC or a stolen former key cannot make clients
 spread or act on it. The client shows such a removal, from a PC's verified `removals` only, as
 **Removed on {PC} by {signer}**, with **Remove everywhere**, which signs a new `remove` with this
-client's own key after the person confirms. A key that a PC only lists in `blocked` is shown
-without a signer. Enrollment keeps its own fail-closed rule ([Enrolling a PC](#enrolling-a-pc)):
+client's own key after the person confirms. A key that a PC only lists in `blocked` is not offered:
+an enrollment hold is that PC's word, and nothing signed backs it. Enrollment keeps its own fail-closed rule ([Enrolling a PC](#enrolling-a-pc)):
 a key any reachable PC keeps out is held on the new PC, so a false claim costs that device one
 comparison of digits there, never a removal.
 

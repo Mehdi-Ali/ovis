@@ -236,8 +236,9 @@ export const DEVICES_ZH: Record<string, string> = {
   "Keep them": "保留",
   "Removed or kept out by another device": "其他设备移除或阻止的设备",
   "A device ({key})": "设备（{key}）",
-  "This PC keeps it out. Remove it everywhere to sign the removal yourself.": "此电脑正在阻止它。要亲自签署移除，请从所有电脑移除。",
   "Another device removed it on this PC. Remove it everywhere to sign the removal yourself.": "另一台设备已在此电脑上移除它。要亲自签署移除，请从所有电脑移除。",
   "Remove everywhere?": "从所有电脑移除？",
   "Remove everywhere": "从所有电脑移除",
+"Sent to {pcs}: each removes it when it next comes online. If it still shows there, disconnect it from another device in the account.": "已发送到 {pcs}：每台 PC 下次上线时会移除它。如果之后仍然显示，请用账户中的另一台设备断开它。",
+  "Your account's PC list was not read yet": "尚未读取账户的电脑列表",
 };

@@ -63,7 +63,7 @@ export function AccountApprovals({ pairings }: { pairings: readonly RemotePairin
         admit: async () => admitToAccount({
           fetch: (path, init) => transport.fetch(path, init), service, key: await indexedAccountStore.key(), account: session.account,
           joining: { key: request.key, label: request.label }, through: serverId, paired: await indexedDeviceStore.list(),
-          directory: (await service.listPcs()).map((pc) => pc.server_id), store: indexedAccountStore,
+          directory: (await service.listPcs()).map((pc) => pc.server_id), store: indexedAccountStore, refuseCarried: loadSettings().accountRemovalReports,
         }),
       });
     } catch (error) {

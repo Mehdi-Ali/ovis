@@ -218,9 +218,13 @@ export async function admitToAccount(options: {
   wait?: (ms: number) => Promise<void>;
   /** where the add waits for the PCs the account service did not take it for; none, and a refusal throws */
   store?: AccountStore;
+  /** Settings' accountRemovalReports: a key whose removal this device carries gets no add (checked again right before signing) */
+  refuseCarried?: boolean;
 }): Promise<AddRecord> {
   const now = options.now ?? Date.now;
-  if (options.store && Object.values((await options.store.get("tracked")) ?? {}).some((entry) => entry.account === options.account && entry.record.key === options.joining.key)) throw new RemovedDeviceError();
+  const carried = async () => options.refuseCarried === true && options.store !== undefined
+    && Object.values((await options.store.get("tracked")) ?? {}).some((entry) => entry.account === options.account && entry.record.key === options.joining.key);
+  if (await carried()) throw new RemovedDeviceError();
   // fixed wait: the pause between tries of a poll bounded by ADMITTED_MS
   const wait = options.wait ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
   const pcs = options.paired
@@ -236,6 +240,8 @@ export async function admitToAccount(options: {
       await wait(ADMITTED_POLL_MS);
     }
   }
+  // a removal another tab signed while X let the device in: no add is signed for it
+  if (await carried()) throw new RemovedDeviceError();
   const add: AddRecord = await signAccountRecord({
     v: 1, kind: "add", account: options.account, key: options.joining.key, label: options.joining.label, role: "drive",
     issued_at: new Date(now()).toISOString(), id: newRecordId(), signer: options.key.public_spki,
@@ -412,6 +418,8 @@ export async function enrollPc(options: {
   const kept = await options.store.get("removals");
   const removes = pending(known, kept);
   const held = new Set([
+    // removals this device carries, whatever later record `devices` keeps for the key
+    ...(options.ownRemovalsOnly ? Object.values((await options.store.get("tracked")) ?? {}).filter((entry) => entry.account === options.account).map((entry) => entry.record.key) : []),
     ...seen.flatMap((status) => status.blocked),
     ...collected.filter((record) => record.kind === "remove").map((record) => record.key),
     ...Object.values(known ?? {}).filter((record) => record.kind === "remove" && record.account === options.account).map((record) => record.key),
@@ -424,7 +432,9 @@ export async function enrollPc(options: {
   const unread = others.length === 0 && (options.listed ?? 0) > 0;
   const blind = seen.some((status) => status.blockedAll === true) || legacy > 0 || unvouched > 0 || unread;
   const adds = blind ? [] : [...Object.values(known ?? {}), ...collected]
-    .filter((record): record is AddRecord => record.kind === "add" && record.account === options.account && !held.has(record.key) && !planned.done.includes(record.id))
+    .filter((record): record is AddRecord => record.kind === "add" && record.account === options.account && !held.has(record.key) && !planned.done.includes(record.id)
+      // nor one a removed device signed
+      && !(options.ownRemovalsOnly && held.has(record.signer)))
     .filter((record, index, all) => all.findIndex((other) => other.id === record.id) === index);
   if (options.legacyTarget) return enrollLegacy({ ...options, removes });
   const records: (AddRecord | RemoveRecord)[] = [...removes, ...adds];
@@ -566,14 +576,14 @@ export const QUEUED_ADD_MS = 30 * 24 * 60 * 60_000;
  * forgets each PC the account service took it for. A refusal or a failure keeps the rest for the
  * next try; one of another account waits for its sign-in, and one older than the mailbox keeps a record is dropped.
  */
-export async function sendQueuedAdds(options: { service: AccountService; store: AccountStore; account: string; now?: () => number }): Promise<void> {
+export async function sendQueuedAdds(options: { service: AccountService; store: AccountStore; account: string; now?: () => number; refuseCarried?: boolean }): Promise<void> {
   const now = (options.now ?? Date.now)();
   const queued = Object.values((await options.store.get("adds")) ?? {});
   // a key whose removal this device carries gets no add from it again (docs/account.md, "Removing a device")
-  const carried = new Set(Object.values((await options.store.get("tracked")) ?? {}).filter((entry) => entry.account === options.account).map((entry) => entry.record.key));
+  const carried = new Set(options.refuseCarried ? Object.values((await options.store.get("tracked")) ?? {}).filter((entry) => entry.account === options.account).map((entry) => entry.record.key) : []);
   for (const entry of queued) {
     const sent: string[] = [];
-    if (carried.has(entry.record.key)) {
+    if (entry.account === options.account && carried.has(entry.record.key)) {
       await options.store.update("adds", (current) => {
         const rest = { ...current };
         delete rest[entry.record.id];

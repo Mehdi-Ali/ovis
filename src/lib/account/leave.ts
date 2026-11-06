@@ -73,45 +73,52 @@ export async function removeFromAccount(options: {
     v: 1, kind: "remove", account: session.account, key: options.key,
     issued_at: new Date((options.now ?? Date.now)()).toISOString(), id: newRecordId(), signer: own.public_spki,
   }, own.private_key);
-  // a PC applies the remove only where this device is a member: pairings that PC confirmed for this account
-  const linked = new Set((await options.relayStore.list()).filter((device) => device.public_spki === own.public_spki && device.account === session.account).map((device) => device.server_id));
-  const listPcs = async () => (await options.service.listPcs()).map((pc) => pc.server_id);
-  // tracked: the directory is read first, as the PCs the removal must reach; otherwise after the PC in view answered, as before
-  const listed = options.track ? await listPcs() : null;
-  if (options.track) {
-    // kept with every PC it must reach before it goes anywhere (refused when full), in one write with the record a PC brought in later gets
-    await trackRemoval(options.accountStore, remove, [...new Set([...listed ?? [], ...linked])], options.label);
-  } else {
+  if (!options.track) {
     // kept before it is sent: a PC this device brings into the account later tombstones the key, and never gets an add for it
     await rememberDevice(options.accountStore, remove);
   }
-  let refusedHere: Error | null = null;
-  // the PC in view first: it answers at once, whatever the account service does next
-  if (options.here) {
-    try {
-      // the PC answers every record's outcome with 200: a refusal there is a failure here
+  // a PC applies the remove only where this device is a member: pairings that PC confirmed for this account
+  const linked = new Set((await options.relayStore.list()).filter((device) => device.public_spki === own.public_spki && device.account === session.account).map((device) => device.server_id));
+  const listPcs = async () => (await options.service.listPcs()).map((pc) => pc.server_id);
+  const failed: string[] = [];
+  const mail = async (ids: readonly string[]) => {
+    for (let start = 0; start < ids.length; start += 32) {
+      const batch = ids.slice(start, start + 32);
+      // a refused or failed post leaves those PCs to be named, not the whole disconnect undone
+      try { await options.service.postRecord(batch, remove); } catch { failed.push(...batch); }
+    }
+  };
+  if (options.track) {
+    // tracked: kept with every PC it must reach before it goes anywhere (refused when full), in one write with the record a
+    // PC brought in later gets; then every PC the account lists by mailbox first (one where this device is no member yet keeps
+    // it waiting for that), so a PC in view that never answers holds none of them back
+    // a directory it cannot read stops the removal from being called done, not from going out
+    const read = await listPcs().then((ids) => ({ ids, error: null }), (error: unknown) => ({ ids: [] as string[], error }));
+    const listed = read.error === null ? read.ids : [...linked];
+    await trackRemoval(options.accountStore, remove, [...new Set([...listed, ...linked])], options.label, read.error !== null);
+    await mail(listed);
+    if (options.here) {
       const answer = await (await post(options.here, "/api/account/records", { records: [remove] })).json() as { results?: { outcome?: string; code?: string }[] };
       const outcome = answer.results?.[0];
       if (outcome?.outcome === "refused") throw new Error(`This PC refused the removal (${outcome.code ?? "refused"})`);
-      if (options.track && options.hereId !== undefined) await carryRemovals({ fetch: options.here, store: options.accountStore, account: session.account, serverId: options.hereId, now: options.now });
-    } catch (error) {
-      // tracked: the other PCs' mailboxes still get it; the failure is told once they did
-      if (!options.track) throw error;
-      refusedHere = error instanceof Error ? error : new Error(String(error));
+      if (options.hereId !== undefined) await carryRemovals({ fetch: options.here, store: options.accountStore, account: session.account, serverId: options.hereId, now: options.now });
     }
+    if (read.error !== null) throw new Error("Removed here and on your paired PCs, but your account's PC list could not be read. It is sent to the others when this device next reads it.");
+    const unconfirmed = [...listed.filter((id) => !linked.has(id)), ...[...linked].filter((id) => !listed.includes(id)), ...failed];
+    return { remove, unconfirmed, queued: listed.filter((id) => !failed.includes(id)) };
   }
-  const done = (id: string) => options.here !== undefined && id === options.hereId && refusedHere === null;
-  const pcs = listed ?? await listPcs();
-  // tracked: every PC the account lists (one where this device is no member yet keeps it waiting for that); otherwise the linked ones
-  const reached = pcs.filter((id) => (options.track || linked.has(id)) && !done(id));
-  const failed: string[] = [];
-  for (let start = 0; start < reached.length; start += 32) {
-    const batch = reached.slice(start, start + 32);
-    // a refused or failed post leaves those PCs to be named, not the whole disconnect undone
-    try { await options.service.postRecord(batch, remove); } catch { failed.push(...batch); }
+  // the PC in view first: it answers at once, whatever the account service does next
+  if (options.here) {
+    // the PC answers every record's outcome with 200: a refusal there is a failure here
+    const answer = await (await post(options.here, "/api/account/records", { records: [remove] })).json() as { results?: { outcome?: string; code?: string }[] };
+    const outcome = answer.results?.[0];
+    if (outcome?.outcome === "refused") throw new Error(`This PC refused the removal (${outcome.code ?? "refused"})`);
   }
-  if (refusedHere !== null) throw refusedHere;
+  const done = (id: string) => options.here !== undefined && id === options.hereId;
+  const listed = await listPcs();
+  const reached = listed.filter((id) => linked.has(id) && !done(id));
+  await mail(reached);
   // not reached: listed PCs this device is not a member of, linked PCs the account does not list, and failed posts
-  const unconfirmed = [...pcs.filter((id) => !linked.has(id)), ...[...linked].filter((id) => !pcs.includes(id)), ...failed].filter((id) => !done(id));
+  const unconfirmed = [...listed.filter((id) => !linked.has(id)), ...[...linked].filter((id) => !listed.includes(id)), ...failed].filter((id) => !done(id));
   return { remove, unconfirmed, queued: reached.filter((id) => !failed.includes(id)) };
 }

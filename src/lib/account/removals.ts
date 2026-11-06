@@ -28,6 +28,8 @@ export interface TrackedRemoval {
   readonly account: string;
   readonly record: RemoveRecord;
   readonly label?: string;
+  /** the account's directory could not be read when it was signed: never called done until a read adds its PCs */
+  readonly directoryUnread?: boolean;
   /** PCs the person forgot on this device: never added back from the directory */
   readonly forgotten?: readonly string[];
   /** by server_id: every PC the removal must reach; one leaves only by forgetPc */
@@ -47,11 +49,21 @@ export function unsettledPcs(tracked: TrackedRemoval): string[] {
   return Object.entries(tracked.pcs).filter(([, report]) => !SETTLED.includes(report.state)).map(([id]) => id);
 }
 
+/** Settled on every PC this device knows, and the directory was read. */
+export function settledEverywhere(tracked: TrackedRemoval): boolean {
+  return tracked.directoryUnread !== true && unsettledPcs(tracked).length === 0;
+}
+
+/** What Clear settled removals drops: every PC of the list reports it removed, and the directory was read. */
+export function clearable(tracked: TrackedRemoval): boolean {
+  return tracked.directoryUnread !== true && Object.values(tracked.pcs).every((report) => report.state === "reported");
+}
+
 /**
  * Keeps a removal this device just signed, with the PCs it must reach, before it is sent anywhere.
  * Refuses (RemovalTrackingFull) when TRACKED_MAX are kept, so no removal goes out untracked.
  */
-export async function trackRemoval(store: AccountStore, record: RemoveRecord, pcs: readonly string[], label?: string): Promise<void> {
+export async function trackRemoval(store: AccountStore, record: RemoveRecord, pcs: readonly string[], label?: string, directoryUnread = false): Promise<void> {
   let full = false;
   // one transaction with the record enrollPc hands a PC brought in later, so neither is kept without the other
   await store.updateMany(["tracked", "devices"], (current) => {
@@ -59,7 +71,7 @@ export async function trackRemoval(store: AccountStore, record: RemoveRecord, pc
     const reports: Record<string, PcRemovalReport> = {};
     for (const id of pcs) reports[id] = { state: "not-reached", at: null };
     return {
-      tracked: { ...current.tracked, [record.id]: { account: record.account, record, pcs: reports, ...(label === undefined ? {} : { label }) } },
+      tracked: { ...current.tracked, [record.id]: { account: record.account, record, pcs: reports, ...(label === undefined ? {} : { label }), ...(directoryUnread ? { directoryUnread } : {}) } },
       devices: withDevice(current.devices, record),
     };
   });
@@ -77,7 +89,7 @@ export async function clearSettled(store: AccountStore, account: string): Promis
     const next: Record<string, TrackedRemoval> = {};
     for (const [id, tracked] of Object.entries(current ?? {})) {
       // only a removal every PC reports: `repaired` is a PC's word about a pairing, kept on show
-      if (tracked.account === account && Object.values(tracked.pcs).every((report) => report.state === "reported")) dropped++;
+      if (tracked.account === account && clearable(tracked)) dropped++;
       else next[id] = tracked;
     }
     return Object.keys(next).length === 0 ? undefined : next;
@@ -95,8 +107,10 @@ export async function notePcs(store: AccountStore, account: string, serverIds: r
       if (tracked.account !== account) { next[id] = tracked; continue; }
       const pcs = { ...tracked.pcs };
       for (const serverId of serverIds) if (!(tracked.forgotten ?? []).includes(serverId)) pcs[serverId] ??= { state: "not-reached", at: null };
-      next[id] = { ...tracked, pcs };
-      if (unsettledPcs(next[id]).length > 0) unsettled++;
+      // the directory read now: a removal signed while it could not be is no longer held back by that
+      const { directoryUnread: _read, ...rest } = tracked;
+      next[id] = { ...rest, pcs };
+      if (!settledEverywhere(next[id])) unsettled++;
     }
     return next;
   });
@@ -143,7 +157,9 @@ export async function carryRemovals(options: { fetch: PcFetch; store: AccountSto
   try {
     const before = await pcAccountStatus(options.fetch);
     if (before.account !== options.account) return;
-    const send = tracked.map((entry) => entry.record).filter((record) => !(before.tombstones?.includes(record.key) ?? false));
+    // a PC that already kept a pairing made after it, or that cannot report (older), is not sent it again on every connection
+    const answered = (entry: TrackedRemoval) => ["repaired", "unconfirmed"].includes(entry.pcs[options.serverId]?.state ?? "");
+    const send = tracked.filter((entry) => !answered(entry)).map((entry) => entry.record).filter((record) => !(before.tombstones?.includes(record.key) ?? false));
     for (let start = 0; start < send.length; start += 32) {
       const batch = send.slice(start, start + 32);
       const answer = await (await post(options.fetch, "/api/account/records", { records: batch })).json() as { results?: unknown };
@@ -161,8 +177,11 @@ export async function carryRemovals(options: { fetch: PcFetch; store: AccountSto
     const next = { ...current };
     for (const entry of tracked) {
       const kept = next[entry.record.id];
-      // cleared meanwhile (another tab): not brought back
-      if (kept === undefined) continue;
+      // not sent again here: its report stays, unless the PC now reports it removed
+      const skipped = status !== null && ["repaired", "unconfirmed"].includes(entry.pcs[options.serverId]?.state ?? "") && !(status?.tombstones?.includes(entry.record.key) ?? false);
+      if (skipped) continue;
+      // cleared meanwhile (another tab), or this PC forgotten meanwhile: not brought back
+      if (kept === undefined || (kept.forgotten ?? []).includes(options.serverId)) continue;
       next[entry.record.id] = { ...kept, pcs: { ...kept.pcs, [options.serverId]: report(entry.record, status, outcomes.get(entry.record.id), failure, at) } };
     }
     return next;
@@ -230,9 +249,6 @@ export async function foreignRemovals(options: { status: PcAccountStatus; accoun
     if (record?.kind !== "remove" || record.account !== options.account || record.signer === options.own || carried.has(record.key)) continue;
     found.set(record.key, { key: record.key, signer: record.signer, waiting: false });
   }
-  for (const key of options.status.blocked) {
-    if (found.has(key) || carried.has(key) || options.status.tombstones?.includes(key)) continue;
-    found.set(key, { key, signer: null, waiting: true });
-  }
+  // a key the PC only lists in `blocked` is not offered: an enrollment hold is the PC's word, and nothing signed backs it
   return [...found.values()];
 }

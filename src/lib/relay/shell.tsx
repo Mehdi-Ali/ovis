@@ -243,7 +243,7 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
     try {
       const directory = await account.listPcs();
       // an add this device signed that some PCs missed goes out again whenever the account answers
-      sendQueuedAdds({ service: account, store: accountStore, account: session.account }).catch((error: unknown) => console.warn("Ovis: kept adds could not be sent", error instanceof Error ? error.name : error));
+      sendQueuedAdds({ service: account, store: accountStore, account: session.account, refuseCarried: loadSettings().accountRemovalReports }).catch((error: unknown) => console.warn("Ovis: kept adds could not be sent", error instanceof Error ? error.name : error));
       // a PC the directory lists joins the list of every removal this device signed (docs/account.md, "Which PCs")
       const unsettled = loadSettings().accountRemovalReports ? await notePcs(accountStore, session.account, directory.map((pc) => pc.server_id)) : 0;
       accountView = { ...signedIn, unsettled, pcs: myPcs(directory, await store.list(), { now: Date.now(), accountKey: (await accountStore.key()).public_spki, account: session.account }) };
@@ -438,7 +438,6 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
       // the account's removals this PC holds, checked and kept as signed, for a PC this client enrolls later (#2956)
       if (!linking) await keepRemovals({ store: accountStore, account: session.account, removals: status.removals });
       // the removals this device signed reach this PC now, whatever the account service did, and its report is kept
-      if (!linking && loadSettings().accountRemovalReports) await carryRemovals({ fetch, store: accountStore, account: session.account, serverId });
       // the PC lists this row as a member: only now does it count as in the account here
       if (!linking && device.account !== session.account && device.device_id !== null && !status.unlinked.includes(device.device_id)) {
         const known = device;
@@ -478,6 +477,10 @@ export async function mountRelayShell(mount: RelayShellMount): Promise<void> {
           for (const peer of peers) peer.close();
         }
       }
+      // the removals this device signed reach this PC now, whatever the account service did (linking included: a PC
+      // already in the account that this link joins gets them on this very connection); a failure here stops nothing else
+      if (loadSettings().accountRemovalReports) await carryRemovals({ fetch, store: accountStore, account: session.account, serverId })
+        .catch((error: unknown) => console.warn("Ovis: removals were not carried to this PC yet", error instanceof Error ? error.name : error));
       // the approver hands the introduction over once this device's row exists, which may be a moment after it
       const deadline = Date.now() + (fresh ? INTRODUCTION_WAIT_MS : 0);
       for (;;) {

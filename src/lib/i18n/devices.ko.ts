@@ -236,8 +236,9 @@ export const DEVICES_KO: Record<string, string> = {
   "Keep them": "그대로 두기",
   "Removed or kept out by another device": "다른 기기가 지웠거나 막아 둔 기기",
   "A device ({key})": "기기 ({key})",
-  "This PC keeps it out. Remove it everywhere to sign the removal yourself.": "이 PC가 막아 두고 있습니다. 직접 삭제에 서명하려면 모든 PC에서 제거하세요.",
   "Another device removed it on this PC. Remove it everywhere to sign the removal yourself.": "다른 기기가 이 PC에서 지웠습니다. 직접 삭제에 서명하려면 모든 PC에서 제거하세요.",
   "Remove everywhere?": "모든 PC에서 제거할까요?",
   "Remove everywhere": "모든 PC에서 제거",
+"Sent to {pcs}: each removes it when it next comes online. If it still shows there, disconnect it from another device in the account.": "{pcs}에 보냈습니다. 각 PC가 다음에 켜질 때 뺍니다. 그 뒤에도 남아 있으면 계정에 들어 있는 다른 기기로 끊으세요.",
+  "Your account's PC list was not read yet": "계정의 PC 목록을 아직 읽지 못함",
 };

@@ -236,8 +236,9 @@ export const DEVICES_JA: Record<string, string> = {
   "Keep them": "そのままにする",
   "Removed or kept out by another device": "他のデバイスが削除・ブロックしたデバイス",
   "A device ({key})": "デバイス ({key})",
-  "This PC keeps it out. Remove it everywhere to sign the removal yourself.": "このPCが締め出しています。自分で削除に署名するには、すべてのPCから削除してください。",
   "Another device removed it on this PC. Remove it everywhere to sign the removal yourself.": "他のデバイスがこのPCで削除しました。自分で削除に署名するには、すべてのPCから削除してください。",
   "Remove everywhere?": "すべてのPCから削除しますか?",
   "Remove everywhere": "すべてのPCから削除",
+"Sent to {pcs}: each removes it when it next comes online. If it still shows there, disconnect it from another device in the account.": "{pcs} に送りました。各 PC は次にオンラインになったときに外します。まだ残っていたら、アカウントに入っている別のデバイスから切断してください。",
+  "Your account's PC list was not read yet": "アカウントのPC一覧をまだ読めていません",
 };

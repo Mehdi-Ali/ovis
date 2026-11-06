@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useT } from "../lib/i18n.ts";
-import { clearSettled, unsettledPcs, type ForeignRemoval, type PcRemovalState, type TrackedRemoval } from "../lib/account/removals.ts";
+import { clearable, clearSettled, settledEverywhere, unsettledPcs, type ForeignRemoval, type PcRemovalState, type TrackedRemoval } from "../lib/account/removals.ts";
 import { indexedAccountStore } from "../lib/account/store.ts";
 import { indexedDeviceStore } from "../lib/relay/device.ts";
 
@@ -37,7 +37,7 @@ export function AccountRemovals({ account, version, foreign, onRemoveEverywhere 
   const [confirming, setConfirming] = useState<string | null>(null);
   if (tracked.length === 0 && foreign.length === 0) return null;
   const pcName = (id: string) => names.get(id) ?? id.slice(0, 8);
-  const settled = tracked.filter((entry) => unsettledPcs(entry).length === 0);
+  const settled = tracked.filter(clearable);
   const clear = async () => {
     if (!clearing) { setClearing(true); return; }
     setClearing(false);
@@ -54,8 +54,9 @@ export function AccountRemovals({ account, version, foreign, onRemoveEverywhere 
             <li key={entry.record.id} className="devices-row">
               <div className="devices-name">
                 <span className="settings-label">{entry.label ?? t("A device")}</span>
-                <span className="settings-description">{open.length === 0
+                <span className="settings-description">{settledEverywhere(entry)
                   ? t("Settled on every PC this device knows")
+                  : open.length === 0 ? t("Your account's PC list was not read yet")
                   : t("Not confirmed on {n} PCs: {pcs}", { n: String(open.length), pcs: open.map((id) => `${pcName(id)} (${stateText(entry.pcs[id]!.state)})`).join(", ") })}</span>
                 {Object.entries(entry.pcs).some(([, report]) => report.state === "repaired") && (
                   <span className="settings-description">{t("Paired again on: {pcs}", { pcs: Object.entries(entry.pcs).filter(([, report]) => report.state === "repaired").map(([id]) => pcName(id)).join(", ") })}</span>
@@ -73,7 +74,7 @@ export function AccountRemovals({ account, version, foreign, onRemoveEverywhere 
               <li key={entry.key} className="devices-row">
                 <div className="devices-name">
                   <span className="settings-label">{label}</span>
-                  <span className="settings-description">{entry.waiting ? t("This PC keeps it out. Remove it everywhere to sign the removal yourself.") : t("Another device removed it on this PC. Remove it everywhere to sign the removal yourself.")}</span>
+                  <span className="settings-description">{t("Another device removed it on this PC. Remove it everywhere to sign the removal yourself.")}</span>
                 </div>
                 <div className="devices-actions">
                   <button type="button" className={confirming === entry.key ? "btn btn-danger" : "btn"} onClick={() => {
