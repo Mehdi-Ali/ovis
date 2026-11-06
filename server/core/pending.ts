@@ -1288,13 +1288,16 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    * attachment to the pane: one goes only while a device has the pane open (openView), never with every device closed.
    */
   const sendScheduled = (paneId: string, text: string, identity: PendingIdentity, automatic: boolean, authorize: () => void): Promise<SubmitReply> =>
-    serialize(paneId, () => {
+    serialize(paneId, async (): Promise<SubmitReply> => {
       // Send now too: the user resolves an earlier paste that may sit in the input before sending over it (#2951), a
       // scheduled one included, read here in the pane's lane where no other send runs (#3169)
       if (pending.uncertainIn(paneId) || scheduledUncertain(paneId)) {
         if (automatic) return { ok: false, code: "needs_ok", message: "A message to this pane may still be in its input line. Check the terminal, then send this one or discard it." };
         return { ok: false, code: "pending_uncertain", message: "A message to this pane may still be in its input line. Check the terminal, then send or discard that one first." };
       }
+      // a pane gone (also while this server was down) is said to be gone, so every pane lists it, never left waiting for
+      // a device that could not open it (#3169)
+      if (!(await clientSnapshot()).panes.some((pane) => pane.pane_id === paneId)) return { ok: false, code: "pane_not_found", message: "The pane is gone" };
       // after a restart, an earlier server's paste may sit in the input: the message waits for the pane's status to change
       if (automatic && !pending.statusChangedIn(paneId)) {
         return { ok: false, code: "awaiting_status", message: "This PC's server started since the agent last changed state; the message waits until it does" };

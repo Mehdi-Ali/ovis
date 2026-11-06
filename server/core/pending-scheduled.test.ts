@@ -316,3 +316,12 @@ it("refuses a second Send now while another of the pane's messages is on its way
   expect((await one).ok).toBe(false);
   expect(d.writes).toEqual(["\u001b[200~first\u001b[201~"]);
 });
+
+it("says a pane is gone, rather than waiting for a device, when the pane no longer exists (#3169)", async () => {
+  const d = delivery("idle");
+  const identity = await d.pending.scheduledIdentity("p");
+  d.attachments.clear();
+  d.pane.pane_id = "elsewhere";
+  expect(await d.pending.sendScheduled("p", "continue", identity, true, () => {})).toMatchObject({ ok: false, code: "pane_not_found" });
+  expect(d.writes).toEqual([]);
+});

@@ -516,3 +516,17 @@ it("sends nothing while it cannot write its state file, so a restart never sends
   const restarted = store([], { stateDir });
   expect(restarted.scheduled.list().map((message) => message.id)).toEqual(["one"]);
 });
+
+it("schedules nothing for a pane that ends while its identity is read (#3169)", async () => {
+  let release: () => void = () => {};
+  const reading = new Promise<void>((resolve) => { release = resolve; });
+  let asked: () => void = () => {};
+  const askedFor = new Promise<void>((resolve) => { asked = resolve; });
+  const { scheduled } = store([], { identity: async () => { asked(); await reading; return { ...IDENTITY }; } });
+  const creating = scheduled.create({ pane_id: "p1", text: "continue", send_at: "2026-11-05T11:00:00Z" }, null);
+  await askedFor;
+  scheduled.paneGone("p1");
+  release();
+  await expect(creating).rejects.toMatchObject({ code: "pane_not_found" });
+  expect(scheduled.list()).toEqual([]);
+});

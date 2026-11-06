@@ -78,6 +78,8 @@ export class ScheduledMessages {
   private readonly now: () => number;
   /** the state file could not be read nor set aside: nothing is scheduled, and it is never written over */
   private unavailable = false;
+  /** how many times each pane ended or moved: a create whose identity read one of them passed binds nothing (#3169) */
+  private readonly paneChanges = new Map<string, number>();
 
   constructor(private readonly deps: ScheduledDeps) {
     this.now = deps.now ?? Date.now;
@@ -103,10 +105,13 @@ export class ScheduledMessages {
     if (this.unavailable) throw new ScheduledError("scheduled_unavailable", "This PC cannot keep scheduled messages: its scheduled-messages.json could not be read", 503);
     if (this.entries.size >= MAX_SCHEDULED) throw new ScheduledError("scheduled_limit", `At most ${MAX_SCHEDULED} messages can be scheduled; send or discard one first`, 409);
     let identity: PendingIdentity;
+    const changes = this.paneChanges.get(paneId) ?? 0;
     try { identity = await this.deps.identity(paneId); } catch (error) {
       if (error instanceof HerdrError && error.code === "pane_not_found") throw new ScheduledError("pane_not_found", "The pane is gone", 404);
       throw error;
     }
+    // the pane ended or moved while what runs there was read: that read is of a pane no longer there
+    if ((this.paneChanges.get(paneId) ?? 0) !== changes) throw new ScheduledError("pane_not_found", "The pane is gone", 404);
     // bound to nothing that could tell a later program from this one: never scheduled, as any agent started there later would get it
     if (identity.processPid == null && identity.session == null) throw new ScheduledError("agent_not_ready", "Nothing runs in front of this pane to schedule a message for", 409);
     const message: ScheduledMessage = { id: crypto.randomUUID(), pane_id: paneId, text, send_at: sendAt, created_at: new Date(this.now()).toISOString(), state: "scheduled" };
@@ -188,6 +193,7 @@ export class ScheduledMessages {
 
   /** herdr moved the pane under a new ID: its messages follow it */
   paneMoved(from: string, to: string): void {
+    this.paneChanged(from);
     let moved = false;
     for (const entry of this.entries.values()) {
       if (entry.message.pane_id !== from) continue;
@@ -206,6 +212,7 @@ export class ScheduledMessages {
    * read or discard (#2951). One on its way settles with its own outcome.
    */
   paneGone(paneId: string): void {
+    this.paneChanged(paneId);
     let gone = false;
     for (const entry of this.entries.values()) {
       if (entry.message.pane_id !== paneId) continue;
@@ -216,6 +223,10 @@ export class ScheduledMessages {
       gone = true;
     }
     if (gone) try { this.commit(); } catch (error) { console.error(`scheduled messages: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+
+  private paneChanged(paneId: string): void {
+    this.paneChanges.set(paneId, (this.paneChanges.get(paneId) ?? 0) + 1);
   }
 
   start(): void {
