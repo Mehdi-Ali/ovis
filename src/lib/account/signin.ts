@@ -5,7 +5,7 @@
  * host that serves the app.
  */
 import { toBase64Url } from "../../../shared/relay-pair-sas.ts";
-import { AccountServiceError, requestToken } from "./service.ts";
+import { AccountServiceError, keepSignIn, requestToken, signInEpoch } from "./service.ts";
 import type { AccountProvider, AccountSession, AccountStore, PendingSignIn } from "./store.ts";
 
 /** A sign-in left at the provider's pages longer than this is not finished: its return is refused. */
@@ -34,7 +34,8 @@ export async function beginSignIn(provider: AccountProvider, options: { store: A
   const state = random(16);
   const challenge = toBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
   const now = (options.now ?? Date.now)();
-  const pending = { service: options.service, provider, state, verifier, redirect_uri: options.redirectUri, started_at: now };
+  const epoch = await signInEpoch(options.store);
+  const pending = { service: options.service, provider, state, verifier, redirect_uri: options.redirectUri, started_at: now, epoch };
   // one per state: another tab's sign-in stays, and only ones past their time are dropped
   await options.store.update("pending", (current) => ({
     ...Object.fromEntries(Object.entries(current ?? {}).filter(([, waiting]) => now - waiting.started_at <= SIGN_IN_MS)),
@@ -100,8 +101,9 @@ export async function finishSignIn(returned: SignInReturn, options: FinishOption
     if (error instanceof AccountServiceError && error.code === "identity_in_use") throw new SignInError("in_use", "That sign-in already belongs to another account");
     throw error;
   }
-  if (options.bearer === undefined) await options.store.set("session", session);
-  return session;
+  if (options.bearer !== undefined) return session;
+  // a sign-out since this sign-in started wins: its session is ended, not stored
+  return keepSignIn(session, pending.epoch ?? await signInEpoch(options.store), { store: options.store, ...(options.fetch ? { fetch: options.fetch } : {}), now });
 }
 
 /**

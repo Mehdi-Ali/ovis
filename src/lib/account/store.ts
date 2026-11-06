@@ -36,11 +36,17 @@ export interface PendingSignIn {
   readonly verifier: string;
   readonly redirect_uri: string;
   readonly started_at: number;
+  /** the store's sign-out epoch when it started; none from an earlier build */
+  readonly epoch?: string;
 }
 
 interface Records {
   key: AccountKey;
   session: AccountSession;
+  /** replaced by every sign-out: a sign-in is stored only under the epoch it started in (service.ts, keepSignIn) */
+  epoch: string;
+  /** sign-ins the service did not confirm ending, to end again (service.ts, endSignIn) */
+  ending: readonly AccountSession[];
   /** by `state`, so a return consumes only its own sign-in and two tabs can each have one */
   pending: Readonly<Record<string, PendingSignIn>>;
   /** by record id: an `add` this device signed that some PCs' mailboxes have not taken yet (account/join.ts) */

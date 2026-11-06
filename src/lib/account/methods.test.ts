@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { FakeAccountService, WEB_REDIRECT } from "../../../shared/account-service-fake.ts";
+import { FakeAccountService, LIMIT_WINDOW_MS, WEB_REDIRECT } from "../../../shared/account-service-fake.ts";
 import { desktopSignIn } from "./desktop.ts";
 import { startDeviceSignIn } from "./deviceSignIn.ts";
-import { AccountService, offeredProviders, SignedOutError } from "./service.ts";
+import { AccountService, offeredProviders, requestToken, SignedOutError } from "./service.ts";
 import { beginSignIn, finishSignIn, signInReturn } from "./signin.ts";
 import type { AccountProvider, AccountStore } from "./store.ts";
 import { memoryAccountStore, memoryLock } from "./store.ts";
@@ -205,5 +205,60 @@ describe("sign-in methods", () => {
     })).rejects.toBeInstanceOf(SignedOutError);
     expect(await store.get("session")).toBeUndefined();
     expect((await fake.fetch(new Request(`${SERVICE}/v1/pcs`, { headers: { authorization: `Bearer ${linked?.access_token}` } }))).status).toBe(401);
+  });
+
+  it("keeps trying to end a link's sign-in after a sign-out when the service refuses the first try", async () => {
+    let now = Date.now();
+    const fake = new FakeAccountService(() => now);
+    fake.signInAs("github", "acct_1");
+    const store = memoryAccountStore();
+    await redirectSignIn(fake, "github", store);
+    const lock = memoryLock();
+    const service = new AccountService({ store, fetch: fake.fetch, lock, now: () => now });
+    let linked: Awaited<ReturnType<typeof redirectSignIn>> | undefined;
+    await expect(service.addMethod("google", async (token, bearer) => {
+      linked = await redirectSignIn(fake, "google", store, { linkToken: token, bearer });
+      await new AccountService({ store, fetch: fake.fetch, lock, now: () => now }).signOut();
+      // the account's request limit runs out before the answer arrives: ending it answers 429
+      while ((await fake.fetch(new Request(`${SERVICE}/v1/pcs`, { headers: { authorization: `Bearer ${linked.access_token}` } }))).status !== 429);
+      return linked;
+    })).rejects.toBeInstanceOf(SignedOutError);
+    expect(await store.get("session")).toBeUndefined();
+    now += LIMIT_WINDOW_MS;
+    await service.endLeftovers();
+    await expect(requestToken(SERVICE, { grant_type: "refresh_token", refresh_token: linked?.refresh_token ?? "" }, { fetch: fake.fetch })).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("signing out while a sign-in is on its way", () => {
+  it("ends a sign-in again that comes back after a sign-out, so a method change waiting on it finds no session", async () => {
+    const fake = new FakeAccountService();
+    fake.signInAs("github", "acct_1");
+    const store = memoryAccountStore();
+    await redirectSignIn(fake, "github", store);
+    // Sign in again starts, and another tab signs out before it comes back
+    const start = await beginSignIn("github", { store, service: SERVICE, redirectUri: WEB_REDIRECT });
+    const returned = signInReturn(new URL((await fake.fetch(start)).headers.get("location") ?? "").hash);
+    if (returned === null) throw new Error("no sign-in came back");
+    const lock = memoryLock();
+    await new AccountService({ store, fetch: fake.fetch, lock }).signOut();
+    await expect(finishSignIn(returned, { store, fetch: fake.fetch })).rejects.toBeInstanceOf(SignedOutError);
+    expect(await store.get("session")).toBeUndefined();
+    expect(fake.requests.filter((request) => request === "POST /v1/signout")).toHaveLength(2);
+    await expect(new AccountService({ store, fetch: fake.fetch, lock }).removeIdentity("google")).rejects.toBeInstanceOf(SignedOutError);
+  });
+
+  it("ends a device sign-in that is approved after a sign-out instead of storing it", async () => {
+    const fake = new FakeAccountService();
+    fake.signInAs("github", "acct_1");
+    const store = memoryAccountStore();
+    await redirectSignIn(fake, "github", store);
+    const lock = memoryLock();
+    const started = await startDeviceSignIn({ service: SERVICE, store, fetch: fake.fetch, provider: "github", wait: async () => undefined, lock });
+    await new AccountService({ store, fetch: fake.fetch, lock }).signOut();
+    fake.approveDevice(started.userCode, "acct_1");
+    await expect(started.finish(new AbortController().signal)).rejects.toBeInstanceOf(SignedOutError);
+    expect(await store.get("session")).toBeUndefined();
+    expect(fake.requests.filter((request) => request === "POST /v1/signout")).toHaveLength(2);
   });
 });

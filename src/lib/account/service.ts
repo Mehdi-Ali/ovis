@@ -174,6 +174,67 @@ export async function requestToken(service: string, grant: Record<string, string
   return sessionOf(await response.json(), service, now());
 }
 
+/**
+ * Ends `session` at the service: its access token is refreshed first when it ran out, so the
+ * service really ends the sign-in's tokens. A refresh the service refuses, or a 401, means it was
+ * over already. Any other answer, or none, throws: the sign-in may still be live there.
+ */
+async function endAtService(session: AccountSession, fetchImpl: Fetch, now: () => number): Promise<void> {
+  let live = session;
+  if (session.expires_at - REFRESH_EARLY_MS <= now()) {
+    try {
+      live = await requestToken(session.service, { grant_type: "refresh_token", refresh_token: session.refresh_token }, { fetch: fetchImpl, now });
+    } catch (error) {
+      if (error instanceof AccountServiceError && (error.status === 400 || error.status === 401)) return;
+      throw error;
+    }
+  }
+  const response = await fetchImpl(new URL("/v1/signout", live.service), { method: "POST", headers: { authorization: `Bearer ${live.access_token}` } });
+  if (!response.ok && response.status !== 401) throw await failure(response);
+}
+
+/** Sign-ins this client could not end at the service, kept to end later; past this many the oldest is dropped. */
+const ENDING_MAX = 16;
+
+/**
+ * Ends a sign-in no one keeps (`what` names it in the log). One the service did not confirm ending
+ * is kept in the store and ended again by AccountService.endLeftovers; it never throws.
+ */
+export async function endSignIn(session: AccountSession, what: string, options: { store: AccountStore; fetch?: Fetch; now?: () => number }): Promise<void> {
+  try {
+    await endAtService(session, options.fetch ?? ((input, init) => fetch(input, init)), options.now ?? Date.now);
+  } catch (error) {
+    console.warn(`Ovis: ${what} was not ended at the account service; it is tried again later`, error instanceof AccountServiceError ? error.code : error instanceof Error ? error.name : error);
+    await options.store.update("ending", (current) => [...(current ?? []), session].slice(-ENDING_MAX));
+  }
+}
+
+/**
+ * The store's sign-out epoch, made if there is none: a sign-in remembers it when it starts, and is
+ * kept only while it is unchanged (keepSignIn). Every sign-out replaces it, and clear() drops it.
+ */
+export async function signInEpoch(store: AccountStore): Promise<string> {
+  let epoch = "";
+  await store.update("epoch", (current) => { epoch = current ?? crypto.randomUUID(); return epoch; });
+  return epoch;
+}
+
+/**
+ * Stores a finished sign-in as this client's session, unless a sign-out happened since it started
+ * (`epoch`, from signInEpoch): then it is ended at the service instead, and SignedOutError thrown,
+ * so a sign-out wins over any sign-in still on its way.
+ */
+export async function keepSignIn(session: AccountSession, epoch: string, options: { store: AccountStore; fetch?: Fetch; now?: () => number }): Promise<AccountSession> {
+  let kept = false;
+  await options.store.updateMany(["session", "epoch"], (current) => {
+    kept = current.epoch === epoch;
+    return kept ? { session, epoch } : current;
+  });
+  if (kept) return session;
+  await endSignIn(session, "a sign-in that finished after a sign-out", options);
+  throw new SignedOutError();
+}
+
 export interface AccountServiceOptions {
   readonly store: AccountStore;
   readonly fetch?: Fetch;
@@ -265,8 +326,7 @@ export class AccountService {
     const before = await this.session();
     if (before === undefined) return this.signedOut();
     const after = await signIn(linkToken, before.access_token);
-    const end = (session: AccountSession, what: string) => this.fetch(new URL("/v1/signout", session.service), { method: "POST", headers: { authorization: `Bearer ${session.access_token}` } })
-      .catch((error: unknown) => console.warn(`Ovis: ${what} was not ended at the account service`, error instanceof Error ? error.name : error));
+    const end = (session: AccountSession, what: string) => endSignIn(session, what, { store: this.options.store, fetch: this.fetch, now: this.now });
     if (after.account !== before.account) {
       await end(after, "a sign-in for another account");
       throw new AccountServiceError(502, "invalid_answer", "The account service answered for another account");
@@ -312,24 +372,51 @@ export class AccountService {
   }
 
   /**
-   * Ends the sign-in on the service, then here. An expired access token is refreshed first, so the
-   * service really ends the sign-in's tokens; the session goes here whatever the service answers, and
-   * a revocation the service did not confirm throws, so the caller can say so.
+   * Signs out here, then ends the sign-in on the service. The session goes and the sign-out epoch
+   * changes in one step, so no sign-in that started before can be stored after it (keepSignIn). A
+   * revocation the service did not confirm is kept to try again (endLeftovers), and throws, so the
+   * caller can say so.
    */
   async signOut(): Promise<void> {
     await this.lock(async () => {
-      const session = await this.session();
-      if (session === undefined) return;
-      try {
-        const live = session.expires_at - REFRESH_EARLY_MS > this.now() ? session : await this.refreshed(session);
-        const response = await this.fetch(new URL("/v1/signout", live.service), { method: "POST", headers: { authorization: `Bearer ${live.access_token}` } });
-        if (!response.ok) throw await failure(response);
-      } catch (error) {
-        // a refresh the service refused: the sign-in had already ended there
-        if (!(error instanceof SignedOutError)) throw error;
-      } finally {
-        await this.options.store.set("session", undefined);
+      let session: AccountSession | undefined;
+      await this.options.store.updateMany(["session", "epoch"], (current) => {
+        session = current.session;
+        return { epoch: crypto.randomUUID() };
+      });
+      if (session !== undefined) {
+        try {
+          await endAtService(session, this.fetch, this.now);
+        } catch (error) {
+          const unended = session;
+          await this.options.store.update("ending", (current) => [...(current ?? []), unended].slice(-ENDING_MAX));
+          throw error;
+        }
       }
+      await this.endKept();
+    });
+  }
+
+  /** Ends again the sign-ins this client could not end at the service before (endSignIn). */
+  async endLeftovers(): Promise<void> {
+    await this.lock(() => this.endKept());
+  }
+
+  private async endKept(): Promise<void> {
+    const ending = await this.options.store.get("ending");
+    if (ending === undefined || ending.length === 0) return;
+    const ended = new Set<string>();
+    for (const session of ending) {
+      try {
+        await endAtService(session, this.fetch, this.now);
+        ended.add(session.refresh_token);
+      } catch (error) {
+        console.warn("Ovis: a sign-in was still not ended at the account service", error instanceof AccountServiceError ? error.code : error instanceof Error ? error.name : error);
+      }
+    }
+    await this.options.store.update("ending", (current) => {
+      const left = (current ?? []).filter((session) => !ended.has(session.refresh_token));
+      return left.length > 0 ? left : undefined;
     });
   }
 
