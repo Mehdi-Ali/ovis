@@ -116,8 +116,8 @@ export class AccountMailbox {
   gates(): AddGates {
     return {
       enrolling: () => this.options.holds?.enrolling() ?? false,
-      held: (key) => this.pendingError !== null || this.waiting().some((record) => removedKey(record) === key) || (this.options.holds?.holds(key) ?? false),
-      removing: (key) => this.pendingError !== null || this.waiting().some((record) => removedKey(record) === key),
+      held: (key) => this.pendingError !== null || this.holding().includes(key) || (this.options.holds?.holds(key) ?? false),
+      removing: (key) => this.pendingError !== null || this.holding().includes(key),
     };
   }
 
@@ -126,7 +126,16 @@ export class AccountMailbox {
 
   /** The keys of the removes waiting here: /api/account/status lists them as `blocked`. */
   waitingRemoveKeys(): string[] {
-    return [...new Set(this.waiting().flatMap((record) => removedKey(record) ?? []))];
+    return [...new Set(this.holding())];
+  }
+
+  /** The keys of waiting removes this PC has not settled since (a pairing here after one, or the key's own removal): those hold their key. */
+  private holding(): string[] {
+    return this.waiting().flatMap((record) => {
+      const key = removedKey(record);
+      const issued = (record as { issued_at?: unknown }).issued_at;
+      return key === null || (typeof issued === "string" && this.options.devices.removalSettled(key, issued)) ? [] : [key];
+    });
   }
 
   private waiting(): unknown[] { return [...this.draining, ...this.pending]; }

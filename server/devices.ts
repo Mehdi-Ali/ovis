@@ -804,6 +804,22 @@ export class DeviceStore {
   /** Every key this PC keeps out, signed removal or not (a Revoke here, a record that no longer parses): /api/account/status `blocked`. */
   tombstoneKeys(): string[] { return [...new Set(this.tombstones.map((t) => t.key))]; }
 
+  /** Keys removed here with no row left for them (a stale row counts as gone): /api/account/status `tombstones`. */
+  removedKeys(): string[] {
+    return [...new Set(this.tombstones.filter((t) => !this.devices.some((d) => d.relay_public_key === t.key && !this.stale(d))).map((t) => t.key))];
+  }
+
+  /**
+   * Whether a `remove` for `key` signed at `issuedAt` by a signer that is no member here is settled already
+   * (docs/account.md, "On the PC, settling"): an account tombstone made at or after it, or a row paired on this
+   * PC with that key made after it. A Revoke on this PC is not enough (a signed removal takes it over), and a row
+   * a `link` moved onto the key is not a pairing of that key here.
+   */
+  removalSettled(key: string, issuedAt: string): boolean {
+    return this.tombstones.some((t) => t.key === key && t.record_id !== "local" && t.removed_at >= issuedAt)
+      || this.devices.some((d) => d.relay_public_key === key && d.added_by === undefined && d.linked_at === undefined && d.created_at > issuedAt && !this.stale(d));
+  }
+
   /** The signed `add`s behind this PC's account rows, as received: what /api/account/status lists. One that no longer parses or names another key is left out. */
   accountAdds(): AddRecord[] {
     const account = this.account();

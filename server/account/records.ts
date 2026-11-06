@@ -40,7 +40,11 @@ function apply(store: DeviceStore, record: AccountRecord, serverId: string | nul
   // a member of any role may sign the remove of its own key: that is how a device leaves (docs/account.md)
   const leaving = record.kind === "remove" && record.signer === record.key;
   const signer = store.accountSigner(record.signer, record.account, leaving);
-  if (!signer) return refused("signer_not_member");
+  if (!signer) {
+    // an old remove this PC has settled already never waits for its signer (docs/account.md, "On the PC, settling")
+    if (record.kind === "remove" && store.removalSettled(record.key, record.issued_at)) return { id: record.id, outcome: "unchanged" };
+    return refused("signer_not_member");
+  }
   if (record.kind === "remove") return { id: record.id, outcome: store.removeAccountKey(record.key, record.account, { id: record.id, issuedAt: record.issued_at, by: { device_id: signer.id, label: signer.label }, signed: record }, now) ? "applied" : "unchanged" };
   // the signature covers the signer only: a key off the curve would leave a devices.json no store can read
   if (!store.acceptsRelayKey(record.key)) return refused("record_invalid");
