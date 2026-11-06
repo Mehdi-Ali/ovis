@@ -237,4 +237,8 @@ export const DEVICES_JA: Record<string, string> = {
   "Another device removed it on this PC. Remove it everywhere to sign the removal yourself.": "他のデバイスがこのPCで削除しました。自分で削除に署名するには、すべてのPCから削除してください。",
   "Remove everywhere?": "すべてのPCから削除しますか?",
   "Remove everywhere": "すべてのPCから削除",
+||||||| 6dfcc178e
+  "This PC takes connections on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "このPCはTailscaleで接続を受け付けます。ここでサインインできるのはリレーでペアリングしたデバイスだけで、新しいペアリングはできません。",
+  "This PC takes connections on your home network and on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "このPCは自宅のネットワークとTailscaleで接続を受け付けます。ここでサインインできるのはリレーでペアリングしたデバイスだけで、新しいペアリングはできません。",
+  "This PC takes connections at {host} on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "このPCはTailscaleの{host}で接続を受け付けます。ここでサインインできるのはリレーでペアリングしたデバイスだけで、新しいペアリングはできません。",
 };

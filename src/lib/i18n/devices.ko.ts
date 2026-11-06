@@ -237,4 +237,8 @@ export const DEVICES_KO: Record<string, string> = {
   "Another device removed it on this PC. Remove it everywhere to sign the removal yourself.": "다른 기기가 이 PC에서 지웠습니다. 직접 삭제에 서명하려면 모든 PC에서 제거하세요.",
   "Remove everywhere?": "모든 PC에서 제거할까요?",
   "Remove everywhere": "모든 PC에서 제거",
+||||||| 6dfcc178e
+  "This PC takes connections on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "이 PC가 Tailscale에서 연결을 받음 · 릴레이로 연결한 기기만 여기서 로그인할 수 있고, 새 기기는 여기서 연결할 수 없습니다.",
+  "This PC takes connections on your home network and on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "이 PC가 집 네트워크와 Tailscale에서 연결을 받음 · 릴레이로 연결한 기기만 여기서 로그인할 수 있고, 새 기기는 여기서 연결할 수 없습니다.",
+  "This PC takes connections at {host} on Tailscale. Only devices paired through the relay can sign in there; nothing new pairs.": "이 PC가 Tailscale의 {host}에서 연결을 받음 · 릴레이로 연결한 기기만 여기서 로그인할 수 있고, 새 기기는 여기서 연결할 수 없습니다.",
 };
