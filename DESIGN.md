@@ -3711,7 +3711,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   line on why, signed in one hairline row naming the sign-in (**Signed in with GitHub**; the service
   keeps no name for the account) with a ghost **Open the account**. **Ovis relay** is the account's:
   signed out only a line pointing up to that sign-in, signed in how a new device joins, or the
-  relay's switch and **Open the account** while this PC cannot admit one yet. Relay pairing without
+  relay's switch (its state's one line when it cannot be turned on) while this PC cannot admit one
+  yet; **Open the account** is on the row above the tabs. Relay pairing without
   the account, a code from another PC and Tailscale PCs added through the relay are gone from it.
   Signed in, the relay's tab comes first and the sheet opens on it; otherwise a phone opens on
   Phones and devices, a PC's window on SSH. A tab once opened stays mounted, so its code is not
