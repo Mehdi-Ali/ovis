@@ -233,10 +233,6 @@
   min-width: 0;
 }
 
-.connect-signin-button {
-  align-self: flex-start;
-}
-
 /* on a phone the address goes under the name, so the name, its source and its button keep one line */
 @media (max-width: 480px) {
   .connect-found-row {

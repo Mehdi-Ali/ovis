@@ -371,7 +371,7 @@ export function RelayTab({ relay, closesGate, signedIn, joinBySignIn, onAccount,
           {switchFailure}
           {/* a start that failed before the link existed: the server answers phase off with its reason, and nothing retries it */}
           {switchError === null && startError !== null && <p className="settings-hint relay-error" role="alert">{t("The relay did not start: {message}", { message: startError })}</p>}
-          <button type="button" className="btn connect-signin-button" onClick={onAccount}>{t("Open the account")}</button>
+          {/* Open the account is on the row above the tabs (ConnectAccount) */}
         </>
       )}
     </div>

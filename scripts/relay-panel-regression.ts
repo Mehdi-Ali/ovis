@@ -239,7 +239,8 @@ export async function checkRelayPanel(browser: Browser): Promise<void> {
     assert.equal(await toggle.getAttribute("aria-checked"), "false", "the sheet's switch shows the relay off");
     assert.equal(await sheet.getByRole("button", { name: "Turn on the relay", exact: true }).count(), 0, "one way to turn it on: the switch");
     assert.equal(await sheet.getByRole("button", { name: "Sign in to Ovis", exact: true }).count(), 0, "signed in, no sign-in");
-    await relayTab.getByRole("button", { name: "Open the account", exact: true }).waitFor();
+    await sheet.getByTestId("connect-account").getByRole("button", { name: "Open the account", exact: true }).waitFor();
+    assert.equal(await relayTab.getByRole("button", { name: "Open the account", exact: true }).count(), 0, "the account opens from the row above the tabs, not twice");
     assert.equal(await sheet.getByTestId("relay-owner-help").count(), 0, "the direct owner needs no relay restriction explanation");
     assert.equal(await gateNote.getAttribute("title"), GATE_NOTE, "with no token and nothing paired, the switch's tooltip says turning the relay on closes the gate");
     assert.equal(await relayTab.getByText(GATE_NOTE, { exact: true }).count(), 0, "and the sheet carries no warning paragraph for it");
