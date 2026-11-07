@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, RefreshCw, X } from "lucide-react";
 
@@ -82,13 +82,21 @@ export function ConnectAccount({ signedIn, provider, onAccount, onSignedIn }: {
   onSignedIn: () => void;
 }) {
   const t = useT();
+  // AccountSection reports again whenever its callback changes: one stable callback, and Settings told once
+  const told = useRef(false);
+  const latest = useRef(onSignedIn);
+  useEffect(() => { latest.current = onSignedIn; }, [onSignedIn]);
+  const reported = useCallback((state: AccountState): void => {
+    if (!state.signedIn || told.current) return;
+    told.current = true;
+    latest.current();
+  }, []);
   if (signedIn) return (
     <div className="connect-account-row" data-testid="connect-account">
       <span>{provider === null ? t("Signed in") : t("Signed in with {provider}", { provider: PROVIDER_NAMES[provider] })}</span>
       <button type="button" className="btn btn-ghost" onClick={onAccount}>{t("Open the account")}</button>
     </div>
   );
-  const reported = (state: AccountState): void => { if (state.signedIn) onSignedIn(); };
   return (
     <div className="connect-account" data-testid="connect-account">
       <AccountSection onAccount={reported} welcome={{ lead: <p className="connect-account-lead">{t("Sign in to connect a new device here with one approval.")}</p>, later: null }} />
@@ -165,8 +173,9 @@ export function ConnectPhoneDialog({ plan, pairUrl, relay, readOnly, closesGate,
   const account = onAccount !== null && !readOnly && !inRelayShell();
   const tabs = connectTabs({ sshOffered: onAddPc !== null && !readOnly && !inRelayShell(), relay, readOnly, relayFirst: account && signedIn });
   // a phone mostly connects itself; a PC's window opens on the PCs; signed in, both on the relay
-  const [chosen, setChosen] = useState<ConnectTab>(() => defaultConnectTab(tabs, phone));
-  const tab = tabs.includes(chosen) ? chosen : tabs[0]!;
+  // until a tab is picked the default follows what loads (the account, the relay), so it never depends on timing
+  const [chosen, setChosen] = useState<ConnectTab | null>(null);
+  const tab = chosen !== null && tabs.includes(chosen) ? chosen : defaultConnectTab(tabs, phone);
   // a tab once opened stays mounted while the dialog is: going back to Phones and devices keeps its code, not a new one
   const opened = useRef(new Set<ConnectTab>());
   opened.current.add(tab);
