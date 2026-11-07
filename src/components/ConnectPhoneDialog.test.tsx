@@ -211,6 +211,12 @@ describe("Connect a phone on a phone", () => {
     expect(text(renderer!.root)).toContain("Sign in above to use the relay.");
   });
 
+  it("signed in on a relay that cannot be turned on, the relay tab says why instead of standing empty", async () => {
+    await mount(<RelayTab relay={relayState({ ...ONLINE, phase: "off", blocked: "serve_only" })} closesGate={false} signedIn joinBySignIn={false} onAccount={() => {}} phone={false} />);
+    expect(text(renderer!.root)).toContain("Blocked: OVIS_TAILSCALE_SERVE_ONLY");
+    expect(buttons()).toEqual([]);
+  });
+
   it("lists the PCs found over SSH: Add opens Add PC with that address, an added one says so, a herdr PC connects", async () => {
     const added: (AddPcPreset | undefined)[] = [];
     const connected: string[] = [];

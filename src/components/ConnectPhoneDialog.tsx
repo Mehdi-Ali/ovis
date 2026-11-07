@@ -326,8 +326,8 @@ function DevicesTab({ plan, pairUrl, readOnly, canPair, phone }: { plan: PhonePl
  * above the tabs (ConnectAccount); signed in, how a new
  * device joins, or the relay's switch while that cannot happen yet. Where the page has no account (none offered, or
  * its service cannot be reached), the relay's own pairing as before the account: its switch, its QR code and code to
- * type. One short line at most: what a blocked relay or the device gate means stays in More settings, or in the
- * switch's tooltip.
+ * type. One short line at most: a blocked relay gets its state's one line, and what the device gate means stays
+ * in the switch's tooltip.
  */
 export function RelayTab({ relay, closesGate, signedIn, joinBySignIn, onAccount, phone }: {
   relay: RelayState; closesGate: boolean; signedIn: boolean; joinBySignIn: boolean; onAccount: (() => void) | null; phone: boolean;
@@ -367,6 +367,8 @@ export function RelayTab({ relay, closesGate, signedIn, joinBySignIn, onAccount,
       {joinBySignIn ? <p className="connect-signin-lead">{t("On the new device, sign in to the same Ovis account.")}</p> : (
         <>
           {switchable && <p className="settings-description">{t("Turn on the relay, then add this PC to your account.")}</p>}
+          {/* a relay that cannot be turned on: its state says why, so the tab never stands empty */}
+          {!switchable && relay.status !== null && <p className="settings-hint">{statusText(t, relay.status)}</p>}
           {relaySwitch}
           {switchFailure}
           {/* a start that failed before the link existed: the server answers phase off with its reason, and nothing retries it */}
