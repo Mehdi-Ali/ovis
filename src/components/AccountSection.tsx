@@ -93,6 +93,8 @@ function AddThisPc({ relayAbove = true }: { /** Settings has the relay's switch 
 /** What Settings → Devices and PCs needs of the account: signed in or not, and the account's PCs for My devices. */
 export interface AccountState {
   signedIn: boolean; account: string | null; pcs: MyPc[] | null;
+  /** the sign-in this browser uses: it names the account, which has no name of its own */
+  provider: AccountProvider | null;
   /** false once the account service did not answer: the relay tab then offers the relay's own pairing (ConnectPhoneDialog) */
   reachable: boolean;
 }
@@ -173,7 +175,7 @@ export function AccountSection({ onAccount, welcome }: { onAccount?: (state: Acc
 
   useEffect(() => { if (offered) void load(); }, [offered, load]);
   useEffect(() => {
-    onAccount?.({ signedIn: view.kind === "signed-in", account: view.kind === "signed-in" ? view.account : null, pcs: view.kind === "signed-in" ? view.pcs : null, reachable: !unreachable });
+    onAccount?.({ signedIn: view.kind === "signed-in", account: view.kind === "signed-in" ? view.account : null, pcs: view.kind === "signed-in" ? view.pcs : null, provider: view.kind === "signed-in" ? view.provider : null, reachable: !unreachable });
   }, [onAccount, view, unreachable]);
   // closing Settings ends a device sign-in still waiting: its session is then never kept
   useEffect(() => () => { deviceSignIn.current?.abort(); loads.current++; }, []);

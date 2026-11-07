@@ -4,9 +4,12 @@ import { Check, RefreshCw, X } from "lucide-react";
 
 import "./ConnectPhoneDialog.css";
 import "./DevicesPanel.css";
+// the sign-in above the tabs is the first-run welcome's box (.setup-signin), loaded here when Settings opens first
+import "./SetupGuide.css";
 
 import type { Machine } from "../../shared/machines.ts";
 import type { AddPcPreset } from "../lib/actions.ts";
+import type { AccountProvider } from "../lib/account/store.ts";
 import { ApiError, findSshCandidates, requestRelayOffer, startPairing, type SshCandidate } from "../lib/api.ts";
 import { copyText } from "../lib/clipboard.ts";
 import { useT } from "../lib/i18n.ts";
@@ -25,6 +28,8 @@ import { SettingsQuery, Toggle } from "./SettingsControls.tsx";
 import { PortalPanel } from "./PortalPanel.tsx";
 import { usePortal } from "../lib/portal.ts";
 import { CompactPair } from "./CompactPair.tsx";
+import { AccountSection, type AccountState } from "./AccountSection.tsx";
+import { PROVIDER_NAMES } from "./AccountPcs.tsx";
 
 /** the sheet's ways, one tab each: PCs over SSH, phones and browsers on this PC's address, and the Ovis relay through the account */
 export type ConnectTab = "ssh" | "devices" | "relay";
@@ -52,8 +57,43 @@ const relayOn = (relay: RelayState): boolean => relay.status !== null && relay.s
  * the hosted shell, not a device that only watches); the relay's tab is the owner's on a direct page of a PC that has
  * the relay. Phones and devices is always there.
  */
-export function connectTabs({ sshOffered, relay, readOnly }: { sshOffered: boolean; relay: RelayState; readOnly: boolean }): ConnectTab[] {
-  return [...(sshOffered ? ["ssh" as const] : []), "devices", ...(relayOffered(relay) && !readOnly ? ["relay" as const] : [])];
+export function connectTabs({ sshOffered, relay, readOnly, relayFirst = false }: { sshOffered: boolean; relay: RelayState; readOnly: boolean; relayFirst?: boolean }): ConnectTab[] {
+  const relayTab = relayOffered(relay) && !readOnly;
+  const others: ConnectTab[] = [...(sshOffered ? ["ssh" as const] : []), "devices"];
+  // signed in, the account's way (the relay) is the one to use first
+  if (relayTab && relayFirst) return ["relay", ...others];
+  return [...others, ...(relayTab ? ["relay" as const] : [])];
+}
+
+/** The tab the window opens on: the relay when it leads, else a phone's own devices, else the first. */
+export function defaultConnectTab(tabs: readonly ConnectTab[], phone: boolean): ConnectTab {
+  if (tabs[0] === "relay") return "relay";
+  return phone && tabs.includes("devices") ? "devices" : tabs[0]!;
+}
+
+/**
+ * Above the tabs, where this page has the Ovis account: signed out, the account's own sign-in (the first-run
+ * welcome's box, AccountSection) with one line why; signed in, which sign-in this browser uses and the account.
+ * The service keeps no name for an account, so the provider names it.
+ */
+export function ConnectAccount({ signedIn, provider, onAccount, onSignedIn }: {
+  signedIn: boolean; provider: AccountProvider | null; onAccount: () => void;
+  /** a sign-in finished here: Settings' own account group reads it again */
+  onSignedIn: () => void;
+}) {
+  const t = useT();
+  if (signedIn) return (
+    <div className="connect-account-row" data-testid="connect-account">
+      <span>{provider === null ? t("Signed in") : t("Signed in with {provider}", { provider: PROVIDER_NAMES[provider] })}</span>
+      <button type="button" className="btn btn-ghost" onClick={onAccount}>{t("Open the account")}</button>
+    </div>
+  );
+  const reported = (state: AccountState): void => { if (state.signedIn) onSignedIn(); };
+  return (
+    <div className="connect-account" data-testid="connect-account">
+      <AccountSection onAccount={reported} welcome={{ lead: <p className="connect-account-lead">{t("Sign in to connect a new device here with one approval.")}</p>, later: null }} />
+    </div>
+  );
 }
 
 export interface ConnectPhoneDialogProps {
@@ -69,6 +109,8 @@ export interface ConnectPhoneDialogProps {
   canPair: boolean;
   /** this browser is signed in to the Ovis account */
   signedIn: boolean;
+  /** the sign-in it uses, which names it above the tabs */
+  accountProvider: AccountProvider | null;
   /**
    * Signed in, with this PC in that account and its relay on: a new device joins by signing in to the
    * same account, and a device already in it approves it once by picking the matching number
@@ -77,6 +119,8 @@ export interface ConnectPhoneDialogProps {
   joinBySignIn: boolean;
   /** the Ovis sign-in and account, where this page offers them: the relay is used through it */
   onAccount: (() => void) | null;
+  /** a sign-in finished above the tabs */
+  onAccountSignedIn: () => void;
   /** the Add PC dialog, its address filled in when a found PC was picked; null where PCs are not added from here */
   onAddPc: ((preset?: AddPcPreset) => void) | null;
   /** the roster: which found PCs are added already, and the PCs saved in herdr that wait for Connect */
@@ -94,7 +138,7 @@ export interface ConnectPhoneDialogProps {
  * The Ovis relay is used through the Ovis account, so its tab is the sign-in, or once signed in how a new device
  * joins. The relay and Tailscale stay apart: nothing on the SSH tab goes through the relay.
  */
-export function ConnectPhoneDialog({ plan, pairUrl, relay, readOnly, closesGate, canPair, signedIn, joinBySignIn, onAccount, onAddPc, machines, onConnectMachine, onClose }: ConnectPhoneDialogProps) {
+export function ConnectPhoneDialog({ plan, pairUrl, relay, readOnly, closesGate, canPair, signedIn, accountProvider, joinBySignIn, onAccount, onAccountSignedIn, onAddPc, machines, onConnectMachine, onClose }: ConnectPhoneDialogProps) {
   const t = useT();
   const id = useId();
   const surface = useFocusTrap<HTMLDivElement>(true);
@@ -117,9 +161,11 @@ export function ConnectPhoneDialog({ plan, pairUrl, relay, readOnly, closesGate,
   }, [onClose, surface]);
 
   const phone = useMediaQuery(PHONE_QUERY);
-  const tabs = connectTabs({ sshOffered: onAddPc !== null && !readOnly && !inRelayShell(), relay, readOnly });
-  // a phone mostly connects itself; a PC's window opens on the PCs
-  const [chosen, setChosen] = useState<ConnectTab>(() => (phone && tabs.includes("devices") ? "devices" : tabs[0]!));
+  // the account above the tabs: the owner's, where this page has it and its service answers
+  const account = onAccount !== null && !readOnly && !inRelayShell();
+  const tabs = connectTabs({ sshOffered: onAddPc !== null && !readOnly && !inRelayShell(), relay, readOnly, relayFirst: account && signedIn });
+  // a phone mostly connects itself; a PC's window opens on the PCs; signed in, both on the relay
+  const [chosen, setChosen] = useState<ConnectTab>(() => defaultConnectTab(tabs, phone));
   const tab = tabs.includes(chosen) ? chosen : tabs[0]!;
   // a tab once opened stays mounted while the dialog is: going back to Phones and devices keeps its code, not a new one
   const opened = useRef(new Set<ConnectTab>());
@@ -136,6 +182,7 @@ export function ConnectPhoneDialog({ plan, pairUrl, relay, readOnly, closesGate,
           <button type="button" className="icon-button" aria-label={t("Close")} onClick={onClose}><X aria-hidden="true" /></button>
         </header>
         <div className="modal-body connect-phone-body">
+          {account && onAccount !== null && <ConnectAccount signedIn={signedIn} provider={accountProvider} onAccount={onAccount} onSignedIn={onAccountSignedIn} />}
           {tabs.length > 1 && (
             <div className="segmented connect-tabs" role="group" aria-label={t("How to connect")}>
               {tabs.map((way) => <button key={way} type="button" aria-pressed={tab === way} data-tab={way} onClick={() => setChosen(way)}>{label[way]}</button>)}
@@ -275,7 +322,8 @@ function DevicesTab({ plan, pairUrl, readOnly, canPair, phone }: { plan: PhonePl
 }
 
 /**
- * The Ovis relay, the owner's on a direct page. Signed out of the Ovis account, the sign-in; signed in, how a new
+ * The Ovis relay, the owner's on a direct page. Signed out of the Ovis account, a line pointing up to the sign-in
+ * above the tabs (ConnectAccount); signed in, how a new
  * device joins, or the relay's switch while that cannot happen yet. Where the page has no account (none offered, or
  * its service cannot be reached), the relay's own pairing as before the account: its switch, its QR code and code to
  * type. One short line at most: what a blocked relay or the device gate means stays in More settings, or in the
@@ -308,10 +356,10 @@ export function RelayTab({ relay, closesGate, signedIn, joinBySignIn, onAccount,
       <RelayRoute relay={relay} readOnly={false} phone={phone} compact />
     </>
   );
+  // the sign-in itself is above the tabs (ConnectAccount)
   if (!signedIn) return (
     <div className="connect-signin" data-testid="connect-signin">
-      <p className="settings-description">{t("Connect from anywhere through your Ovis account.")}</p>
-      <button type="button" className="btn btn-primary connect-signin-button" onClick={onAccount}>{t("Sign in to Ovis")}</button>
+      <p className="settings-description">{t("Sign in above to use the relay.")}</p>
     </div>
   );
   return (
