@@ -32,9 +32,12 @@ export class CdpPage {
   static open(port: number, targetId: string, onClose: () => void): Promise<CdpPage> {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/devtools/page/${encodeURIComponent(targetId)}`);
     return new Promise((resolve, reject) => {
-      const failed = () => reject(new CdpError("cdp_closed", "the page's DevTools connection did not open"));
+      // a listener that never answers would hold the session's look forever
+      const timer = setTimeout(() => { socket.close(); reject(new CdpError("cdp_timeout", "the page's DevTools connection did not open")); }, COMMAND_TIMEOUT_MS);
+      const failed = () => { clearTimeout(timer); reject(new CdpError("cdp_closed", "the page's DevTools connection did not open")); };
       socket.addEventListener("error", failed, { once: true });
       socket.addEventListener("open", () => {
+        clearTimeout(timer);
         socket.removeEventListener("error", failed);
         resolve(new CdpPage(socket, onClose));
       }, { once: true });
