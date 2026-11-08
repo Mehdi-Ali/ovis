@@ -232,4 +232,5 @@ export const FILES_JA: Record<string, string> = {
   "This page's host is blocked on this device.": "このページのホストはこのデバイスでブロックされています。",
   "Waiting for the page…": "ページを待っています…",
   "You have control. The agent may still act.": "操作中です。エージェントも引き続き操作することがあります。",
+  "Blocked page": "ブロックされたページ",
 };

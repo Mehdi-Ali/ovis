@@ -175,7 +175,7 @@ export function AgentBrowserPanel({ machineId, paneId, blockedHosts, onClose, do
 
   const select = view.tabs.length > 1 ? (
     <select className="agent-browser-tabs" aria-label={t("Browser tab")} value={view.targetId ?? ""} onChange={(event) => socket?.watchBrowser(paneId, { targetId: event.target.value, blocked: blockedHosts })}>
-      {view.tabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.title || tab.url}</option>)}
+      {view.tabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.blocked ? t("Blocked page") : tab.title || tab.url}</option>)}
     </select>
   ) : null;
   const close = <button type="button" className="icon-button file-viewer-action file-viewer-close" aria-label={t("Close agent browser")} title={t("Close agent browser")} onClick={onClose}><X aria-hidden="true" /></button>;

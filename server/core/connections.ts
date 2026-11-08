@@ -19,6 +19,9 @@ export interface SocketData {
   machineEvents?: MachineEventDocument;
   deviceId?: string;
   readOnly?: boolean;
+  /** the owner driving this PC directly (full access, drive, not an open LAN or a Portal visitor): only such a
+   * connection watches or controls an agent's browser (server/core/agent-browser.ts) */
+  browserOwner?: boolean;
   relay?: MachineRelay;
   /** another Ovis server reading this PC with its bridge token: it gets snapshots whole and applies its own sidebar rows (#2160) */
   bridge?: boolean;
@@ -75,7 +78,7 @@ function stateOf(client: Client): ConnectionState {
 }
 
 /** The data for a connection's upgrade: it starts to interact unless its access is read-only. */
-export function connectionData(fields: { machineEvents?: MachineEventDocument; relay?: MachineRelay; deviceId: string | undefined; readOnly: boolean; bridge?: boolean; surface?: TelemetrySurface; ingress?: TelemetryIngress; recheckMs?: number }): SocketData {
+export function connectionData(fields: { machineEvents?: MachineEventDocument; relay?: MachineRelay; deviceId: string | undefined; readOnly: boolean; browserOwner?: boolean; bridge?: boolean; surface?: TelemetrySurface; ingress?: TelemetryIngress; recheckMs?: number }): SocketData {
   const data: SocketData = { connectionId: crypto.randomUUID(), attached: new Map<string, { keepSize: boolean }>(), conversationInterests: new Set<string>(), conversationWatches: new Set<string>(), promptWatches: new Set<string>(), output: new Map(), ...fields };
   states.set(data, { closing: false, revoked: false, mode: fields.readOnly ? "observe" : "interact", roles: 0, watches: new Map<string, PaneWatch>() });
   return data;

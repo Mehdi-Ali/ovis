@@ -403,7 +403,8 @@ export const SETTING_SCOPE = {
   followHerdrFocus: "device",
   // a desk's mouse, where Codex's copy reaches or not
   codexDrag: "device",
-  agentBrowserPanel: "device",
+  // the server reads it too: off, it refuses every browser frame (server/core/agent-browser.ts)
+  agentBrowserPanel: "shared",
   agentBrowserBlockedHosts: "device",
   // a desk's mouse, which a phone has not
   sidebarPeek: "device",

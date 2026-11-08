@@ -71,6 +71,12 @@ async function open(origin: string, pane: string, width: number, theme: "light" 
   return { page, errors, close: () => context.close() };
 }
 
+/** Settings → Experimental → Agent browser is the server's (a shared preference): the server refuses every browser frame while it is off */
+async function setPanel(origin: string, on: boolean): Promise<void> {
+  const response = await fetch(`${origin}/api/preferences`, { method: "PUT", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ settings: { agentBrowserPanel: on } }) });
+  assert.equal(response.status, 200, `the shared setting is saved (${response.status})`);
+}
+
 async function moreItems(page: Page): Promise<string[]> {
   await page.locator(".header-more-button").click();
   // a wide window draws More as a menu, a phone as a sheet of buttons
@@ -93,12 +99,14 @@ try {
   for (const width of [1280, 390]) {
     for (const theme of ["light", "dark"] as const) {
       const tag = `${width}-${theme}`;
+      await setPanel(origin, false);
       const off = await open(origin, pane, width, theme, {});
       assert.ok(!(await moreItems(off.page)).includes("Agent browser"), `${tag}: off by default, More offers no agent browser`);
       await off.close();
       console.log(`PASS ${tag}: off by default, More offers no agent browser`);
 
-      const on = await open(origin, pane, width, theme, { agentBrowserPanel: true });
+      await setPanel(origin, true);
+      const on = await open(origin, pane, width, theme, {});
       await on.page.locator(".header-more-button").click();
       await on.page.locator(".row-menu, .row-sheet").getByText("Agent browser", { exact: true }).click();
       const panel = on.page.locator(width <= 480 ? '[role="dialog"].agent-browser' : ".file-panel.agent-browser");

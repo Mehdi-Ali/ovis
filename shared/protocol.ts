@@ -1141,10 +1141,12 @@ export type BrowserInput =
   | { kind: "key"; action: "down" | "up"; key: string; code: string; text?: string; key_code?: number; modifiers?: number }
   | { kind: "text"; text: string };
 
+/** `blocked`: on a host this connection blocked, so its title and address are empty */
 export interface BrowserTab {
   id: string;
   title: string;
   url: string;
+  blocked?: true;
 }
 
 /** `none`: no browser under the pane's shell; `pipe-only`: one driven over a pipe, which has no port to watch; `live`: watchable */

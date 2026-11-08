@@ -34,8 +34,10 @@ class FakeBrowser {
   readonly changed = new Signal();
   open = 0;
   readonly server: Server<undefined>;
-  private socket: { send(data: string): void } | null = null;
+  private socket: { send(data: string): void; close(): void } | null = null;
   tabs = [{ type: "page", id: "tab-1", title: "Shop", url: "https://shop.example.com/cart" }];
+  /** what /json/list answers: the tabs, unless a test hands it its own body */
+  listBody: unknown = null;
 
   constructor() {
     this.server = Bun.serve<undefined>({
@@ -43,7 +45,7 @@ class FakeBrowser {
       hostname: "127.0.0.1",
       fetch: (request, server) => {
         const url = new URL(request.url);
-        if (url.pathname === "/json/list") return Response.json(this.tabs);
+        if (url.pathname === "/json/list") return Response.json(this.listBody ?? this.tabs);
         if (url.pathname.startsWith("/devtools/page/") && server.upgrade(request, { data: undefined })) return undefined;
         return new Response("not found", { status: 404 });
       },
@@ -71,6 +73,8 @@ class FakeBrowser {
   get port(): number { return this.server.port ?? 0; }
   /** a DevTools event from the page, as the browser sends one */
   emit(method: string, params: Record<string, unknown>): void { this.socket?.send(JSON.stringify({ method, params })); }
+  /** the page's DevTools connection ends, as when its tab closes */
+  dropPage(): void { this.socket?.close(); }
   told_(method: string): Promise<Record<string, unknown>> {
     return until(this.changed.subscribe, () => this.told.find((entry) => entry.method === method)?.params, method);
   }
@@ -80,9 +84,9 @@ class FakeClient {
   readonly frames: ServerMessage[] = [];
   readonly changed = new Signal();
   readonly socket: Client;
-  constructor(readOnly = false) {
+  constructor(readOnly = false, browserOwner = true) {
     this.socket = {
-      data: connectionData({ deviceId: undefined, readOnly }),
+      data: connectionData({ deviceId: undefined, readOnly, browserOwner }),
       readyState: WebSocket.OPEN,
       getBufferedAmount: () => 0,
       close: () => {},
@@ -101,18 +105,19 @@ class FakeClient {
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
-function harness() {
+function harness({ enabled = true, pollMs = 60_000 }: { enabled?: boolean; pollMs?: number } = {}) {
   const browser = new FakeBrowser();
+  const looked: number[] = [];
   const deps: AgentBrowserDeps = {
-    shellPid: async () => 100,
+    shellPid: async () => { looked.push(100); return 100; },
     discover: async () => ({ status: "live", pid: 101, endpoint: { port: browser.port, browserPath: "/devtools/browser/fake" } }),
-    pollMs: 60_000,
+    pollMs,
   };
   const clients = new Set<Client>();
-  const agentBrowser = createAgentBrowser({ clients, deps });
+  const agentBrowser = createAgentBrowser({ clients, deps, enabled: () => enabled });
   cleanups.push(() => browser.server.stop(true), () => agentBrowser.stop());
-  const connect = (readOnly = false) => { const client = new FakeClient(readOnly); clients.add(client.socket); return client; };
-  return { browser, agentBrowser, connect, clients };
+  const connect = (readOnly = false, browserOwner = true) => { const client = new FakeClient(readOnly, browserOwner); clients.add(client.socket); return client; };
+  return { browser, agentBrowser, connect, clients, looked };
 }
 
 it("streams the pane's browser to every watcher and acknowledges each frame to the browser", async () => {
@@ -197,9 +202,11 @@ it("closes a tab to a watcher that blocked its host from the moment the tab navi
   await closed;
   agentBrowser.frames["browser-input"](careful.socket, { type: "browser-input", pane_id: "p1", input: { kind: "text", text: "typed mid-navigation" } });
   expect(careful.last("error")?.code).toBe("browser_host_blocked");
-  const named = careful.next("browser-state", (state) => state.tabs[0]?.url === "https://bank.example./login");
+  const named = careful.next("browser-state", (state) => state.tabs[0]?.blocked === true);
   browser.emit("Page.frameNavigated", { frame: { id: "main", url: "https://bank.example./login" } });
-  expect((await named).blocked).toBe(true);
+  const after = await named;
+  expect(after.blocked).toBe(true);
+  expect(after.tabs[0]).toEqual({ id: "tab-1", title: "", url: "", blocked: true });
   const frames = careful.frames.filter((frame) => frame.type === "browser-frame").length;
   browser.emit("Page.screencastFrame", { data: "U0VDUkVU", sessionId: 8, metadata: { deviceWidth: 1280, deviceHeight: 720 } });
   await until(browser.changed.subscribe, () => browser.told.find((entry) => entry.method === "Page.screencastFrameAck" && entry.params.sessionId === 8)?.params, "the blocked page's frame to be acknowledged");
@@ -233,4 +240,109 @@ it("ends control when the connection turns to observing, so typing again needs T
   agentBrowser.frames["browser-input"](owner.socket, { type: "browser-input", pane_id: "p1", input: { kind: "text", text: "x" } });
   expect(owner.last("error")?.code).toBe("browser_not_controlled");
   expect(browser.told.some((entry) => entry.method.startsWith("Input."))).toBe(false);
+});
+
+it("refuses every browser frame and looks for no browser while the server's setting is off", () => {
+  const { agentBrowser, connect, looked } = harness({ enabled: false });
+  const owner = connect();
+  agentBrowser.frames["browser-watch"](owner.socket, { type: "browser-watch", pane_id: "p1", enabled: true });
+  expect(owner.last("error")?.code).toBe("browser_disabled");
+  agentBrowser.frames["browser-control"](owner.socket, { type: "browser-control", pane_id: "p1", take: true });
+  expect(owner.last("error")?.code).toBe("browser_disabled");
+  agentBrowser.frames["browser-input"](owner.socket, { type: "browser-input", pane_id: "p1", input: { kind: "text", text: "x" } });
+  expect(owner.last("error")?.code).toBe("browser_disabled");
+  expect(owner.frames.some((frame) => frame.type === "browser-state" || frame.type === "browser-frame")).toBe(false);
+  expect(looked).toEqual([]);
+});
+
+it("lets only the owner's own driving connection watch or control a pane's browser", () => {
+  const { agentBrowser, connect, looked } = harness();
+  // a Portal visitor, an open LAN, or a watching device: not the owner driving
+  const visitor = connect(false, false);
+  agentBrowser.frames["browser-watch"](visitor.socket, { type: "browser-watch", pane_id: "p1", enabled: true });
+  expect(visitor.last("error")?.code).toBe("browser_not_owner");
+  agentBrowser.frames["browser-control"](visitor.socket, { type: "browser-control", pane_id: "p1", take: true });
+  expect(visitor.last("error")?.code).toBe("browser_not_owner");
+  expect(visitor.frames.some((frame) => frame.type === "browser-state" || frame.type === "browser-frame")).toBe(false);
+  expect(looked).toEqual([]);
+});
+
+it("never hands a new watcher a picture taken before the tab's last navigation", async () => {
+  const { browser, agentBrowser, connect } = harness();
+  browser.tabs = [{ type: "page", id: "tab-1", title: "Bank", url: "https://bank.example/account" }];
+  const first = connect();
+  const pictured = first.next("browser-frame");
+  agentBrowser.frames["browser-watch"](first.socket, { type: "browser-watch", pane_id: "p1", enabled: true });
+  await pictured;
+  const moved = first.next("browser-state", (state) => state.tabs[0]?.url === "https://shop.example.com/");
+  browser.emit("Page.frameStartedLoading", { frameId: "main" });
+  browser.emit("Page.frameNavigated", { frame: { id: "main", url: "https://shop.example.com/" } });
+  await moved;
+  const careful = connect();
+  agentBrowser.frames["browser-watch"](careful.socket, { type: "browser-watch", pane_id: "p1", enabled: true, blocked_hosts: ["bank.example"] });
+  expect(careful.last("browser-state")?.blocked).toBe(false);
+  expect(careful.frames.filter((frame) => frame.type === "browser-frame")).toEqual([]);
+});
+
+it("ends control when the browser moves to another tab by itself, so clicks never land on a page nobody chose", async () => {
+  const { browser, agentBrowser, connect } = harness();
+  const owner = connect();
+  const live = owner.next("browser-frame");
+  agentBrowser.frames["browser-watch"](owner.socket, { type: "browser-watch", pane_id: "p1", enabled: true });
+  await live;
+  agentBrowser.frames["browser-control"](owner.socket, { type: "browser-control", pane_id: "p1", take: true });
+  expect(owner.last("browser-state")?.control).toBe("you");
+  const switched = owner.next("browser-state", (state) => state.target_id === "tab-2");
+  browser.tabs = [{ type: "page", id: "tab-2", title: "Other", url: "https://other.example/" }];
+  browser.dropPage();
+  expect((await switched).control).toBeNull();
+  agentBrowser.frames["browser-input"](owner.socket, { type: "browser-input", pane_id: "p1", input: { kind: "text", text: "x" } });
+  expect(owner.last("error")?.code).toBe("browser_not_controlled");
+});
+
+it("tells a watcher a tab on a host it blocked only as blocked, and every other address without its query, bounded", async () => {
+  const { browser, agentBrowser, connect } = harness();
+  const long = "t".repeat(5000);
+  browser.listBody = [
+    { type: "page", id: "tab-1", title: long, url: `https://shop.example.com/cart?token=secret#${long}` },
+    { type: "page", id: "tab-2", title: "My bank", url: "https://www.bank.example/statements?id=7" },
+    ...Array.from({ length: 200 }, (_, index) => ({ type: "page", id: `more-${index}`, title: "x", url: "https://shop.example.com/" })),
+  ];
+  const careful = connect();
+  const live = careful.next("browser-state", (state) => state.status === "live");
+  agentBrowser.frames["browser-watch"](careful.socket, { type: "browser-watch", pane_id: "p1", enabled: true, blocked_hosts: ["bank.example"] });
+  const state = await live;
+  expect(state.tabs[0]).toEqual({ id: "tab-1", title: "t".repeat(200), url: "https://shop.example.com/cart" });
+  expect(state.tabs[1]).toEqual({ id: "tab-2", title: "", url: "", blocked: true });
+  expect(state.tabs.length).toBeLessThanOrEqual(64);
+  expect(JSON.stringify(state)).not.toContain("secret");
+  expect(JSON.stringify(state)).not.toContain("My bank");
+});
+
+it("ends control when the person in control picks another tab, too", async () => {
+  const { browser, agentBrowser, connect } = harness();
+  browser.tabs = [{ type: "page", id: "tab-1", title: "Shop", url: "https://shop.example.com/" }, { type: "page", id: "tab-2", title: "Other", url: "https://other.example/" }];
+  const owner = connect();
+  const live = owner.next("browser-frame");
+  agentBrowser.frames["browser-watch"](owner.socket, { type: "browser-watch", pane_id: "p1", enabled: true });
+  await live;
+  agentBrowser.frames["browser-control"](owner.socket, { type: "browser-control", pane_id: "p1", take: true });
+  const switched = owner.next("browser-state", (state) => state.target_id === "tab-2");
+  agentBrowser.frames["browser-watch"](owner.socket, { type: "browser-watch", pane_id: "p1", enabled: true, target_id: "tab-2" });
+  expect((await switched).control).toBeNull();
+});
+
+it("never serves a picture taken at another address than the one the tab now has, even when only a poll saw it move", async () => {
+  const { browser, agentBrowser, connect } = harness({ pollMs: 50 });
+  browser.tabs = [{ type: "page", id: "tab-1", title: "Bank", url: "https://bank.example/account" }];
+  const first = connect();
+  const pictured = first.next("browser-frame");
+  agentBrowser.frames["browser-watch"](first.socket, { type: "browser-watch", pane_id: "p1", enabled: true });
+  await pictured;
+  const moved = first.next("browser-state", (state) => state.tabs[0]?.url === "https://shop.example.com/");
+  browser.tabs = [{ type: "page", id: "tab-1", title: "Shop", url: "https://shop.example.com/" }];
+  await moved;
+  const careful = connect();
+  agentBrowser.frames["browser-watch"](careful.socket, { type: "browser-watch", pane_id: "p1", enabled: true, blocked_hosts: ["bank.example"] });
+  expect(careful.frames.filter((frame) => frame.type === "browser-frame")).toEqual([]);
 });

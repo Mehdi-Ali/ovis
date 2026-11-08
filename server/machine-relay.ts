@@ -79,7 +79,9 @@ export class MachineRelay {
    * server's sidebar rows hide (#2160). Other frames pass as they came.
    */
   constructor(manager: MachineManager, id: string, private readonly readOnly: boolean, private readonly browserSnapshot: (snapshot: SessionSnapshot) => SessionSnapshot,
-    private readonly receiptId?: (browser: string) => string | undefined) {
+    private readonly receiptId?: (browser: string) => string | undefined,
+    /** the owner driving this PC (server/dispatch.ts): only then do agent browser frames reach the remote PC */
+    private readonly browserOwner = false) {
     const endpoint = manager.endpoint(id);
     if (!endpoint) throw new Error("This PC is disconnected");
     this.upstream = authenticatedWebSocket(endpoint.url.replace("http:", "ws:") + "/ws", endpoint.token);
@@ -153,6 +155,11 @@ export class MachineRelay {
     let text = String(raw);
     try {
       const message = JSON.parse(text);
+      if (!this.browserOwner && typeof message?.type === "string" && message.type.startsWith("browser-")) {
+        // the remote PC sees this server's bridge token, not who is behind it: the owner rule is applied here
+        this.send(JSON.stringify({ type: "error", code: "browser_not_owner", message: "only the owner's own driving device can watch this PC's browsers", ...(typeof message.pane_id === "string" ? { pane_id: message.pane_id } : {}) }));
+        return;
+      }
       if (message?.type === "attach") {
         // The bridge authenticates this server's shared token, not the browser's device.
         // Only controlling clients receive a server-scoped receipt identity.

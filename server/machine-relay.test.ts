@@ -250,3 +250,37 @@ describe("MachineRelay snapshot frames", () => {
     }
   });
 });
+
+describe("MachineRelay and the agent browser panel", () => {
+  test("passes browser frames to the remote PC only for the owner driving, and answers anyone else here", async () => {
+    const received: string[] = [];
+    let opened!: () => void;
+    const ready = new Promise<void>((resolve) => { opened = resolve; });
+    const upstream = Bun.serve({
+      port: 0, hostname: "127.0.0.1",
+      fetch(request, server) { return server.upgrade(request) ? undefined : new Response("no", { status: 400 }); },
+      websocket: { open() { opened(); }, message(_socket, raw) { received.push(String(raw)); } },
+    });
+    const manager = { endpoint: () => ({ url: `http://127.0.0.1:${upstream.port}`, token: "test" }), trackTerminal: () => () => {} } as unknown as MachineManager;
+    const told: string[] = [];
+    const client = { getBufferedAmount: () => 0, send: (raw: string) => { told.push(raw); return 1; }, close: () => {} } as unknown as ServerWebSocket<unknown>;
+    const visitor = new MachineRelay(manager, "pc", false, (snapshot) => snapshot, undefined, false);
+    const owner = new MachineRelay(manager, "pc", false, (snapshot) => snapshot, undefined, true);
+    try {
+      await visitor.ready; await owner.ready; await ready;
+      visitor.bind(client); owner.bind(client);
+      visitor.message(JSON.stringify({ type: "browser-watch", pane_id: "p1", enabled: true }));
+      owner.message(JSON.stringify({ type: "ping", id: 1 }));
+      owner.message(JSON.stringify({ type: "browser-watch", pane_id: "p2", enabled: true }));
+      const deadline = Date.now() + 5000;
+      while (!received.some((raw) => raw.includes('"p2"'))) {
+        if (Date.now() > deadline) throw new Error("the owner's browser-watch never reached the remote PC");
+        await Bun.sleep(10);
+      }
+      expect(received.some((raw) => raw.includes('"p1"'))).toBe(false);
+      expect(told.map((raw) => JSON.parse(raw) as { code?: string }).some((frame) => frame.code === "browser_not_owner")).toBe(true);
+    } finally {
+      visitor.close(); owner.close(); upstream.stop(true);
+    }
+  });
+});

@@ -101,16 +101,36 @@ export interface PageTarget {
   readonly url: string;
 }
 
-/** The browser's page targets (`/json/list`), DevTools' own pages left out. */
+const TABS_MAX = 64;
+const TITLE_MAX = 200;
+const URL_MAX = 2048;
+const LIST_MAX_CHARS = 1024 * 1024;
+
+/**
+ * An address as the panel may say it: no query or fragment (tokens live there), a data: page by its scheme
+ * alone, and at most URL_MAX characters. The host stays whole: blocked hosts are matched on it.
+ */
+export function shownUrl(raw: string): string {
+  if (!URL.canParse(raw)) return raw.slice(0, URL_MAX);
+  const url = new URL(raw);
+  if (url.protocol === "data:" || url.protocol === "blob:" || url.protocol === "javascript:") return url.protocol;
+  url.search = "";
+  url.hash = "";
+  return url.href.slice(0, URL_MAX);
+}
+
+/** The browser's page targets (`/json/list`), DevTools' own pages left out: at most TABS_MAX, each bounded. */
 export async function pageTargets(port: number): Promise<PageTarget[]> {
   const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1500) });
   if (!response.ok) throw new CdpError("cdp_refused", "the browser did not list its pages");
-  const body: unknown = await response.json();
+  const text = await response.text();
+  if (text.length > LIST_MAX_CHARS) throw new CdpError("cdp_refused", "the browser's page list is too large");
+  const body: unknown = JSON.parse(text);
   if (!Array.isArray(body)) throw new CdpError("cdp_refused", "the browser did not list its pages");
   return body.flatMap((entry: unknown) => {
     if (typeof entry !== "object" || entry === null) return [];
     const { type, id, title, url } = entry as Record<string, unknown>;
-    if (type !== "page" || typeof id !== "string" || typeof url !== "string" || url.startsWith("devtools://")) return [];
-    return [{ id, title: typeof title === "string" ? title : "", url }];
-  });
+    if (type !== "page" || typeof id !== "string" || id.length > 128 || typeof url !== "string" || url.startsWith("devtools://")) return [];
+    return [{ id, title: typeof title === "string" ? title.slice(0, TITLE_MAX) : "", url: shownUrl(url) }];
+  }).slice(0, TABS_MAX);
 }

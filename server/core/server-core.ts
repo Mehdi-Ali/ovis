@@ -90,7 +90,8 @@ export function createCore({ options, devices, preferences, usage, usageLogin, b
   const watchedOmp: OmpLookups = new Map();
   const promptWatch = createPromptWatch({ clients, read: (pane, panes) => shownPromptText(pane, panes, { codexHome: options.codexHome, openCodeStateDir: options.openCodeStateDir, openCodeState: watchedOpenCode, ompLookups: watchedOmp, answers: options.openCodeState }) });
 
-  const agentBrowser = createAgentBrowser({ clients });
+  // Settings → Experimental → Agent browser, shared by every browser of this server: off, nothing is watched or read
+  const agentBrowser = createAgentBrowser({ clients, enabled: () => preferences.get().settings.agentBrowserPanel === true });
 
   const { mayType, authorizeSocket, admit, setRole, watchPane, unwatchPane, killWatches, end } = createConnections({ clients, present, pending: { close: closeConnection }, devices, detachClaimed,
     dropClaims: (client) => { dropClaims(client); promptWatch.drop(client); agentBrowser.drop(client); } });

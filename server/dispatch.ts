@@ -402,6 +402,9 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
     if (!sameOrigin(request)) return new Response("invalid origin", { status: 403 });
     const deviceId = access.level === "full" ? access.device?.id : undefined;
     const recheck = portalRecheckMs === undefined ? {} : { recheckMs: portalRecheckMs };
+    // the owner driving (a paired drive device or the relay's drive peer, a token, Tailscale's owner, loopback):
+    // never an open LAN or a Portal visitor, who see the panes but not the browsers an agent drives
+    const browserOwner = access.level === "full" && access.role === "drive" && !readOnly && access.via !== "open" && access.via !== "portal";
     const machineId = url.searchParams.get("machine_id");
     if (machineId && machineId !== "local") {
       if (access.level === "none") return unauthorizedJson(access.reason);
@@ -413,9 +416,9 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
       let relay: MachineRelay | undefined;
       try {
         relay = new MachineRelay(machines, machineId, readOnly, browserSnapshot,
-          (browser) => ctx.services.relayReceiptIds.scope(machineId, principal, browser));
+          (browser) => ctx.services.relayReceiptIds.scope(machineId, principal, browser), browserOwner);
         await relay.ready;
-        const upgraded = ctx.upgrade(request, { headers, data: connectionData({ relay, deviceId, readOnly, ...recheck }) });
+        const upgraded = ctx.upgrade(request, { headers, data: connectionData({ relay, deviceId, readOnly, browserOwner, ...recheck }) });
         if (upgraded) return undefined;
         relay.close();
       } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
@@ -452,7 +455,7 @@ export async function handleRequest(request: Request, ctx: ServerContext): Promi
         return () => { stopPaired(); stopRemoved?.(); stopRelay?.(); };
       } },
     } : undefined;
-    const upgraded = ctx.upgrade(request, { headers, data: connectionData({ machineEvents, deviceId, readOnly, bridge: bridgeAuthorized, ...(surface ? { surface } : {}), ...(surface === false ? {} : { ingress }), ...recheck }) });
+    const upgraded = ctx.upgrade(request, { headers, data: connectionData({ machineEvents, deviceId, readOnly, browserOwner, bridge: bridgeAuthorized, ...(surface ? { surface } : {}), ...(surface === false ? {} : { ingress }), ...recheck }) });
     if (upgraded) return undefined;
     return new Response("websocket upgrade required", { status: 426 });
   }

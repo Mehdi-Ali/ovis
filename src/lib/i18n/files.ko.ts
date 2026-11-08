@@ -232,4 +232,5 @@ export const FILES_KO: Record<string, string> = {
   "This page's host is blocked on this device.": "이 페이지의 호스트는 이 기기에서 차단되어 있습니다.",
   "Waiting for the page…": "페이지를 기다리는 중…",
   "You have control. The agent may still act.": "지금 제어 중입니다. 에이전트도 계속 움직일 수 있습니다.",
+  "Blocked page": "차단된 페이지",
 };

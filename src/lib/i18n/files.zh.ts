@@ -232,4 +232,5 @@ export const FILES_ZH: Record<string, string> = {
   "This page's host is blocked on this device.": "此页面的主机在这台设备上已被屏蔽。",
   "Waiting for the page…": "正在等待页面…",
   "You have control. The agent may still act.": "你正在控制。智能体仍可能操作。",
+  "Blocked page": "已屏蔽的页面",
 };
