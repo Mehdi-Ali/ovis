@@ -249,10 +249,7 @@ export function App() {
   const closeMore = useCallback(() => setMore(null), []);
   // the pane canvas's actions, for the phone's tab menu (TabStrip)
   const paneActionsRef = useRef<((target: HerdrPane) => RowMenuItem[]) | null>(null);
-  const { filesOpen, setFilesOpen, filesDocked, filesCovered, revealFiles, viewing, openFile, closeFile, leaveFile, restoreFile, fileFromPop, forgetLeftFiles, diffViewing, openDiff, closeDiff, releaseDiff, presentation, fileDocked, webPage, closeWebPage, openWebPage, openDiffFile, reportFileKind, toggleFilePresentation, viewFile } = useFilePanels({ settings, filePanelAvailable, selectedPaneId, selectedMachineId });
-  // the agent browser panel (Settings → Experimental) shares the web page's slot: a page opened over it closes it
-  const [agentBrowserOpen, setAgentBrowserOpen] = useState(false);
-  useEffect(() => { if (webPage !== null) setAgentBrowserOpen(false); }, [webPage]);
+  const { filesOpen, setFilesOpen, filesDocked, filesCovered, revealFiles, viewing, openFile, closeFile, leaveFile, restoreFile, fileFromPop, forgetLeftFiles, diffViewing, openDiff, closeDiff, releaseDiff, presentation, fileDocked, webPage, closeWebPage, openWebPage, agentBrowserOpen, openAgentBrowser, closeAgentBrowser, openDiffFile, reportFileKind, toggleFilePresentation, viewFile } = useFilePanels({ settings, filePanelAvailable, selectedPaneId, selectedMachineId });
   // a diff's line notes go to its own pane: none while this window only watches that pane
   const diffPaneObserving = usePaneObserving(diffViewing?.paneId ? paneStorageId(diffViewing.machineId, diffViewing.paneId) : null);
   const { settingsOpen, setSettingsOpen, settingsLinkPage, setSettingsLinkPage, settingsLinkSection, setSettingsLinkSection, settingsPage, settingsSection, setSettingsSection, closeSettings, onSettingsPage } = useSettingsDialog(initialLink);
@@ -662,12 +659,12 @@ export function App() {
       // the page is this PC's whichever PC is selected: the browser reaches it under the app's own host,
       // which in the hosted shell is not the PC (and its frame-src frames no other port)
       openLocalPage: settings.webLinks === "panel" && shellMode() !== "relay" ? (url) => { setDrawerOpen(false); openWebPage(url, false, LOCAL_MACHINE); } : null,
-      openAgentBrowser: settings.agentBrowserPanel && selectedPaneId !== null ? () => { setDrawerOpen(false); if (webPage !== null) closeWebPage(true); setAgentBrowserOpen(true); } : null,
+      openAgentBrowser: settings.agentBrowserPanel && selectedPaneId !== null ? () => { setDrawerOpen(false); openAgentBrowser(); } : null,
       searchConversation: selectedSearchable && selectedPaneId !== null ? () => requestSearch(split ? split.active : soloSlot, selectedMachineId, selectedPaneId) : null,
       // herdr's layout calls on the selected pane (lib/layoutActions.ts): only those the PC's herdr answers
       ...layoutActions({ selectedPaneId, offer: appLayout, paneSplits: !selectedPane?.own_tab, selection: selectionRef, roster: snapshotRef, load, selectPane, layoutRefused }),
     }),
-    [revealFiles, selectPane, selectedPaneId, selectedPane?.own_tab, selectedMachineId, appLayout, reorderCoordinator, tabStripMounted, setView, view, terminalPeek, endPeek, updateSettings, resolvedTheme, canSignOut, lock, bell.run, enableNotifications, load, layoutRefused, moveRefused, lenses, openSidebarFilter, selectedSearchable, requestSearch, split, soloSlot, settings.webLinks, settings.sidebarBackgroundWorkspaces, openWebPage, settings.agentBrowserPanel, webPage, closeWebPage],
+    [revealFiles, selectPane, selectedPaneId, selectedPane?.own_tab, selectedMachineId, appLayout, reorderCoordinator, tabStripMounted, setView, view, terminalPeek, endPeek, updateSettings, resolvedTheme, canSignOut, lock, bell.run, enableNotifications, load, layoutRefused, moveRefused, lenses, openSidebarFilter, selectedSearchable, requestSearch, split, soloSlot, settings.webLinks, settings.sidebarBackgroundWorkspaces, openWebPage, settings.agentBrowserPanel, openAgentBrowser],
   );
 
   useShortcuts(actions, locked === false);
@@ -1202,7 +1199,7 @@ export function App() {
         {webPage !== null && !(viewing !== null && fileDocked) &&
           <WebPanel key={webPage} url={webPage} docked={filePanelAvailable} covered={webDialogCover} onClose={closeWebPage} panelStart={filePanelAvailable ? <FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} /> : undefined} />}
         {agentBrowserOpen && settings.agentBrowserPanel && selectedPaneId !== null && webPage === null && !(viewing !== null && fileDocked) &&
-          <AgentBrowserPanel key={`${selectedMachineId}:${selectedPaneId}`} machineId={selectedMachineId} paneId={selectedPaneId} blockedHosts={settings.agentBrowserBlockedHosts} docked={filePanelAvailable} covered={webDialogCover} onClose={() => setAgentBrowserOpen(false)} panelStart={filePanelAvailable ? <FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} /> : undefined} />}
+          <AgentBrowserPanel key={`${selectedMachineId}:${selectedPaneId}`} machineId={selectedMachineId} paneId={selectedPaneId} blockedHosts={settings.agentBrowserBlockedHosts} docked={filePanelAvailable} covered={webDialogCover} onClose={closeAgentBrowser} panelStart={filePanelAvailable ? <FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} /> : undefined} />}
       </div>
       </PanePressContext.Provider>
 

@@ -57,6 +57,14 @@ export function useFilePanels({ settings, filePanelAvailable, selectedPaneId, se
   useEffect(() => {
     if (viewing !== null && fileDocked && webPage !== null) closeWebPage(true);
   }, [viewing, fileDocked, webPage, closeWebPage]);
+  // the agent browser panel (Settings → Experimental) shares the web page's slot: a page opened over it closes it
+  const [agentBrowserOpen, setAgentBrowserOpen] = useState(false);
+  useEffect(() => { if (webPage !== null) setAgentBrowserOpen(false); }, [webPage]);
+  const openAgentBrowser = useCallback(() => {
+    if (webPage !== null) closeWebPage(true);
+    setAgentBrowserOpen(true);
+  }, [webPage, closeWebPage]);
+  const closeAgentBrowser = useCallback(() => setAgentBrowserOpen(false), []);
   // a docked file or web page over Files beside the pane; opening Files again (its button, the palette) closes it
   const filesCovered = (viewing !== null && fileDocked) || webPage !== null;
   const revealFiles = useCallback(() => {
@@ -188,5 +196,5 @@ export function useFilePanels({ settings, filePanelAvailable, selectedPaneId, se
     if (!filesDocked && filePanelAvailable && openPresentation(path, settings.fileOpen) === "panel") setFilesOpen(false);
     openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
   }, [openFile, selectedPaneId, selectedMachineId, filePanelAvailable, settings.fileOpen, filesDocked]);
-  return { filesOpen, setFilesOpen, filesDocked, filesCovered, revealFiles, viewing, openFile, closeFile, setPresentation, releaseFile, leaveFile, restoreFile, fileFromPop, forgetLeftFiles, diffViewing, openDiff, closeDiff, releaseDiff, presentation, fileDocked, webPage, closeWebPage, openWebPage, collapsing, presentFile, openDiffFile, reportFileKind, toggleFilePresentation, viewFile };
+  return { filesOpen, setFilesOpen, filesDocked, filesCovered, revealFiles, viewing, openFile, closeFile, setPresentation, releaseFile, leaveFile, restoreFile, fileFromPop, forgetLeftFiles, diffViewing, openDiff, closeDiff, releaseDiff, presentation, fileDocked, webPage, closeWebPage, openWebPage, agentBrowserOpen, openAgentBrowser, closeAgentBrowser, collapsing, presentFile, openDiffFile, reportFileKind, toggleFilePresentation, viewFile };
 }
