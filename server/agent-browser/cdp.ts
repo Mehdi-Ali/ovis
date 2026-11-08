@@ -11,6 +11,10 @@ export class CdpError extends Error {
 type Listener = (params: Record<string, unknown>) => void;
 
 const COMMAND_TIMEOUT_MS = 5000;
+/** commands awaiting an answer at once: input past it is refused rather than queued behind a silent browser */
+const COMMANDS_IN_FLIGHT = 64;
+/** a message past this is no frame the panel would send (FRAME_MAX_BYTES is far less): dropped unread */
+const MESSAGE_MAX_CHARS = 2 * 1024 * 1024;
 
 export class CdpPage {
   private nextId = 1;
@@ -50,6 +54,7 @@ export class CdpPage {
 
   send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     if (this.closed) return Promise.reject(new CdpError("cdp_closed", "the page's DevTools connection closed"));
+    if (this.waiting.size >= COMMANDS_IN_FLIGHT) return Promise.reject(new CdpError("cdp_refused", "too many commands in flight"));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -66,6 +71,7 @@ export class CdpPage {
   }
 
   private receive(text: string): void {
+    if (text.length > MESSAGE_MAX_CHARS) return;
     let message: unknown;
     try { message = JSON.parse(text); } catch (error) {
       if (error instanceof SyntaxError) return;

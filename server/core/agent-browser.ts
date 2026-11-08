@@ -10,14 +10,18 @@ import type { BrowserInput, BrowserTab, ClientMessage, ServerMessage } from "../
 import { CdpError, CdpPage, pageTargets } from "../agent-browser/cdp.ts";
 import { type BrowserDiscovery, discoverBrowser, discoverDeps } from "../agent-browser/discover.ts";
 import { HerdrError, paneProcessInfo } from "../herdr/client.ts";
-import { OUTPUT_LOW_BYTES } from "../output-window.ts";
 import { backlog, type Client, connectionOf, send } from "./connections.ts";
 
 const POLL_MS = 2000;
 const FRAME_INTERVAL_MS = 100;
-const SCREENCAST = { format: "jpeg", quality: 60, maxWidth: 1280, maxHeight: 800, everyNthFrame: 1 } as const;
-/** a frame past this is skipped rather than sent: the next one replaces it anyway */
-const FRAME_MAX_BYTES = 768 * 1024;
+const SCREENCAST = { format: "jpeg", quality: 55, maxWidth: 1024, maxHeight: 768, everyNthFrame: 1 } as const;
+/**
+ * A frame goes only to a socket with less than FRAME_SEND_BACKLOG queued, and one past FRAME_MAX_BYTES is skipped
+ * (the next replaces it): so at most one frame of at most that size sits ahead of the terminal's output, far inside
+ * the socket's hard budget (OUTPUT_HARD_BYTES), and frames follow the socket's own pace on a slow link or the relay.
+ */
+const FRAME_SEND_BACKLOG = 16 * 1024;
+const FRAME_MAX_BYTES = 192 * 1024;
 const WATCHES_PER_CONNECTION = 4;
 const BLOCKED_HOSTS_MAX = 64;
 const TEXT_MAX = 4096;
@@ -37,8 +41,11 @@ interface Session {
   controller: Client | null;
   discovery: BrowserDiscovery;
   tabs: BrowserTab[];
-  /** the tab a watcher last chose; the first tab when it is gone */
+  /** the tab a watcher last chose (only the controller while anyone holds control); the first tab when it is gone */
   wanted: string | null;
+  /** the shown tab's top frame started a navigation whose address is not known yet: a watcher with blocked hosts
+   * gets no frame and sends no input until Page.frameNavigated names it */
+  navigating: boolean;
   targetId: string | null;
   port: number | null;
   page: CdpPage | null;
@@ -58,14 +65,15 @@ const defaultDeps: AgentBrowserDeps = {
 /** Whether `url`'s host is one of `blocked` or under one of them (`example.com` blocks `www.example.com`). */
 export function hostBlocked(url: string | undefined, blocked: readonly string[]): boolean {
   if (url === undefined || blocked.length === 0 || !URL.canParse(url)) return false;
-  const host = new URL(url).hostname.toLowerCase();
+  // `bank.example.` is `bank.example`: a trailing dot names the same host
+  const host = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
   return blocked.some((entry) => host === entry || host.endsWith(`.${entry}`));
 }
 
 function blockedHosts(raw: unknown): string[] | null {
   if (raw === undefined) return [];
   if (!Array.isArray(raw) || raw.length > BLOCKED_HOSTS_MAX || !raw.every((entry) => typeof entry === "string" && entry.length <= 253)) return null;
-  return raw.map((entry: string) => entry.trim().toLowerCase().replace(/^\*\./, "")).filter((entry) => entry !== "");
+  return raw.map((entry: string) => entry.trim().toLowerCase().replace(/^\*\./, "").replace(/\.$/, "")).filter((entry) => entry !== "");
 }
 
 const finite = (value: unknown, limit: number): value is number => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= limit;
@@ -112,8 +120,14 @@ export function createAgentBrowser({ clients, deps = defaultDeps }: { clients: S
     return session.tabs.find((tab) => tab.id === session.targetId)?.url;
   }
 
+  /** whether the shown tab is closed to this watcher: on a host it blocked, or mid-navigation while it blocks any */
+  function blockedFor(session: Session, client: Client): boolean {
+    const blocked = session.viewers.get(client) ?? [];
+    return blocked.length > 0 && (session.navigating || hostBlocked(currentUrl(session), blocked));
+  }
+
   function stateFor(session: Session, client: Client): ServerMessage {
-    const blocked = hostBlocked(currentUrl(session), session.viewers.get(client) ?? []);
+    const blocked = blockedFor(session, client);
     return {
       type: "browser-state", pane_id: session.paneId, status: session.discovery.status, tabs: session.tabs, target_id: session.targetId,
       control: session.controller === null ? null : session.controller === client ? "you" : "other", blocked,
@@ -126,9 +140,9 @@ export function createAgentBrowser({ clients, deps = defaultDeps }: { clients: S
 
   function sendFrame(session: Session, client: Client): void {
     const frame = session.frame;
-    if (frame === null || session.targetId === null || !open(client) || hostBlocked(currentUrl(session), session.viewers.get(client) ?? [])) return;
+    if (frame === null || session.targetId === null || !open(client) || blockedFor(session, client)) return;
     // a frame is only worth sending to a socket that keeps up: one behind skips it, and its terminal output goes first
-    if (backlog(client) > OUTPUT_LOW_BYTES) return;
+    if (backlog(client) > FRAME_SEND_BACKLOG) return;
     send(client, { type: "browser-frame", pane_id: session.paneId, target_id: session.targetId, data: frame.data, width: frame.width, height: frame.height });
   }
 
@@ -149,6 +163,7 @@ export function createAgentBrowser({ clients, deps = defaultDeps }: { clients: S
     const page = session.page;
     session.page = null;
     session.frame = null;
+    session.navigating = false;
     if (session.frameTimer !== null) { clearTimeout(session.frameTimer); session.frameTimer = null; }
     page?.close();
   }
@@ -172,6 +187,31 @@ export function createAgentBrowser({ clients, deps = defaultDeps }: { clients: S
       session.frame = { data: params.data, width, height };
       frameArrived(session);
     });
+    // the shown tab's address as it changes, not only at the next poll: a blocked host is closed from its navigation on
+    let mainFrame: string | null = null;
+    const navigated = (url: string): void => {
+      session.navigating = false;
+      session.tabs = session.tabs.map((tab) => (tab.id === targetId ? { ...tab, url } : tab));
+      broadcastState(session);
+    };
+    page.on("Page.frameStartedLoading", (params) => {
+      if (session.page !== page || params.frameId !== mainFrame) return;
+      session.navigating = true;
+      broadcastState(session);
+    });
+    page.on("Page.frameNavigated", (params) => {
+      const frame = typeof params.frame === "object" && params.frame !== null ? params.frame as Record<string, unknown> : {};
+      if (session.page !== page || frame.parentId !== undefined || typeof frame.url !== "string") return;
+      mainFrame = typeof frame.id === "string" ? frame.id : mainFrame;
+      navigated(frame.url);
+    });
+    page.on("Page.navigatedWithinDocument", (params) => {
+      if (session.page === page && params.frameId === mainFrame && typeof params.url === "string") navigated(params.url);
+    });
+    await page.send("Page.enable");
+    const tree = await page.send("Page.getFrameTree") as { frameTree?: { frame?: { id?: unknown; url?: unknown } } } | undefined;
+    if (typeof tree?.frameTree?.frame?.id === "string") mainFrame = tree.frameTree.frame.id;
+    if (typeof tree?.frameTree?.frame?.url === "string") navigated(tree.frameTree.frame.url);
     await page.send("Page.startScreencast", { ...SCREENCAST });
   }
 
@@ -260,7 +300,7 @@ export function createAgentBrowser({ clients, deps = defaultDeps }: { clients: S
         }
         if (!session) {
           const created: Session = {
-            paneId: message.pane_id, viewers: new Map(), controller: null, discovery: { status: "none" }, tabs: [], wanted: null, targetId: null, port: null,
+            paneId: message.pane_id, viewers: new Map(), controller: null, discovery: { status: "none" }, tabs: [], wanted: null, navigating: false, targetId: null, port: null,
             page: null, frame: null, lastSent: 0, frameTimer: null, refreshing: false, ended: false,
             poll: setInterval(() => { void refresh(created); }, deps.pollMs ?? POLL_MS),
           };
@@ -270,6 +310,13 @@ export function createAgentBrowser({ clients, deps = defaultDeps }: { clients: S
         }
         const joined = !session.viewers.has(client);
         session.viewers.set(client, blocked);
+        // while someone holds control, only they move it to another tab: their clicks must land on the page they see
+        if (message.target_id !== undefined && message.target_id !== session.targetId && session.controller !== null && session.controller !== client) {
+          refused(client, "browser_tab_locked", "another device has control of this browser", message.pane_id);
+          send(client, stateFor(session, client));
+          if (joined) sendFrame(session, client);
+          return;
+        }
         const tabChosen = message.target_id !== undefined && message.target_id !== session.targetId;
         if (message.target_id !== undefined) session.wanted = message.target_id;
         if (tabChosen) { void refresh(session); return; }
@@ -302,7 +349,7 @@ export function createAgentBrowser({ clients, deps = defaultDeps }: { clients: S
           return;
         }
         if (client.data.readOnly || connectionOf(client).mode !== "interact") { refused(client, "browser_control_refused", "this device only views", message.pane_id); return; }
-        if (hostBlocked(currentUrl(session), session.viewers.get(client) ?? [])) { refused(client, "browser_host_blocked", "this page's host is blocked here", message.pane_id); return; }
+        if (blockedFor(session, client)) { refused(client, "browser_host_blocked", "this page's host is blocked here", message.pane_id); return; }
         const command = typeof message.input === "object" && message.input !== null ? inputCommand(message.input) : null;
         if (command === null) { refused(client, "invalid_browser_input", "the input is not one the panel sends", message.pane_id); return; }
         void session.page.send(command.method, command.params).catch((error: unknown) => {
@@ -313,6 +360,12 @@ export function createAgentBrowser({ clients, deps = defaultDeps }: { clients: S
     },
     drop(client: Client): void {
       for (const paneId of [...sessions.keys()]) release(client, paneId);
+    },
+    /** the connection lost the right to type (observe): its control ends at once, and a later interact needs Take control again */
+    releaseControl(client: Client): void {
+      for (const session of sessions.values()) {
+        if (session.controller === client) { session.controller = null; broadcastState(session); }
+      }
     },
     stop(): void {
       for (const session of [...sessions.values()]) end(session);

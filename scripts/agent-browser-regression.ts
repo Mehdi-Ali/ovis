@@ -127,6 +127,11 @@ try {
       await panel.getByRole("button", { name: "Stop", exact: true }).click();
       await panel.getByRole("button", { name: "Take control", exact: true }).waitFor();
       console.log(`PASS ${tag}: a click reaches the page only after Take control, and Stop hands control back`);
+      if (width <= 480) {
+        await on.page.goBack();
+        await panel.waitFor({ state: "detached" });
+        console.log(`PASS ${tag}: Back closes the sheet`);
+      }
       assert.deepEqual(on.errors, [], `${tag}: no page errors`);
       await on.close();
     }

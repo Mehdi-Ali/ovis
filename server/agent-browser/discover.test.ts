@@ -2,7 +2,7 @@ import { afterEach, expect, it } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type BrowserEndpoint, type DiscoverDeps, discoverBrowser, type ProcessEntry, readTextOrNull, treeUnder, verifyEndpoint } from "./discover.ts";
+import { type BrowserEndpoint, type DiscoverDeps, discoverBrowser, linuxOwnsPort, type ProcessEntry, readTextOrNull, treeUnder, verifyEndpoint } from "./discover.ts";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -72,13 +72,29 @@ it("tells a browser driven over a pipe apart from no browser", async () => {
   expect(await discoverBrowser(SHELL, deps(processes, []))).toEqual({ status: "pipe-only" });
 });
 
-it("proves a listener only when it names the browser id the profile's file named", async () => {
+it("proves a listener only when the browser process holds it and it names the browser id the profile's file named", async () => {
   const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({ webSocketDebuggerUrl: "ws://127.0.0.1/devtools/browser/actual" }) });
   try {
     const port = server.port ?? 0;
-    expect(await verifyEndpoint({ port, browserPath: "/devtools/browser/actual" })).toBe(true);
-    expect(await verifyEndpoint({ port, browserPath: "/devtools/browser/claimed" })).toBe(false);
+    expect(await verifyEndpoint({ port, browserPath: "/devtools/browser/actual" }, process.pid)).toBe(true);
+    expect(await verifyEndpoint({ port, browserPath: "/devtools/browser/claimed" }, process.pid)).toBe(false);
   } finally {
     await server.stop(true);
+  }
+});
+
+it.if(process.platform === "linux")("tells a listening socket the process holds from one another process holds", async () => {
+  // another process listens: a browser whose profile names that port does not hold it
+  const other = Bun.spawn(["bun", "-e", "const s = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('') }); console.log(s.port);"], { stdout: "pipe" });
+  try {
+    const reader = other.stdout.getReader();
+    const { value } = await reader.read();
+    const port = Number(new TextDecoder().decode(value).trim());
+    expect(port).toBeGreaterThan(0);
+    expect(await linuxOwnsPort(other.pid, port)).toBe(true);
+    expect(await linuxOwnsPort(process.pid, port)).toBe(false);
+  } finally {
+    other.kill();
+    await other.exited;
   }
 });

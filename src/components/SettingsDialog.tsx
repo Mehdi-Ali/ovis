@@ -771,16 +771,18 @@ function AlertsPage({ onEnableNotifications, machines }: { onEnableNotifications
   );
 }
 
-/** The switches still being shaped, on a page of their own as herdr-app and T3 Code keep them. */
 /** The blocked hosts as one comma-separated field, applied when it loses focus. */
 function BlockedHostsInput({ hosts, onChange }: { hosts: string[]; onChange: (hosts: string[]) => void }) {
   const t = useT();
-  const [text, setText] = useState(hosts.join(", "));
-  useEffect(() => { setText(hosts.join(", ")); }, [hosts]);
+  const joined = hosts.join(", ");
+  const [text, setText] = useState(joined);
+  // only a list that changed (here or in another tab) replaces what is typed
+  useEffect(() => { setText(joined); }, [joined]);
   return <input type="text" className="input" aria-label={t("Blocked hosts")} placeholder="bank.example, mail.example" spellCheck={false} autoCapitalize="off" value={text}
     onChange={(event) => setText(event.target.value)} onBlur={() => onChange(blockedHostList(text.split(",")))} />;
 }
 
+/** The switches still being shaped, on a page of their own as herdr-app and T3 Code keep them. */
 function ExperimentalPage() {
   const { settings, update } = useSettings();
   const t = useT();

@@ -5,6 +5,7 @@ import { useT } from "../lib/i18n.ts";
 import { useMachineSessions } from "../lib/machineSessionContext.tsx";
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 import { useSheetSwipe } from "../lib/sheets.ts";
+import { useSheetHistory } from "../lib/sheetHistory.ts";
 import "./FileViewer.css";
 import "./AgentBrowserPanel.css";
 
@@ -26,7 +27,7 @@ interface BrowserView {
   blocked: boolean;
 }
 
-interface Frame { data: string; width: number; height: number }
+interface Frame { data: string; width: number; height: number; targetId: string }
 
 const CONNECTING: BrowserView = { status: "connecting", tabs: [], targetId: null, control: null, blocked: false };
 const MOVE_EVERY_MS = 33;
@@ -55,28 +56,31 @@ export function AgentBrowserPanel({ machineId, paneId, blockedHosts, onClose, do
   const lastMove = useRef(0);
   const blockedKey = blockedHosts.join(",");
   useSheetSwipe(surface, docked || covered || view.control === "you" ? null : onClose);
+  // a phone's sheet holds a history entry: Back closes it, as it does the web page's popup
+  useSheetHistory(!docked, onClose);
 
   useEffect(() => {
     if (socket === null) return;
     setView(CONNECTING);
     setFrame(null);
     const blocked = blockedKey === "" ? [] : blockedKey.split(",");
-    const watch = (): void => {
-      if (socket.canWatchBrowser()) socket.watchBrowser(paneId, { blocked });
-      else if (socket.featuresListed()) setView({ ...CONNECTING, status: "unsupported" });
-    };
+    // kept by the socket, which sends it once the server says it streams browsers and again after each reconnect
+    socket.watchBrowser(paneId, { blocked });
+    const unsupported = (): void => { if (socket.featuresListed() && !socket.canWatchBrowser()) setView({ ...CONNECTING, status: "unsupported" }); };
     const off = socket.on((message: ServerMessage) => {
-      if (message.type === "features" || message.type === "snapshot") { watch(); return; }
+      if (message.type === "features" || message.type === "snapshot") { unsupported(); return; }
       if (message.type === "browser-state" && message.pane_id === paneId) {
         setView({ status: message.status, tabs: message.tabs, targetId: message.target_id, control: message.control, blocked: message.blocked });
+        // another tab's last picture is never left up to be clicked
         if (message.status !== "live" || message.blocked) setFrame(null);
+        else setFrame((shown) => (shown !== null && shown.targetId === message.target_id ? shown : null));
       } else if (message.type === "browser-frame" && message.pane_id === paneId) {
-        setFrame({ data: message.data, width: message.width, height: message.height });
+        setFrame({ data: message.data, width: message.width, height: message.height, targetId: message.target_id });
       } else if (message.type === "error" && message.pane_id === paneId && message.code.startsWith("browser_")) {
         setRefusal(message.code);
       }
     });
-    watch();
+    unsupported();
     return () => { off(); socket.watchBrowser(paneId, null); };
   }, [socket, paneId, blockedKey]);
 
@@ -93,11 +97,17 @@ export function AgentBrowserPanel({ machineId, paneId, blockedHosts, onClose, do
   }, [docked, covered, onClose, surface, view.control]);
 
   const controlling = view.control === "you" && frame !== null;
+  const frameRef = useRef(frame);
+  frameRef.current = frame;
+
+  // once, as control is taken: a later frame never pulls the keyboard back from elsewhere
+  useEffect(() => {
+    if (controlling && !covered) stage.current?.focus({ preventScroll: true });
+  }, [controlling, covered]);
 
   useEffect(() => {
     const node = stage.current;
     if (!controlling || node === null || socket === null) return;
-    node.focus({ preventScroll: true });
     // the wheel scrolls the page, not this panel: only a non-passive listener may keep it from the panel
     const onWheel = (event: WheelEvent): void => {
       const point = pagePoint(event.clientX, event.clientY);
@@ -107,15 +117,17 @@ export function AgentBrowserPanel({ machineId, paneId, blockedHosts, onClose, do
     };
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
-  });
+  }, [controlling, socket, paneId]);
 
-  /** A point on the frame in the page's CSS pixels, or null outside it. */
-  function pagePoint(clientX: number, clientY: number): { x: number; y: number } | null {
+  /** A point on the frame in the page's CSS pixels: null outside it, or kept to its edge (`clamp`, a captured drag). */
+  function pagePoint(clientX: number, clientY: number, clamp = false): { x: number; y: number } | null {
     const box = image.current?.getBoundingClientRect();
-    if (!box || frame === null || box.width === 0 || box.height === 0) return null;
-    const x = ((clientX - box.left) / box.width) * frame.width;
-    const y = ((clientY - box.top) / box.height) * frame.height;
-    return x < 0 || y < 0 || x > frame.width || y > frame.height ? null : { x: Math.round(x), y: Math.round(y) };
+    const shown = frameRef.current;
+    if (!box || shown === null || box.width === 0 || box.height === 0) return null;
+    let x = ((clientX - box.left) / box.width) * shown.width;
+    let y = ((clientY - box.top) / box.height) * shown.height;
+    if (clamp) { x = Math.min(Math.max(x, 0), shown.width); y = Math.min(Math.max(y, 0), shown.height); }
+    return x < 0 || y < 0 || x > shown.width || y > shown.height ? null : { x: Math.round(x), y: Math.round(y) };
   }
 
   const send = (input: BrowserInput): void => { if (controlling) socket?.browserInput(paneId, input); };
@@ -127,7 +139,9 @@ export function AgentBrowserPanel({ machineId, paneId, blockedHosts, onClose, do
       if (now - lastMove.current < MOVE_EVERY_MS) return;
       lastMove.current = now;
     }
-    const point = pagePoint(event.clientX, event.clientY);
+    // a press held past the frame's edge still moves and lets go on the page, where the drag left it
+    const captured = action !== "down" && event.currentTarget.hasPointerCapture(event.pointerId);
+    const point = pagePoint(event.clientX, event.clientY, captured);
     if (point === null) return;
     if (action === "down") event.currentTarget.setPointerCapture(event.pointerId);
     const button = action === "move" ? (event.buttons & 1 ? "left" : "none") : BUTTON_NAMES[event.button] ?? "left";
@@ -135,7 +149,9 @@ export function AgentBrowserPanel({ machineId, paneId, blockedHosts, onClose, do
   };
 
   const onKey = (action: "down" | "up") => (event: ReactKeyboardEvent<HTMLDivElement>): void => {
-    if (!controlling || event.nativeEvent.isComposing) return;
+    if (!controlling || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    // the local paste carries the text (onPaste below): the shortcut itself is not the page's
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") return;
     event.preventDefault();
     event.stopPropagation();
     const printable = event.key.length === 1 && !event.ctrlKey && !event.metaKey;
@@ -180,7 +196,8 @@ export function AgentBrowserPanel({ machineId, paneId, blockedHosts, onClose, do
         <div className="file-viewer-body web-panel-body agent-browser-body">
           <div ref={stage} className={`agent-browser-stage${controlling ? " is-controlling" : ""}`} tabIndex={controlling ? 0 : -1}
             aria-label={controlling ? t("Agent browser page: your clicks and keys go to it") : t("Agent browser page, view only")}
-            onPointerDown={onPointer("down")} onPointerMove={onPointer("move")} onPointerUp={onPointer("up")} onKeyDown={onKey("down")} onKeyUp={onKey("up")}
+            onPointerDown={onPointer("down")} onPointerMove={onPointer("move")} onPointerUp={onPointer("up")} onPointerCancel={onPointer("up")} onKeyDown={onKey("down")} onKeyUp={onKey("up")}
+            onCompositionEnd={(event) => { if (event.data) send({ kind: "text", text: event.data }); }}
             onPaste={(event) => { const text = event.clipboardData.getData("text"); if (controlling && text) { event.preventDefault(); send({ kind: "text", text }); } }}
             onContextMenu={(event) => { if (controlling) event.preventDefault(); }}>
             {frame !== null && message === null

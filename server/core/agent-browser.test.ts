@@ -34,6 +34,7 @@ class FakeBrowser {
   readonly changed = new Signal();
   open = 0;
   readonly server: Server<undefined>;
+  private socket: { send(data: string): void } | null = null;
   tabs = [{ type: "page", id: "tab-1", title: "Shop", url: "https://shop.example.com/cart" }];
 
   constructor() {
@@ -47,11 +48,16 @@ class FakeBrowser {
         return new Response("not found", { status: 404 });
       },
       websocket: {
-        open: () => { this.open++; this.changed.fire(); },
+        open: (socket) => { this.socket = socket; this.open++; this.changed.fire(); },
         close: () => { this.open--; this.changed.fire(); },
         message: (socket, raw) => {
           const message = JSON.parse(String(raw)) as { id: number; method: string; params: Record<string, unknown> };
           this.told.push({ method: message.method, params: message.params });
+          if (message.method === "Page.getFrameTree") {
+            socket.send(JSON.stringify({ id: message.id, result: { frameTree: { frame: { id: "main", url: this.tabs[0]?.url } } } }));
+            this.changed.fire();
+            return;
+          }
           socket.send(JSON.stringify({ id: message.id, result: {} }));
           if (message.method === "Page.startScreencast") {
             socket.send(JSON.stringify({ method: "Page.screencastFrame", params: { data: "SlBFRw==", sessionId: 7, metadata: { deviceWidth: 1280, deviceHeight: 720 } } }));
@@ -63,6 +69,8 @@ class FakeBrowser {
   }
 
   get port(): number { return this.server.port ?? 0; }
+  /** a DevTools event from the page, as the browser sends one */
+  emit(method: string, params: Record<string, unknown>): void { this.socket?.send(JSON.stringify({ method, params })); }
   told_(method: string): Promise<Record<string, unknown>> {
     return until(this.changed.subscribe, () => this.told.find((entry) => entry.method === method)?.params, method);
   }
@@ -173,5 +181,56 @@ it("sends no frame and takes no input on a host the watcher blocked", async () =
   agentBrowser.frames["browser-control"](careful.socket, { type: "browser-control", pane_id: "p1", take: true });
   agentBrowser.frames["browser-input"](careful.socket, { type: "browser-input", pane_id: "p1", input: { kind: "text", text: "hunter2" } });
   expect(careful.last("error")?.code).toBe("browser_host_blocked");
+  expect(browser.told.some((entry) => entry.method.startsWith("Input."))).toBe(false);
+});
+
+it("closes a tab to a watcher that blocked its host from the moment the tab navigates there, not at the next poll", async () => {
+  const { browser, agentBrowser, connect } = harness();
+  const careful = connect();
+  const first = careful.next("browser-frame");
+  agentBrowser.frames["browser-watch"](careful.socket, { type: "browser-watch", pane_id: "p1", enabled: true, blocked_hosts: ["bank.example"] });
+  await first;
+  agentBrowser.frames["browser-control"](careful.socket, { type: "browser-control", pane_id: "p1", take: true });
+
+  const closed = careful.next("browser-state", (state) => state.blocked);
+  browser.emit("Page.frameStartedLoading", { frameId: "main" });
+  await closed;
+  agentBrowser.frames["browser-input"](careful.socket, { type: "browser-input", pane_id: "p1", input: { kind: "text", text: "typed mid-navigation" } });
+  expect(careful.last("error")?.code).toBe("browser_host_blocked");
+  const named = careful.next("browser-state", (state) => state.tabs[0]?.url === "https://bank.example./login");
+  browser.emit("Page.frameNavigated", { frame: { id: "main", url: "https://bank.example./login" } });
+  expect((await named).blocked).toBe(true);
+  const frames = careful.frames.filter((frame) => frame.type === "browser-frame").length;
+  browser.emit("Page.screencastFrame", { data: "U0VDUkVU", sessionId: 8, metadata: { deviceWidth: 1280, deviceHeight: 720 } });
+  await until(browser.changed.subscribe, () => browser.told.find((entry) => entry.method === "Page.screencastFrameAck" && entry.params.sessionId === 8)?.params, "the blocked page's frame to be acknowledged");
+  expect(careful.frames.filter((frame) => frame.type === "browser-frame")).toHaveLength(frames);
+  expect(browser.told.some((entry) => entry.method.startsWith("Input."))).toBe(false);
+});
+
+it("lets only the watcher holding control move the browser to another tab", async () => {
+  const { agentBrowser, connect } = harness();
+  const owner = connect();
+  const viewer = connect();
+  const live = owner.next("browser-frame");
+  agentBrowser.frames["browser-watch"](owner.socket, { type: "browser-watch", pane_id: "p1", enabled: true });
+  agentBrowser.frames["browser-watch"](viewer.socket, { type: "browser-watch", pane_id: "p1", enabled: true });
+  await live;
+  agentBrowser.frames["browser-control"](owner.socket, { type: "browser-control", pane_id: "p1", take: true });
+  agentBrowser.frames["browser-watch"](viewer.socket, { type: "browser-watch", pane_id: "p1", enabled: true, target_id: "tab-2" });
+  expect(viewer.last("error")?.code).toBe("browser_tab_locked");
+  expect(owner.last("browser-state")?.control).toBe("you");
+});
+
+it("ends control when the connection turns to observing, so typing again needs Take control again", async () => {
+  const { browser, agentBrowser, connect } = harness();
+  const owner = connect();
+  const live = owner.next("browser-frame");
+  agentBrowser.frames["browser-watch"](owner.socket, { type: "browser-watch", pane_id: "p1", enabled: true });
+  await live;
+  agentBrowser.frames["browser-control"](owner.socket, { type: "browser-control", pane_id: "p1", take: true });
+  agentBrowser.releaseControl(owner.socket);
+  expect(owner.last("browser-state")?.control).toBeNull();
+  agentBrowser.frames["browser-input"](owner.socket, { type: "browser-input", pane_id: "p1", input: { kind: "text", text: "x" } });
+  expect(owner.last("error")?.code).toBe("browser_not_controlled");
   expect(browser.told.some((entry) => entry.method.startsWith("Input."))).toBe(false);
 });

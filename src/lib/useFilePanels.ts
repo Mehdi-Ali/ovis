@@ -57,19 +57,22 @@ export function useFilePanels({ settings, filePanelAvailable, selectedPaneId, se
   useEffect(() => {
     if (viewing !== null && fileDocked && webPage !== null) closeWebPage(true);
   }, [viewing, fileDocked, webPage, closeWebPage]);
-  // the agent browser panel (Settings → Experimental) shares the web page's slot: a page opened over it closes it
+  // the agent browser panel (Settings → Experimental) shares the web page's slot: a page opened over it closes it, a
+  // docked file covers it until it closes (App), and opening the panel closes either
   const [agentBrowserOpen, setAgentBrowserOpen] = useState(false);
   useEffect(() => { if (webPage !== null) setAgentBrowserOpen(false); }, [webPage]);
   const openAgentBrowser = useCallback(() => {
     if (webPage !== null) closeWebPage(true);
+    if (viewing !== null && fileDocked) closeFile();
     setAgentBrowserOpen(true);
-  }, [webPage, closeWebPage]);
+  }, [webPage, closeWebPage, viewing, fileDocked, closeFile]);
   const closeAgentBrowser = useCallback(() => setAgentBrowserOpen(false), []);
   // a docked file or web page over Files beside the pane; opening Files again (its button, the palette) closes it
-  const filesCovered = (viewing !== null && fileDocked) || webPage !== null;
+  const filesCovered = (viewing !== null && fileDocked) || webPage !== null || agentBrowserOpen;
   const revealFiles = useCallback(() => {
     setFilesOpen(true);
     if (!filesDocked) return;
+    setAgentBrowserOpen(false);
     if (viewing !== null && fileDocked) closeFile();
     else if (webPage !== null) closeWebPage();
   }, [filesDocked, viewing, fileDocked, closeFile, webPage, closeWebPage]);

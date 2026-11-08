@@ -7,7 +7,7 @@
  * A browser driven over `--remote-debugging-pipe` (Playwright's and chrome-devtools-mcp's own launches) has no
  * port to find: it is reported as `pipe-only`, so the panel can say why nothing shows.
  */
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, readlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 export interface ProcessEntry {
@@ -31,8 +31,12 @@ export interface DiscoverDeps {
   /** the processes under `root` (the pane's shell included) */
   readonly descendants: (root: number) => Promise<readonly ProcessEntry[]>;
   readonly readText: (path: string) => Promise<string | null>;
-  /** whether a loopback listener on `port` is the browser whose target path is `browserPath` */
-  readonly verify: (endpoint: BrowserEndpoint) => Promise<boolean>;
+  /**
+   * whether the loopback listener on the endpoint's port is held by process `pid` itself and names the browser
+   * target path its profile's file named: a profile file can name any browser (a symlinked profile, a stale file),
+   * but only the browser process holds its own listening socket
+   */
+  readonly verify: (endpoint: BrowserEndpoint, pid: number) => Promise<boolean>;
 }
 
 const BROWSER_NAME = /^(?:google-chrome(?:-[a-z]+)?|chrome|chromium(?:-browser)?|chrome-headless-shell|headless_shell|msedge|microsoft-edge(?:-[a-z]+)?|brave(?:-browser)?|google chrome(?: [a-z]+)?|chromium|microsoft edge|brave browser)(?:\.exe)?$/i;
@@ -88,7 +92,7 @@ export async function discoverBrowser(shellPid: number, deps: DiscoverDeps): Pro
   for (const browser of browsers) {
     const endpoint = await endpointOf(browser, deps);
     if (endpoint === "pipe") { pipeOnly = true; continue; }
-    if (endpoint !== null && await deps.verify(endpoint)) return { status: "live", pid: browser.pid, endpoint };
+    if (endpoint !== null && await deps.verify(endpoint, browser.pid)) return { status: "live", pid: browser.pid, endpoint };
   }
   return pipeOnly ? { status: "pipe-only" } : { status: "none" };
 }
@@ -169,8 +173,50 @@ export async function readTextOrNull(path: string): Promise<string | null> {
   }
 }
 
-/** Asks the loopback listener for its browser target: proved when it names the path the profile's file named. */
-export async function verifyEndpoint(endpoint: BrowserEndpoint): Promise<boolean> {
+/** Linux: whether `pid` holds a listening TCP socket on `port` (its net table's inode among its own descriptors). */
+export async function linuxOwnsPort(pid: number, port: number): Promise<boolean> {
+  const inodes = new Set<string>();
+  for (const table of ["tcp", "tcp6"]) {
+    for (const line of (await readTextOrNull(`/proc/${pid}/net/${table}`))?.split("\n").slice(1) ?? []) {
+      const fields = line.trim().split(/\s+/);
+      const local = fields[1]?.split(":")[1];
+      // st 0A is LISTEN; the local address's port is hex
+      if (fields[3] === "0A" && local !== undefined && Number.parseInt(local, 16) === port && fields[9] !== undefined) inodes.add(`socket:[${fields[9]}]`);
+    }
+  }
+  if (inodes.size === 0) return false;
+  let descriptors: string[];
+  try { descriptors = await readdir(`/proc/${pid}/fd`); } catch (error) {
+    if (gone(error)) return false;
+    throw error;
+  }
+  for (const descriptor of descriptors) {
+    try {
+      if (inodes.has(await readlink(`/proc/${pid}/fd/${descriptor}`))) return true;
+    } catch (error) {
+      if (!gone(error)) throw error;
+    }
+  }
+  return false;
+}
+
+/** macOS: whether `pid` holds a listening TCP socket on `port`, as lsof reads the kernel's table. */
+async function darwinOwnsPort(pid: number, port: number): Promise<boolean> {
+  const child = Bun.spawn(["/usr/sbin/lsof", "-nP", "-a", "-p", String(pid), `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], { stdout: "pipe", stderr: "ignore" });
+  const text = await new Response(child.stdout).text();
+  await child.exited;
+  return text.split("\n").some((line) => line.trim() === String(pid));
+}
+
+export function ownsPort(pid: number, port: number): Promise<boolean> {
+  if (process.platform === "linux") return linuxOwnsPort(pid, port);
+  if (process.platform === "darwin") return darwinOwnsPort(pid, port);
+  return Promise.resolve(false);
+}
+
+/** Proved when the browser process holds the listener and the listener names the path the profile's file named. */
+export async function verifyEndpoint(endpoint: BrowserEndpoint, pid: number): Promise<boolean> {
+  if (!await ownsPort(pid, endpoint.port)) return false;
   try {
     const response = await fetch(`http://127.0.0.1:${endpoint.port}/json/version`, { signal: AbortSignal.timeout(1500) });
     if (!response.ok) return false;
