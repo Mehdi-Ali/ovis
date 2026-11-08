@@ -1,10 +1,11 @@
 import { useContext, useEffect, useState } from "react";
-import { Download, Info, X } from "lucide-react";
+import { Download, Info, RotateCw, X } from "lucide-react";
 import { CHECKOUT_CHANGED_REASON, DESKTOP_APP_UPDATES, SUMMARY_GROUPS, type SummaryGroup, type UpdateNotes, type UpdateStatus } from "../../shared/update.ts";
 import { useHerdrUpdate } from "../lib/herdrUpdate.ts";
 import { runningAppVersion, runningHerdrVersion, staleClientVersion, versionLabel } from "../lib/runningVersion.ts";
 import { useSettings } from "../lib/settings.ts";
 import { announcesUpdate, readAnnounced, summaryFor, watchAnnounced, writeAnnounced } from "../lib/updateNotes.ts";
+import { headerUpdate, useDesktopUpdate } from "../lib/headerUpdate.ts";
 import { describeUpdate } from "../lib/updateProgress.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import { lazyChunkFailed, onLazyChunkFailure } from "../lib/lazyChunk.ts";
@@ -261,6 +262,37 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
       void request(install !== null ? { command: "install", expected_revision: install } : { command: "check" });
     }}>{t(failed ? "Try again" : "Update")}</button>
   </div>;
+}
+
+/**
+ * The one control on the right of Settings' header while an update exists (as in the Codex app's
+ * settings): it gets the release, shows its download or install going, and once the desktop app
+ * downloaded it, restarts into it. Nothing while up to date.
+ */
+export function SettingsHeaderUpdate({ updates }: { updates: UpdatesModel }) {
+  const t = useT();
+  const desktop = useDesktopUpdate();
+  const { busy, request, offered } = updates;
+  // the version an install was asked for here: its first check reports nothing available
+  const [started, setStarted] = useState<string | null>(null);
+  useEffect(() => { if (!busy) setStarted(null); }, [busy]);
+  const view = headerUpdate(desktop?.update ?? null, updates, started);
+  if (!view) return null;
+  if (view.kind === "restart") {
+    return <button type="button" className="btn btn-primary settings-header-update" onClick={() => desktop?.act()}>
+      <RotateCw aria-hidden="true" /><span>{t("Restart to update")}</span>
+    </button>;
+  }
+  const label = t("Get update ({version})", { version: view.version });
+  return <button type="button" className="btn btn-primary settings-header-update" disabled={view.busy} aria-busy={view.busy || undefined} onClick={() => {
+    if (desktop?.update) return desktop.act();
+    if (offered === null) return;
+    setStarted(view.version);
+    void request({ command: "install", expected_revision: offered });
+  }}>
+    <Download aria-hidden="true" /><span>{label}</span>
+    {view.percent !== null && <span className="settings-header-update-percent">{view.percent}%</span>}
+  </button>;
 }
 
 /**

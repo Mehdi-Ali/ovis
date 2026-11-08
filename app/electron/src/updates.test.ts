@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 // not the package itself: it sets up an updater for this platform as its exports are read, which needs Electron
 import { DebUpdater } from "electron-updater/out/DebUpdater";
-import { BETA_FEED, checkForUpdates, debInstallCommand, updateChannel, updatePlan } from "./updates.ts";
+import { BETA_FEED, checkForUpdates, debInstallCommand, nextDesktopUpdate, updateChannel, updatePlan } from "./updates.ts";
 
 const packaged = { packaged: true, platform: "darwin", builtWithFeed: true, env: {} };
 
@@ -132,5 +132,26 @@ describe("updateChannel", () => {
       expect(updateChannel({}, stateDir)).toBe("beta");
       expect(updateChannel({ OVIS_UPDATE_CHANNEL: "stable" }, stateDir)).toBe("stable");
     } finally { rmSync(stateDir, { recursive: true, force: true }); }
+  });
+});
+
+describe("nextDesktopUpdate", () => {
+  it("follows a found release through its download to ready", () => {
+    let state = nextDesktopUpdate(null, { type: "available", version: "0.5.2" });
+    expect(state).toEqual({ phase: "downloading", version: "0.5.2", percent: 0 });
+    state = nextDesktopUpdate(state, { type: "progress", percent: 41.7 });
+    expect(state).toEqual({ phase: "downloading", version: "0.5.2", percent: 41 });
+    expect(nextDesktopUpdate(state, { type: "downloaded", version: "0.5.2" })).toEqual({ phase: "ready", version: "0.5.2" });
+  });
+
+  it("marks a failed download, and leaves a failed check with nothing found alone", () => {
+    expect(nextDesktopUpdate({ phase: "downloading", version: "0.5.2", percent: 12 }, { type: "error" })).toEqual({ phase: "failed", version: "0.5.2" });
+    expect(nextDesktopUpdate(null, { type: "error" })).toBeNull();
+    expect(nextDesktopUpdate({ phase: "ready", version: "0.5.2" }, { type: "error" })).toEqual({ phase: "ready", version: "0.5.2" });
+  });
+
+  it("stays ready when the next check finds the release it already downloaded", () => {
+    expect(nextDesktopUpdate({ phase: "ready", version: "0.5.2" }, { type: "available", version: "0.5.2" })).toEqual({ phase: "ready", version: "0.5.2" });
+    expect(nextDesktopUpdate({ phase: "ready", version: "0.5.2" }, { type: "available", version: "0.5.3" })).toEqual({ phase: "downloading", version: "0.5.3", percent: 0 });
   });
 });

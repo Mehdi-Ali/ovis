@@ -53,4 +53,6 @@ export const UPDATES_KO: Record<string, string> = {
   "Restarting the app": "앱 다시 시작하는 중",
   "Last checked {when}": "마지막 확인: {when}",
   "This server is part of the Ovis app, which updates them together: updates come with the app, not from here.": "이 서버는 Ovis 앱에 들어 있어 앱과 함께 업데이트됩니다. 업데이트는 여기가 아니라 앱으로 받습니다.",
+  "Get update ({version})": "업데이트 받기 ({version})",
+  "Restart to update": "다시 시작해서 업데이트",
 };

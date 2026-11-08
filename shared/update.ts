@@ -243,6 +243,16 @@ export function readInstalledNotes(value: unknown): InstalledNotes {
 /** Why a server the desktop app runs (OVIS_DESKTOP_APP) offers no update here: the app updates itself and its server with it. */
 export const DESKTOP_APP_UPDATES = "This server is part of the Ovis app, which updates them together: updates come with the app, not from here.";
 
+/**
+ * The desktop app's own update (app/electron/src/updates.ts), as its preload hands it to the
+ * server's pages: a release found downloads by itself, and installs on a restart once ready.
+ * `failed`: its download failed, and asking again checks the feed again.
+ */
+export type DesktopUpdate =
+  | { phase: "downloading"; version: string; percent: number }
+  | { phase: "failed"; version: string }
+  | { phase: "ready"; version: string };
+
 export function unmanagedUpdateStatus(desktopApp = false): UpdateStatus {
   return {
     managed: false, auto_update: false, phase: "idle", current_revision: null,

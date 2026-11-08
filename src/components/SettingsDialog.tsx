@@ -62,7 +62,7 @@ import { ConnectPhoneDialog, relayOffered } from "./ConnectPhoneDialog.tsx";
 import { PushTestControls } from "./PushTestControls.tsx";
 import { AlertWebhookGroup } from "./AlertWebhookGroup.tsx";
 import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
-import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
+import { HerdrUpdateControls, SettingsHeaderUpdate, UpdateControls } from "./UpdateControls.tsx";
 import { TelemetryControls } from "./TelemetryControls.tsx";
 import { AgentsSettings } from "./AgentsSettings.tsx";
 import { AgentGroupNames } from "./AgentGroupNames.tsx";
@@ -1977,6 +1977,7 @@ function OpenSettingsDialog({ section = null, linkPage = null, linkSection = nul
         <header className="modal-header settings-header">
           {(keyBarOpen || (narrow && page !== null)) && <button type="button" ref={backRef} className="icon-button" aria-label={t("Back to settings")} onClick={goBack}><ArrowLeft aria-hidden="true" /></button>}
           <h2 className="modal-title">{keyBarOpen ? t("Key bar") : searching && !narrow ? t("Search results") : page === null ? t("Settings") : label(page)}</h2>
+          <SettingsHeaderUpdate updates={updates} />
           <button type="button" className="icon-button" aria-label={t("Close settings")} onClick={onClose}><X aria-hidden="true" /></button>
         </header>
         {listShown && (

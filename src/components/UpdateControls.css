@@ -216,3 +216,21 @@
 .update-output[data-failed] {
   border-color: var(--status-blocked);
 }
+
+/* Settings' header, on its right: one compact button while an update exists; the title gives way on a phone */
+.settings-header-update {
+  flex: 0 1 auto;
+  min-width: 0;
+  height: calc(var(--control-h) - var(--space-1));
+  padding: 0 var(--space-2);
+  font-size: var(--fs-xs);
+}
+
+.settings-header-update > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-header-update-percent {
+  font-variant-numeric: tabular-nums;
+}

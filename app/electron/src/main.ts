@@ -12,7 +12,8 @@ import type { ChildProcess } from "node:child_process";
 import { choosePort, coreEnv, endLeftover, installCore, isFile, layout, openLog, processCommand, processStartSync, readSaved, serverEnv, startCore, startServer, stopServer, writeSaved, type RunningServer } from "./children.ts";
 import { accountServiceOf, startLoopbackSignIn, type LoopbackSignIn } from "./accountSignIn.ts";
 import { awakeLabel, DESKTOP_ACTIVITY_FILE, holdAwake, readAwakeSettings, readWorking, writeAwakeSettings, type AwakeSettings } from "./awake.ts";
-import { checkForUpdates, debInstallCommand, updateChannel, updatePlan } from "./updates.ts";
+import { checkForUpdates, debInstallCommand, nextDesktopUpdate, updateChannel, updatePlan, type UpdaterEvent } from "./updates.ts";
+import type { DesktopUpdate } from "../../../shared/update.ts";
 import { extractedAppDir, othersRunFrom } from "./appimage.ts";
 import { desktopLocale, desktopText } from "./text.ts";
 
@@ -48,6 +49,9 @@ let spawning: ChildProcess | null = null;
 let quitting = false;
 let stopped = false;
 let updateReady: (() => void) | null = null;
+/** the update Settings' header offers (nextDesktopUpdate), and the check that a failed download retries */
+let desktopUpdate: DesktopUpdate | null = null;
+let checkAgain: (() => void) | null = null;
 let status: Status = { core: "pending", server: "pending", detail: "", versions };
 const awakePath = join(app.getPath("userData"), "awake.json");
 let awake = readAwakeSettings(awakePath);
@@ -346,6 +350,14 @@ function updateLog(line: string): void {
   } catch (error) { console.error(`Writing to ${logs} failed: ${message(error)}`); }
 }
 
+/** tells the server's page in the window of an update's next state; it asks for the current one as it loads */
+function onUpdater(event: UpdaterEvent): void {
+  const next = nextDesktopUpdate(desktopUpdate, event);
+  if (JSON.stringify(next) === JSON.stringify(desktopUpdate)) return;
+  desktopUpdate = next;
+  if (window && ours(window.webContents.getURL())) window.webContents.send("ovis:update", desktopUpdate);
+}
+
 async function startUpdates(): Promise<void> {
   let linuxPackage: string | null = null;
   try { linuxPackage = readFileSync(join(process.resourcesPath, "package-type"), "utf8").trim(); } catch { /* not a Linux package */ }
@@ -385,15 +397,22 @@ async function startUpdates(): Promise<void> {
   updateLog(`Updates: ${plan.channel} channel.`);
   // a .deb installs behind a password prompt: only when asked from the tray, never on a plain quit
   if (plan.installer === "deb") autoUpdater.autoInstallOnAppQuit = false;
-  autoUpdater.on("error", (error) => updateLog(`Update failed: ${message(error)}`));
-  autoUpdater.on("update-downloaded", () => {
+  autoUpdater.on("error", (error) => {
+    updateLog(`Update failed: ${message(error)}`);
+    onUpdater({ type: "error" });
+  });
+  autoUpdater.on("update-available", (info) => onUpdater({ type: "available", version: info.version }));
+  autoUpdater.on("download-progress", (progress) => onUpdater({ type: "progress", percent: progress.percent }));
+  autoUpdater.on("update-downloaded", (info) => {
     // the .deb installs first and the app quits (stopping the server) only once it did, then starts again;
     // a cancelled prompt leaves the app and its server running. The AppImage starts its new copy at
     // once, so the server stops before.
     updateReady = plan.installer === "deb" ? () => autoUpdater.quitAndInstall() : () => void stopForQuit().then(() => autoUpdater.quitAndInstall());
     rebuildTrayMenu();
+    onUpdater({ type: "downloaded", version: info.version });
   });
   const check = () => void checkForUpdates(autoUpdater, updateLog);
+  checkAgain = check;
   check();
   setInterval(check, 6 * 60 * 60 * 1000);
 }
@@ -410,6 +429,13 @@ if (!app.requestSingleInstanceLock()) {
     if (event.senderFrame?.url.startsWith("file:")) void shell.openPath(logs);
   });
   // signing in to the account (accountSignIn.ts): only the server's own pages may, and only to the account service named
+  // the update Settings' header offers: its state, and its button (a restart once ready, a new check after a failed download)
+  ipcMain.handle("ovis:update", (event) => ours(event.senderFrame?.url ?? "") ? desktopUpdate : null);
+  ipcMain.on("ovis:update-action", (event) => {
+    if (!ours(event.senderFrame?.url ?? "")) return;
+    if (desktopUpdate?.phase === "ready") updateReady?.();
+    else if (desktopUpdate?.phase === "failed") checkAgain?.();
+  });
   let signIn: LoopbackSignIn | null = null;
   ipcMain.on("ovis:account-service", (event) => {
     event.returnValue = ours(event.senderFrame?.url ?? "") && accountService !== null ? { service: accountService, providers: accountProviders } : null;

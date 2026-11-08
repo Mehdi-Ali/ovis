@@ -13,7 +13,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppUpdater } from "electron-updater";
-import { readUpdateChannel, type UpdateChannel } from "../../../shared/update.ts";
+import { readUpdateChannel, type DesktopUpdate, type UpdateChannel } from "../../../shared/update.ts";
 
 type Env = Record<string, string | undefined>;
 
@@ -89,6 +89,26 @@ export function updatePlan(options: { packaged: boolean; env: Env; platform: str
  * reports (a cancelled one is no error): the promise of that download is only caught, where left alone
  * it was logged a second time as an unhandled rejection (#2831).
  */
+/** What electron-updater tells of a check and its download, as nextDesktopUpdate reads it. */
+export type UpdaterEvent =
+  | { type: "available"; version: string }
+  | { type: "progress"; percent: number }
+  | { type: "downloaded"; version: string }
+  | { type: "error" };
+
+/**
+ * The update Settings' header offers after an updater event. A failed check that found nothing
+ * changes nothing; a check after the download finds the same release again and stays ready.
+ */
+export function nextDesktopUpdate(state: DesktopUpdate | null, event: UpdaterEvent): DesktopUpdate | null {
+  switch (event.type) {
+    case "available": return state?.phase === "ready" && state.version === event.version ? state : { phase: "downloading", version: event.version, percent: 0 };
+    case "progress": return state?.phase === "downloading" ? { ...state, percent: Math.floor(event.percent) } : state;
+    case "downloaded": return { phase: "ready", version: event.version };
+    case "error": return state?.phase === "downloading" ? { phase: "failed", version: state.version } : state;
+  }
+}
+
 export async function checkForUpdates(updater: Pick<AppUpdater, "checkForUpdates">, log: (line: string) => void): Promise<void> {
   const result = await updater.checkForUpdates().catch((error: unknown) => {
     log(`Update check failed: ${error instanceof Error ? error.message : String(error)}`);
