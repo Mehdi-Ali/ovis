@@ -222,7 +222,7 @@ export const FILES_ZH: Record<string, string> = {
   "Browser tab": "浏览器标签页",
   "Close agent browser": "关闭智能体浏览器",
   "Looking for the pane's browser…": "正在查找此窗格的浏览器…",
-  "No browser found in this pane. Ovis shows a Chromium browser an agent starts here with a DevTools port, such as agent-browser's.": "此窗格中未找到浏览器。Ovis 会显示智能体在这里以 DevTools 端口启动的 Chromium 浏览器(例如 agent-browser 的浏览器)。",
+  "No browser found in this pane. Ovis shows a Chromium browser started in this pane with a DevTools port (--remote-debugging-port=0). A browser a background daemon starts, such as agent-browser's, is not found yet.": "此窗格中未找到浏览器。Ovis 会显示在此窗格中以 DevTools 端口(--remote-debugging-port=0)启动的 Chromium 浏览器。像 agent-browser 这样由后台守护进程启动的浏览器暂时还找不到。",
   "Send your clicks and keys to this page until you stop": "在你停止之前,将点击和按键发送到此页面",
   "Take control": "接管控制",
   "The agent drives its browser over a pipe, which Ovis can't watch. Start the browser with a DevTools port (--remote-debugging-port=0) to show it here.": "智能体通过管道控制浏览器,Ovis 无法查看。请使用 DevTools 端口(--remote-debugging-port=0)启动浏览器,以便在这里显示。",

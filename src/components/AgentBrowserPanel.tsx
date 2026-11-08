@@ -167,7 +167,7 @@ export function AgentBrowserPanel({ machineId, paneId, blockedHosts, onClose, do
   const message = view.status === "unsupported" ? t("This PC's Ovis can't show an agent's browser yet. Update it to use this panel.")
     : view.status === "connecting" ? t("Looking for the pane's browser…")
     : view.status === "pipe-only" ? t("The agent drives its browser over a pipe, which Ovis can't watch. Start the browser with a DevTools port (--remote-debugging-port=0) to show it here.")
-    : view.status === "none" ? t("No browser found in this pane. Ovis shows a Chromium browser an agent starts here with a DevTools port, such as agent-browser's.")
+    : view.status === "none" ? t("No browser found in this pane. Ovis shows a Chromium browser started in this pane with a DevTools port (--remote-debugging-port=0). A browser a background daemon starts, such as agent-browser's, is not found yet.")
     : view.blocked ? t("This page's host is blocked on this device.")
     : frame === null ? t("Waiting for the page…")
     : null;

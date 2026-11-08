@@ -222,7 +222,7 @@ export const FILES_JA: Record<string, string> = {
   "Browser tab": "ブラウザーのタブ",
   "Close agent browser": "エージェントのブラウザーを閉じる",
   "Looking for the pane's browser…": "このペインのブラウザーを探しています…",
-  "No browser found in this pane. Ovis shows a Chromium browser an agent starts here with a DevTools port, such as agent-browser's.": "このペインにブラウザーが見つかりません。Ovis は、エージェントがここで DevTools ポート付きで起動した Chromium ブラウザー(agent-browser など)を表示します。",
+  "No browser found in this pane. Ovis shows a Chromium browser started in this pane with a DevTools port (--remote-debugging-port=0). A browser a background daemon starts, such as agent-browser's, is not found yet.": "このペインにブラウザーが見つかりません。Ovis は、このペインで DevTools ポート(--remote-debugging-port=0)付きで起動した Chromium ブラウザーを表示します。agent-browser のようにバックグラウンドのデーモンが起動したブラウザーは、まだ見つけられません。",
   "Send your clicks and keys to this page until you stop": "停止するまでクリックとキー入力をこのページに送ります",
   "Take control": "操作を引き継ぐ",
   "The agent drives its browser over a pipe, which Ovis can't watch. Start the browser with a DevTools port (--remote-debugging-port=0) to show it here.": "エージェントはパイプ経由でブラウザーを操作しているため、Ovis からは見られません。ここに表示するには、DevTools ポート(--remote-debugging-port=0)付きでブラウザーを起動してください。",

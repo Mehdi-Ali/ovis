@@ -222,7 +222,7 @@ export const FILES_KO: Record<string, string> = {
   "Browser tab": "브라우저 탭",
   "Close agent browser": "에이전트 브라우저 닫기",
   "Looking for the pane's browser…": "이 창의 브라우저를 찾는 중…",
-  "No browser found in this pane. Ovis shows a Chromium browser an agent starts here with a DevTools port, such as agent-browser's.": "이 창에서 브라우저를 찾지 못했습니다. Ovis는 에이전트가 이 창에서 DevTools 포트를 열고 띄운 Chromium 브라우저(예: agent-browser)를 보여 줍니다.",
+  "No browser found in this pane. Ovis shows a Chromium browser started in this pane with a DevTools port (--remote-debugging-port=0). A browser a background daemon starts, such as agent-browser's, is not found yet.": "이 창에서 브라우저를 찾지 못했습니다. Ovis는 이 창에서 DevTools 포트(--remote-debugging-port=0)를 열고 시작한 Chromium 브라우저를 보여 줍니다. agent-browser처럼 백그라운드 데몬이 띄운 브라우저는 아직 찾지 못합니다.",
   "Send your clicks and keys to this page until you stop": "중지할 때까지 클릭과 키 입력을 이 페이지로 보냅니다",
   "Take control": "제어 가져오기",
   "The agent drives its browser over a pipe, which Ovis can't watch. Start the browser with a DevTools port (--remote-debugging-port=0) to show it here.": "에이전트가 파이프로 브라우저를 조종하고 있어 Ovis가 볼 수 없습니다. 여기에 보이려면 DevTools 포트(--remote-debugging-port=0)를 열고 브라우저를 시작하세요.",
