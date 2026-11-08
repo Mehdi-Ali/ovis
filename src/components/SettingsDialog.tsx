@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
-import { AppWindow, ArrowLeft, AudioLines, Bell, Bot, Box, Brain, CheckCheck, ChevronLeft, ChevronRight, ClipboardCopy, ClipboardPaste, Command, CornerDownLeft, ExternalLink, FileClock, FilePen, FlaskConical, Globe, Image as ImageIcon, Info, Keyboard, Languages, Layers, ListCollapse, Lock, MessageCircleQuestionMark, MessageSquare, MessageSquareReply, MessagesSquare, Mic, Monitor, Mouse, MousePointer2, MoveHorizontal, OctagonX, Palette, PanelRight, Plus, Puzzle, Trash2, Search, Send, ShieldAlert, Smartphone, Sparkles, SquareTerminal, Star, Tags, TextCursorInput, Timer, Volume2, WandSparkles, WrapText, X, ALargeSmall, ArrowDownUp, CircleDot, Filter, Gauge, ListTree, PanelLeft, Rows3, Shapes, SunMoon, Tag, Type, type LucideIcon } from "lucide-react";
+import { AppWindow, ArrowLeft, ShieldOff, AudioLines, Bell, Bot, Box, Brain, CheckCheck, ChevronLeft, ChevronRight, ClipboardCopy, ClipboardPaste, Command, CornerDownLeft, ExternalLink, FileClock, FilePen, FlaskConical, Globe, Image as ImageIcon, Info, Keyboard, Languages, Layers, ListCollapse, Lock, MessageCircleQuestionMark, MessageSquare, MessageSquareReply, MessagesSquare, Mic, Monitor, Mouse, MousePointer2, MoveHorizontal, OctagonX, Palette, PanelRight, Plus, Puzzle, Trash2, Search, Send, ShieldAlert, Smartphone, Sparkles, SquareTerminal, Star, Tags, TextCursorInput, Timer, Volume2, WandSparkles, WrapText, X, ALargeSmall, ArrowDownUp, CircleDot, Filter, Gauge, ListTree, PanelLeft, Rows3, Shapes, SunMoon, Tag, Type, type LucideIcon } from "lucide-react";
 
 import "./SettingsDialog.css";
 
@@ -18,7 +18,7 @@ import { herdrKeys, loadHerdrUi } from "../lib/herdrUi.ts";
 import { HERDR_PREFIX_ACTIONS, type HerdrKeys, type HerdrPrefixAction } from "../../shared/herdr-keys.ts";
 import { WEB_LINK_TARGETS } from "../lib/webPanel.ts";
 import { FILE_OPEN_TARGETS } from "../lib/filePresentation.ts";
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, DICTATION_LANGUAGES, VOICE_BUTTONS, VOICE_ENGINES, enterSendsOn, useSettings, forgetPaneViews, uiFontSize, type DictationLanguage, type VoiceButton } from "../lib/settings.ts";
+import { blockedHostList, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, DICTATION_LANGUAGES, VOICE_BUTTONS, VOICE_ENGINES, enterSendsOn, useSettings, forgetPaneViews, uiFontSize, type DictationLanguage, type VoiceButton } from "../lib/settings.ts";
 import { isThemeId, pickTheme, rowFor, THEME_IDS, type Mode, type ThemeId } from "../lib/themes.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useLocale, useT } from "../lib/i18n.ts";
 import { focusInOtherModal, useFocusTrap } from "../lib/useFocusTrap.ts";
@@ -772,6 +772,15 @@ function AlertsPage({ onEnableNotifications, machines }: { onEnableNotifications
 }
 
 /** The switches still being shaped, on a page of their own as herdr-app and T3 Code keep them. */
+/** The blocked hosts as one comma-separated field, applied when it loses focus. */
+function BlockedHostsInput({ hosts, onChange }: { hosts: string[]; onChange: (hosts: string[]) => void }) {
+  const t = useT();
+  const [text, setText] = useState(hosts.join(", "));
+  useEffect(() => { setText(hosts.join(", ")); }, [hosts]);
+  return <input type="text" className="input" aria-label={t("Blocked hosts")} placeholder="bank.example, mail.example" spellCheck={false} autoCapitalize="off" value={text}
+    onChange={(event) => setText(event.target.value)} onBlur={() => onChange(blockedHostList(text.split(",")))} />;
+}
+
 function ExperimentalPage() {
   const { settings, update } = useSettings();
   const t = useT();
@@ -785,6 +794,12 @@ function ExperimentalPage() {
       <SettingsRow label={t("Lock pinned agents")} icon={Lock} description={t("A pinned agent's menu in the Agents list offers Lock agent. This app then offers no way to close a locked agent's pane, tab or workspace, in every browser. Closing from herdr itself or a script still works.")} reset={["agentLocks"]}>
         <Toggle label={t("Lock pinned agents")} checked={settings.agentLocks} onChange={(agentLocks) => update({ agentLocks })} />
       </SettingsRow>
+        <SettingsRow label={t("Agent browser")} icon={AppWindow} reset={["agentBrowserPanel"]} description={t("More and the command palette open the browser an agent in the selected pane drives, beside it or as a sheet on a phone. You only watch until you press Take control; Stop hands it back. Ovis finds a Chromium browser the agent starts in the pane with a DevTools port, and never your own browser.")}>
+          <Toggle label={t("Agent browser")} checked={settings.agentBrowserPanel} onChange={(agentBrowserPanel) => update({ agentBrowserPanel })} />
+        </SettingsRow>
+        {settings.agentBrowserPanel && <SettingsRow label={t("Blocked hosts")} icon={ShieldOff} reset={["agentBrowserBlockedHosts"]} description={t("Pages on these hosts, and the hosts under them, are never shown or typed into on this device. Separate them with commas.")}>
+          <BlockedHostsInput hosts={settings.agentBrowserBlockedHosts} onChange={(agentBrowserBlockedHosts) => update({ agentBrowserBlockedHosts })} />
+        </SettingsRow>}
         <SettingsRow label={t("Codex panes: let Codex select and scroll")} icon={MousePointer2} reset={["codexDrag"]} description={t("On this device, a drag in a Codex pane goes to Codex, which selects through its whole history and scrolls it while the drag is held past the top or bottom edge. Ctrl+C or Enter copies it, but on herdr that copy does not reach this device's clipboard: Shift+drag (Option+drag on a Mac) still selects, copies and quotes in Ovis, up to the screen's edge.")}>
           <Toggle label={t("Codex panes: let Codex select and scroll")} checked={settings.codexDrag} onChange={(codexDrag) => update({ codexDrag })} />
         </SettingsRow>

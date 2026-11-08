@@ -485,6 +485,8 @@ const BASE: Record<string, string> = {
   "Removes this PC here. To end its access too, revoke it under Phone & devices on that PC.": "この PC からだけ削除します。アクセスも止めるには、その PC の スマートフォンとデバイス で取り消してください。",
   "Added": "追加",
   "Sign in to Ovis": "Ovis にサインイン",
+  "Agent browser": "エージェントのブラウザー",
+  "Stop": "停止",
 };
 
 /** The parts JA is made of; src/lib/i18n.test.ts fails when a key is in two parts, since a spread keeps only the last. */

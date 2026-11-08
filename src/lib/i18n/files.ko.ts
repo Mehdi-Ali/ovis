@@ -3,7 +3,7 @@
  * components/FileViewer.tsx, components/FilesDialog.tsx, components/FileReader.tsx,
  * components/TextFileView.tsx, components/TextFileEditor.tsx, components/FilePathLink.tsx, components/FilePanelResizer.tsx,
  * components/HighlightedCode.tsx, components/RepoDiffViewer.tsx, components/RepoChanges.tsx,
- * components/RepoDiff.tsx, lib/repoDiff.ts, lib/diffLineNotes.ts, components/WebPanel.tsx,
+ * components/RepoDiff.tsx, lib/repoDiff.ts, lib/diffLineNotes.ts, components/WebPanel.tsx, components/AgentBrowserPanel.tsx,
  * components/PullRequestPanel.tsx, lib/pullRequest.ts, components/MarkdownOutline.tsx.
  * Register and fixed terms follow ../i18n.ko.ts; a key another feature also uses goes there.
  */
@@ -215,4 +215,21 @@ export const FILES_KO: Record<string, string> = {
   "Diff layout": "비교 보기 방식",
   "Unified": "한 열",
   "Split": "나란히",
+  "Agent browser page, view only": "에이전트 브라우저 페이지, 보기 전용",
+  "Agent browser page: your clicks and keys go to it": "에이전트 브라우저 페이지: 클릭과 키 입력이 이 페이지로 갑니다",
+  "Another device has control.": "다른 기기가 제어 중입니다.",
+  "Browser control": "브라우저 제어",
+  "Browser tab": "브라우저 탭",
+  "Close agent browser": "에이전트 브라우저 닫기",
+  "Looking for the pane's browser…": "이 창의 브라우저를 찾는 중…",
+  "No browser found in this pane. Ovis shows a Chromium browser an agent starts here with a DevTools port, such as agent-browser's.": "이 창에서 브라우저를 찾지 못했습니다. Ovis는 에이전트가 이 창에서 DevTools 포트를 열고 띄운 Chromium 브라우저(예: agent-browser)를 보여 줍니다.",
+  "Send your clicks and keys to this page until you stop": "중지할 때까지 클릭과 키 입력을 이 페이지로 보냅니다",
+  "Take control": "제어 가져오기",
+  "The agent drives its browser over a pipe, which Ovis can't watch. Start the browser with a DevTools port (--remote-debugging-port=0) to show it here.": "에이전트가 파이프로 브라우저를 조종하고 있어 Ovis가 볼 수 없습니다. 여기에 보이려면 DevTools 포트(--remote-debugging-port=0)를 열고 브라우저를 시작하세요.",
+  "The agent's browser page": "에이전트의 브라우저 페이지",
+  "The browser did not take that. Try again.": "브라우저가 받지 않았습니다. 다시 시도하세요.",
+  "This PC's Ovis can't show an agent's browser yet. Update it to use this panel.": "이 PC의 Ovis는 아직 에이전트 브라우저를 보여 줄 수 없습니다. 이 패널을 쓰려면 업데이트하세요.",
+  "This page's host is blocked on this device.": "이 페이지의 호스트는 이 기기에서 차단되어 있습니다.",
+  "Waiting for the page…": "페이지를 기다리는 중…",
+  "You have control. The agent may still act.": "지금 제어 중입니다. 에이전트도 계속 움직일 수 있습니다.",
 };

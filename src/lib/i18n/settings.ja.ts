@@ -342,4 +342,7 @@ export const SETTINGS_JA: Record<string, string> = {
   "Reopen files on return": "戻ったときにファイルを再表示",
   "A file open when you switch to another tab shows again when you come back to that tab. Back to the tab shows it too.": "別のタブに切り替えたときに開いていたファイルは、そのタブに戻ると再び表示されます。「戻る」でそのタブに戻ったときも表示されます。",
   "Remove PC {name}": "PC {name} を削除",
+  "Blocked hosts": "ブロックするホスト",
+  "More and the command palette open the browser an agent in the selected pane drives, beside it or as a sheet on a phone. You only watch until you press Take control; Stop hands it back. Ovis finds a Chromium browser the agent starts in the pane with a DevTools port, and never your own browser.": "「その他」とコマンドパレットから、選択中のペインでエージェントが操作するブラウザーを横に(スマートフォンではシートで)開きます。「操作を引き継ぐ」を押すまでは表示のみで、「停止」で操作を返します。Ovis が見つけるのは、エージェントがペイン内で DevTools ポート付きで起動した Chromium ブラウザーだけで、あなた自身のブラウザーは対象外です。",
+  "Pages on these hosts, and the hosts under them, are never shown or typed into on this device. Separate them with commas.": "これらのホストとその配下のホストのページは、このデバイスでは表示も入力もしません。カンマで区切ってください。",
 };

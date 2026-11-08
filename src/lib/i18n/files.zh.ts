@@ -3,7 +3,7 @@
  * components/FileViewer.tsx, components/FilesDialog.tsx, components/FileReader.tsx,
  * components/TextFileView.tsx, components/TextFileEditor.tsx, components/FilePathLink.tsx, components/FilePanelResizer.tsx,
  * components/HighlightedCode.tsx, components/RepoDiffViewer.tsx, components/RepoChanges.tsx,
- * components/RepoDiff.tsx, lib/repoDiff.ts, lib/diffLineNotes.ts, components/WebPanel.tsx,
+ * components/RepoDiff.tsx, lib/repoDiff.ts, lib/diffLineNotes.ts, components/WebPanel.tsx, components/AgentBrowserPanel.tsx,
  * components/PullRequestPanel.tsx, lib/pullRequest.ts, components/MarkdownOutline.tsx.
  * Register and fixed terms follow ../i18n.zh.ts; a key another feature also uses goes there.
  */
@@ -215,4 +215,21 @@ export const FILES_ZH: Record<string, string> = {
   "Diff layout": "差异布局",
   "Unified": "单栏",
   "Split": "并排",
+  "Agent browser page, view only": "智能体浏览器页面,仅查看",
+  "Agent browser page: your clicks and keys go to it": "智能体浏览器页面:你的点击和按键会发送到这里",
+  "Another device has control.": "另一台设备正在控制。",
+  "Browser control": "浏览器控制",
+  "Browser tab": "浏览器标签页",
+  "Close agent browser": "关闭智能体浏览器",
+  "Looking for the pane's browser…": "正在查找此窗格的浏览器…",
+  "No browser found in this pane. Ovis shows a Chromium browser an agent starts here with a DevTools port, such as agent-browser's.": "此窗格中未找到浏览器。Ovis 会显示智能体在这里以 DevTools 端口启动的 Chromium 浏览器(例如 agent-browser 的浏览器)。",
+  "Send your clicks and keys to this page until you stop": "在你停止之前,将点击和按键发送到此页面",
+  "Take control": "接管控制",
+  "The agent drives its browser over a pipe, which Ovis can't watch. Start the browser with a DevTools port (--remote-debugging-port=0) to show it here.": "智能体通过管道控制浏览器,Ovis 无法查看。请使用 DevTools 端口(--remote-debugging-port=0)启动浏览器,以便在这里显示。",
+  "The agent's browser page": "智能体的浏览器页面",
+  "The browser did not take that. Try again.": "浏览器没有接受。请重试。",
+  "This PC's Ovis can't show an agent's browser yet. Update it to use this panel.": "这台 PC 上的 Ovis 还无法显示智能体浏览器。请更新后使用此面板。",
+  "This page's host is blocked on this device.": "此页面的主机在这台设备上已被屏蔽。",
+  "Waiting for the page…": "正在等待页面…",
+  "You have control. The agent may still act.": "你正在控制。智能体仍可能操作。",
 };

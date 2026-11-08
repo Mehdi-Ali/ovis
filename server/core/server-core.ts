@@ -21,6 +21,7 @@ import type { UsageLoginService } from "../usage-login.ts";
 import type { UsageService } from "../usage.ts";
 import { claudeBoxReads, createSubmitText } from "./composer.ts";
 import { claudeInputEmpty } from "../claude-input.ts";
+import { createAgentBrowser } from "./agent-browser.ts";
 import { type Client, createConnections, type SocketData } from "./connections.ts";
 import { createInputLane } from "./input.ts";
 import { createPendingDelivery } from "./pending.ts";
@@ -89,8 +90,10 @@ export function createCore({ options, devices, preferences, usage, usageLogin, b
   const watchedOmp: OmpLookups = new Map();
   const promptWatch = createPromptWatch({ clients, read: (pane, panes) => shownPromptText(pane, panes, { codexHome: options.codexHome, openCodeStateDir: options.openCodeStateDir, openCodeState: watchedOpenCode, ompLookups: watchedOmp, answers: options.openCodeState }) });
 
+  const agentBrowser = createAgentBrowser({ clients });
+
   const { mayType, authorizeSocket, admit, setRole, watchPane, unwatchPane, killWatches, end } = createConnections({ clients, present, pending: { close: closeConnection }, devices, detachClaimed,
-    dropClaims: (client) => { dropClaims(client); promptWatch.drop(client); } });
+    dropClaims: (client) => { dropClaims(client); promptWatch.drop(client); agentBrowser.drop(client); } });
   const { push, alertWebhook, omo, gjc, letta, claudeAgents, opencodeAgents, plans, clientSnapshot, currentHerdrLifetime, queueHeld, countVisit, machines, broadcastAll, logPushError, collector, waitTimer } = createStatusHub({ options, devices, preferences, clients, present, pending, drainPending, holdPendingPane, usage, usageLogin,
     // the messages first: the old ID's terminal closing holds what it still leases
     paneMoved: (from, to) => { movePendingPane(from, to); paneMoved(from, to); } });
@@ -104,6 +107,9 @@ export function createCore({ options, devices, preferences, usage, usageLogin, b
       detach: terminalFrames.detach,
       "conversation-watch": terminalFrames["conversation-watch"],
       "prompt-watch": promptWatch.frames["prompt-watch"],
+      "browser-watch": agentBrowser.frames["browser-watch"],
+      "browser-control": agentBrowser.frames["browser-control"],
+      "browser-input": agentBrowser.frames["browser-input"],
       "pty-ack": terminalFrames["pty-ack"],
       resize: terminalFrames.resize,
       "release-size": terminalFrames["release-size"],
@@ -149,6 +155,7 @@ export function createCore({ options, devices, preferences, usage, usageLogin, b
       stopped = true;
       conversations.stop();
       promptWatch.stop();
+      agentBrowser.stop();
       clearInterval(outputTimer);
       collector.stop();
       omo.stop();

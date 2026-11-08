@@ -342,4 +342,7 @@ export const SETTINGS_ZH: Record<string, string> = {
   "Reopen files on return": "返回时重新打开文件",
   "A file open when you switch to another tab shows again when you come back to that tab. Back to the tab shows it too.": "切换到其他标签页时打开的文件，在回到该标签页时会再次显示。通过“返回”回到该标签页时也会显示。",
   "Remove PC {name}": "移除 PC {name}",
+  "Blocked hosts": "屏蔽的主机",
+  "More and the command palette open the browser an agent in the selected pane drives, beside it or as a sheet on a phone. You only watch until you press Take control; Stop hands it back. Ovis finds a Chromium browser the agent starts in the pane with a DevTools port, and never your own browser.": "“更多”菜单和命令面板会在旁边(手机上为底部面板)打开所选窗格中智能体控制的浏览器。在你按下“接管控制”之前只能查看,按“停止”即交还控制。Ovis 只会找到智能体在窗格中以 DevTools 端口启动的 Chromium 浏览器,绝不会找你自己的浏览器。",
+  "Pages on these hosts, and the hosts under them, are never shown or typed into on this device. Separate them with commas.": "这些主机及其子主机上的页面在这台设备上绝不会显示或输入。请用逗号分隔。",
 };

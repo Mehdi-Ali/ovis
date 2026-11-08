@@ -158,6 +158,9 @@ describe("demo transport", () => {
   const DEMO_IGNORES: Record<string, string> = {
     "pty-ack": "the demo has no output flow control to release; its switch's default branch drops it",
     "prompt-watch": "the demo does not advertise the prompt-watch feature, and the browser never sends it; its switch's default branch drops it",
+    "browser-watch": "the demo does not advertise the agent-browser feature (it has no browser under a pane), and the browser never sends it; its switch's default branch drops it",
+    "browser-control": "sent only for a browser-watch, which the demo never gets; its switch's default branch drops it",
+    "browser-input": "sent only while holding a browser-control, which the demo never grants; its switch's default branch drops it",
   };
 
   it("answers every /api route the server handles", () => {

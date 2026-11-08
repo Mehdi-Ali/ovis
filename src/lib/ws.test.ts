@@ -624,6 +624,28 @@ it("takes a held pane only from a server that knows how, while interacting with 
   expect(client.takeOver("w1:p1")).toBe(false);
 });
 
+it("follows a pane's browser again on a new connection, but never replays its control or input", () => {
+  const browserFrames = (socket: FakeSocket) => socket.sent.filter((m) => m.type.startsWith("browser-"));
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const first = FakeSocket.last;
+  first.open();
+  first.receive(snapshot(["agent-browser"]));
+  client.watchBrowser("w1:p1", { blocked: ["bank.example"] });
+  expect(client.controlBrowser("w1:p1", true)).toBe(true);
+  client.browserInput("w1:p1", { kind: "text", text: "typed while in control" });
+  expect(browserFrames(first).map((m) => m.type)).toEqual(["browser-watch", "browser-control", "browser-input"]);
+
+  first.disconnect();
+  client.browserInput("w1:p1", { kind: "text", text: "typed while away" });
+  client.wake();
+  const second = FakeSocket.last;
+  second.open();
+  second.receive(snapshot(["agent-browser"]));
+  expect(browserFrames(second)).toEqual([{ type: "browser-watch", pane_id: "w1:p1", enabled: true, blocked_hosts: ["bank.example"] }]);
+  client.close();
+});
+
 it("attaches a grid the chat lens covers without resizing the shared pty, on a reconnect too, until it drives the size again", () => {
   const client = new HerdrSocket("ws://test/ws");
   client.connect();

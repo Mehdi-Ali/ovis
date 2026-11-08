@@ -1,7 +1,7 @@
 import { moveDestinations } from "../lib/layoutTargets.ts";
 import { useAppLayout, MachineContext, useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
-import { Bell, Columns2, CornerLeftUp, Folder, FolderInput, FolderOpen, FolderSearch, Globe, History, ListFilter, LoaderCircle, Maximize2, MessageSquarePlus, Minimize2, Monitor, PanelLeft, Pencil, Pin, Plus, Puzzle, RefreshCw, Rows2, Settings, SunMoon, SwitchCamera, TextSearch, X } from "lucide-react";
+import { AppWindow, Bell, Columns2, CornerLeftUp, Folder, FolderInput, FolderOpen, FolderSearch, Globe, History, ListFilter, LoaderCircle, Maximize2, MessageSquarePlus, Minimize2, Monitor, PanelLeft, Pencil, Pin, Plus, Puzzle, RefreshCw, Rows2, Settings, SunMoon, SwitchCamera, TextSearch, X } from "lucide-react";
 
 import "./CommandPalette.css";
 
@@ -342,6 +342,7 @@ export function CommandPalette({ open, initialQuery = "", onClose, machines, onS
     ...(online ? [{ id: "browse-folders", label: t("Browse folders"), icon: FolderSearch, keepOpen: true, run: () => browseTo(browseStart ?? home ?? "~") }] : []),
     // starts the address a page this PC serves is typed as (below), the port left to type
     ...(actions.openLocalPage ? [{ id: "local-page", label: t("Open a page on this PC…"), icon: Globe, keepOpen: true, run: () => { setQuery("localhost:"); setFilter("all"); setSelection(NO_SELECTION); inputRef.current?.focus(); } }] : []),
+    ...(actions.openAgentBrowser ? [{ id: "agent-browser", label: t("Agent browser"), icon: AppWindow, run: actions.openAgentBrowser }] : []),
     { id: "refresh", label: t("Refresh"), icon: RefreshCw, run: actions.refresh },
   ], [actions, splitPane, zoomPane, tabPanes, zoom, view, t, selectedPaneId, tabShown, renameOffered, online, browseTo, browseStart, home]);
 

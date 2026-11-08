@@ -86,6 +86,8 @@ export interface AppActions {
   openFiles: (() => void) | null;
   /** a page this PC serves (lib/webPanel.ts localPageAddress) in the web panel; null unless Web links open in the app */
   openLocalPage: ((url: string) => void) | null;
+  /** the selected pane's agent browser in the web page's panel slot; null unless Settings → Experimental turns it on, or without a pane */
+  openAgentBrowser: (() => void) | null;
   /** Search conversation over the selected pane's chat; null where it shows no chat, or its PC's bridge does not search */
   searchConversation: (() => void) | null;
   /**

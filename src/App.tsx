@@ -1,5 +1,5 @@
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, ChevronDown, CircleHelp, Ellipsis, FolderOpen, Link, Menu, MessageCircle, MessageSquare, PanelLeft, Search, SquareTerminal, Target, X } from "lucide-react";
+import { AppWindow, Bell, ChevronDown, CircleHelp, Ellipsis, FolderOpen, Link, Menu, MessageCircle, MessageSquare, PanelLeft, Search, SquareTerminal, Target, X } from "lucide-react";
 
 import type { HerdrPane, PaneDirection } from "../shared/protocol.ts";
 import { authenticate, createTab, movePaneBeside, moveTabToWorkspace, paneSessionKey, shareSeen, swapPaneWith } from "./lib/api.ts";
@@ -76,6 +76,7 @@ import { FilesDialog } from "./components/FilesDialog.tsx";
 import { folderQueryFor } from "./lib/paletteFolders.ts";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { WebPanel } from "./components/WebPanel.tsx";
+import { AgentBrowserPanel } from "./components/AgentBrowserPanel.tsx";
 import { WebPanelContext } from "./lib/webPanel.ts";
 import { RepoDiffViewer } from "./components/RepoDiffViewer.tsx";
 import { noteBlock, noteBlockWord } from "./lib/diffLineNotes.ts";
@@ -249,6 +250,9 @@ export function App() {
   // the pane canvas's actions, for the phone's tab menu (TabStrip)
   const paneActionsRef = useRef<((target: HerdrPane) => RowMenuItem[]) | null>(null);
   const { filesOpen, setFilesOpen, filesDocked, filesCovered, revealFiles, viewing, openFile, closeFile, leaveFile, restoreFile, fileFromPop, forgetLeftFiles, diffViewing, openDiff, closeDiff, releaseDiff, presentation, fileDocked, webPage, closeWebPage, openWebPage, openDiffFile, reportFileKind, toggleFilePresentation, viewFile } = useFilePanels({ settings, filePanelAvailable, selectedPaneId, selectedMachineId });
+  // the agent browser panel (Settings → Experimental) shares the web page's slot: a page opened over it closes it
+  const [agentBrowserOpen, setAgentBrowserOpen] = useState(false);
+  useEffect(() => { if (webPage !== null) setAgentBrowserOpen(false); }, [webPage]);
   // a diff's line notes go to its own pane: none while this window only watches that pane
   const diffPaneObserving = usePaneObserving(diffViewing?.paneId ? paneStorageId(diffViewing.machineId, diffViewing.paneId) : null);
   const { settingsOpen, setSettingsOpen, settingsLinkPage, setSettingsLinkPage, settingsLinkSection, setSettingsLinkSection, settingsPage, settingsSection, setSettingsSection, closeSettings, onSettingsPage } = useSettingsDialog(initialLink);
@@ -658,11 +662,12 @@ export function App() {
       // the page is this PC's whichever PC is selected: the browser reaches it under the app's own host,
       // which in the hosted shell is not the PC (and its frame-src frames no other port)
       openLocalPage: settings.webLinks === "panel" && shellMode() !== "relay" ? (url) => { setDrawerOpen(false); openWebPage(url, false, LOCAL_MACHINE); } : null,
+      openAgentBrowser: settings.agentBrowserPanel && selectedPaneId !== null ? () => { setDrawerOpen(false); if (webPage !== null) closeWebPage(true); setAgentBrowserOpen(true); } : null,
       searchConversation: selectedSearchable && selectedPaneId !== null ? () => requestSearch(split ? split.active : soloSlot, selectedMachineId, selectedPaneId) : null,
       // herdr's layout calls on the selected pane (lib/layoutActions.ts): only those the PC's herdr answers
       ...layoutActions({ selectedPaneId, offer: appLayout, paneSplits: !selectedPane?.own_tab, selection: selectionRef, roster: snapshotRef, load, selectPane, layoutRefused }),
     }),
-    [revealFiles, selectPane, selectedPaneId, selectedPane?.own_tab, selectedMachineId, appLayout, reorderCoordinator, tabStripMounted, setView, view, terminalPeek, endPeek, updateSettings, resolvedTheme, canSignOut, lock, bell.run, enableNotifications, load, layoutRefused, moveRefused, lenses, openSidebarFilter, selectedSearchable, requestSearch, split, soloSlot, settings.webLinks, settings.sidebarBackgroundWorkspaces, openWebPage],
+    [revealFiles, selectPane, selectedPaneId, selectedPane?.own_tab, selectedMachineId, appLayout, reorderCoordinator, tabStripMounted, setView, view, terminalPeek, endPeek, updateSettings, resolvedTheme, canSignOut, lock, bell.run, enableNotifications, load, layoutRefused, moveRefused, lenses, openSidebarFilter, selectedSearchable, requestSearch, split, soloSlot, settings.webLinks, settings.sidebarBackgroundWorkspaces, openWebPage, settings.agentBrowserPanel, webPage, closeWebPage],
   );
 
   useShortcuts(actions, locked === false);
@@ -729,6 +734,7 @@ export function App() {
     // from 769px Files has its own button beside the lens switch; a phone keeps it here
     ...(selectedPane && !wideScreen ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: () => setFilesOpen(true) }] : []),
     // the address says where the app is (lib/deepLink.ts); a phone has no address bar to copy it from
+    ...(actions.openAgentBrowser ? [{ id: "agent-browser", label: t("Agent browser"), icon: AppWindow, run: () => actions.openAgentBrowser?.() }] : []),
     { id: "copy-link", label: t("Copy link"), icon: Link, run: () => void copyText(window.location.href).then((ok) => { if (ok) setHeaderNote("copied"); }) },
     { id: "alerts", label: t("Alerts"), hint: bell.state, checked: bell.on, title: bell.title, icon: Bell, run: () => void bell.run() },
     ...paneMoreItems,
@@ -1195,6 +1201,8 @@ export function App() {
         {filesOpen && filesDocked && filesDialog(true)}
         {webPage !== null && !(viewing !== null && fileDocked) &&
           <WebPanel key={webPage} url={webPage} docked={filePanelAvailable} covered={webDialogCover} onClose={closeWebPage} panelStart={filePanelAvailable ? <FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} /> : undefined} />}
+        {agentBrowserOpen && settings.agentBrowserPanel && selectedPaneId !== null && webPage === null && !(viewing !== null && fileDocked) &&
+          <AgentBrowserPanel key={`${selectedMachineId}:${selectedPaneId}`} machineId={selectedMachineId} paneId={selectedPaneId} blockedHosts={settings.agentBrowserBlockedHosts} docked={filePanelAvailable} covered={webDialogCover} onClose={() => setAgentBrowserOpen(false)} panelStart={filePanelAvailable ? <FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} /> : undefined} />}
       </div>
       </PanePressContext.Provider>
 

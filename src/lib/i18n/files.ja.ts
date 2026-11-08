@@ -3,7 +3,7 @@
  * components/FileViewer.tsx, components/FilesDialog.tsx, components/FileReader.tsx,
  * components/TextFileView.tsx, components/TextFileEditor.tsx, components/FilePathLink.tsx, components/FilePanelResizer.tsx,
  * components/HighlightedCode.tsx, components/RepoDiffViewer.tsx, components/RepoChanges.tsx,
- * components/RepoDiff.tsx, lib/repoDiff.ts, lib/diffLineNotes.ts, components/WebPanel.tsx,
+ * components/RepoDiff.tsx, lib/repoDiff.ts, lib/diffLineNotes.ts, components/WebPanel.tsx, components/AgentBrowserPanel.tsx,
  * components/PullRequestPanel.tsx, lib/pullRequest.ts, components/MarkdownOutline.tsx.
  * Register and fixed terms follow ../i18n.ja.ts; a key another feature also uses goes there.
  */
@@ -215,4 +215,21 @@ export const FILES_JA: Record<string, string> = {
   "Diff layout": "差分の表示形式",
   "Unified": "1列",
   "Split": "並べて表示",
+  "Agent browser page, view only": "エージェントのブラウザーのページ(表示のみ)",
+  "Agent browser page: your clicks and keys go to it": "エージェントのブラウザーのページ: クリックとキー入力がこのページに送られます",
+  "Another device has control.": "別のデバイスが操作中です。",
+  "Browser control": "ブラウザーの操作",
+  "Browser tab": "ブラウザーのタブ",
+  "Close agent browser": "エージェントのブラウザーを閉じる",
+  "Looking for the pane's browser…": "このペインのブラウザーを探しています…",
+  "No browser found in this pane. Ovis shows a Chromium browser an agent starts here with a DevTools port, such as agent-browser's.": "このペインにブラウザーが見つかりません。Ovis は、エージェントがここで DevTools ポート付きで起動した Chromium ブラウザー(agent-browser など)を表示します。",
+  "Send your clicks and keys to this page until you stop": "停止するまでクリックとキー入力をこのページに送ります",
+  "Take control": "操作を引き継ぐ",
+  "The agent drives its browser over a pipe, which Ovis can't watch. Start the browser with a DevTools port (--remote-debugging-port=0) to show it here.": "エージェントはパイプ経由でブラウザーを操作しているため、Ovis からは見られません。ここに表示するには、DevTools ポート(--remote-debugging-port=0)付きでブラウザーを起動してください。",
+  "The agent's browser page": "エージェントのブラウザーのページ",
+  "The browser did not take that. Try again.": "ブラウザーが受け付けませんでした。もう一度お試しください。",
+  "This PC's Ovis can't show an agent's browser yet. Update it to use this panel.": "この PC の Ovis はまだエージェントのブラウザーを表示できません。このパネルを使うには更新してください。",
+  "This page's host is blocked on this device.": "このページのホストはこのデバイスでブロックされています。",
+  "Waiting for the page…": "ページを待っています…",
+  "You have control. The agent may still act.": "操作中です。エージェントも引き続き操作することがあります。",
 };

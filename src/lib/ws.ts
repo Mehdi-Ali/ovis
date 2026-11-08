@@ -1,4 +1,4 @@
-import type { ClientMessage, ClientRole, PendingMessage, ServerFeature, ServerMessage } from "../../shared/protocol.ts";
+import type { BrowserInput, ClientMessage, ClientRole, PendingMessage, ServerFeature, ServerMessage } from "../../shared/protocol.ts";
 import { receiptResumeId } from "./receiptResume.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
 import { ConnectionTrace } from "./connectionTrace.ts";
@@ -130,6 +130,8 @@ export class HerdrSocket {
   private readonly attached = new Map<string, AttachState>();
   /** panes this tab views read-only while out of use (feature "watch"), at the grid it asked for; replayed after each snapshot */
   private readonly watched = new Map<string, { cols: number; rows: number }>();
+  /** panes whose browser this tab follows (feature "agent-browser"): the tab it chose and its blocked hosts */
+  private readonly browserWatches = new Map<string, { targetId?: string; blocked: string[] }>();
   /**
    * Per pane, the server views this connection ended or replaced (an unwatch, a watch over a running
    * one) whose own end can still be on its way: each may have ended before the server read the
@@ -463,6 +465,9 @@ export class HerdrSocket {
           for (const paneId of this.attached.keys()) {
             if (this.conversationWanted.has(paneId)) this.rawSend({ type: "conversation-watch", pane_id: paneId, enabled: true });
           }
+        }
+        if (first && this.features.has("agent-browser")) {
+          for (const [paneId, watch] of this.browserWatches) this.rawSend({ type: "browser-watch", pane_id: paneId, enabled: true, blocked_hosts: watch.blocked, ...(watch.targetId === undefined ? {} : { target_id: watch.targetId }) });
         }
         if (this.features.has("watch")) {
           if (first) for (const [paneId, grid] of this.watched) this.rawSend({ type: "watch", pane_id: paneId, cols: grid.cols, rows: grid.rows });
@@ -973,6 +978,33 @@ export class HerdrSocket {
   /** Whether this connection may take a held pane from another web bridge: a server that knows how, and not observing. */
   canTakeOver(): boolean {
     return this.connected && this.mode === "interact" && this.features.has("take-over");
+  }
+
+  /** Whether the server streams a pane's browser (feature "agent-browser"); false until the features come. */
+  canWatchBrowser(): boolean {
+    return this.featuresKnown && this.features.has("agent-browser");
+  }
+
+  /** Follows (or stops following) the browser under a pane's shell, read-only; replayed after a reconnect's features. */
+  watchBrowser(paneId: string, watch: { targetId?: string; blocked: string[] } | null): void {
+    if (watch === null) {
+      if (this.browserWatches.delete(paneId) && this.canWatchBrowser()) this.send({ type: "browser-watch", pane_id: paneId, enabled: false });
+      return;
+    }
+    this.browserWatches.set(paneId, watch);
+    if (this.canWatchBrowser()) this.send({ type: "browser-watch", pane_id: paneId, enabled: true, blocked_hosts: watch.blocked, ...(watch.targetId === undefined ? {} : { target_id: watch.targetId }) });
+  }
+
+  /** Takes or gives back control of a watched pane's browser: explicit only, never queued or replayed on reconnect. */
+  controlBrowser(paneId: string, take: boolean): boolean {
+    if (!this.connected || !this.browserWatches.has(paneId) || (take && this.mode !== "interact")) return false;
+    this.rawSend({ type: "browser-control", pane_id: paneId, take });
+    return true;
+  }
+
+  /** Input for the controlled browser's page; dropped while disconnected, never queued or replayed. */
+  browserInput(paneId: string, input: BrowserInput): void {
+    if (this.connected && this.browserWatches.has(paneId)) this.rawSend({ type: "browser-input", pane_id: paneId, input });
   }
 
   /** Explicitly takes the pane's attach slot; never queued or replayed on reconnect. */

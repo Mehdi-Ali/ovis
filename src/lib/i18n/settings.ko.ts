@@ -342,4 +342,7 @@ export const SETTINGS_KO: Record<string, string> = {
   "Reopen files on return": "돌아오면 파일 다시 열기",
   "A file open when you switch to another tab shows again when you come back to that tab. Back to the tab shows it too.": "다른 탭으로 전환할 때 열려 있던 파일이 그 탭으로 돌아오면 다시 표시됩니다. 뒤로 가기로 그 탭에 돌아와도 표시됩니다.",
   "Remove PC {name}": "{name} PC 제거",
+  "Blocked hosts": "차단 호스트",
+  "More and the command palette open the browser an agent in the selected pane drives, beside it or as a sheet on a phone. You only watch until you press Take control; Stop hands it back. Ovis finds a Chromium browser the agent starts in the pane with a DevTools port, and never your own browser.": "More 메뉴와 명령 팔레트에서, 선택한 창의 에이전트가 조종하는 브라우저를 옆에(휴대폰에서는 시트로) 엽니다. 제어 가져오기를 누르기 전까지는 보기만 하며, 중지를 누르면 제어를 돌려줍니다. Ovis는 에이전트가 이 창에서 DevTools 포트를 열고 띄운 Chromium 브라우저만 찾고, 사용자 본인의 브라우저는 절대 찾지 않습니다.",
+  "Pages on these hosts, and the hosts under them, are never shown or typed into on this device. Separate them with commas.": "이 호스트와 그 하위 호스트의 페이지는 이 기기에서 표시하지도, 입력하지도 않습니다. 쉼표로 구분하세요.",
 };

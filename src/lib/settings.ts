@@ -167,6 +167,10 @@ export interface Settings {
   /** a plain drag in a Codex pane is Codex's, which selects and scrolls its own history (lib/useTerminalMount.ts);
    *  off: Ovis's selection, which stops at the screen's edge but copies on every device */
   codexDrag: boolean;
+  /** Settings -> Experimental -> Agent browser: More and the palette open the browser an agent in the pane drives, read-only until Take control (components/AgentBrowserPanel.tsx); off, nothing watches it */
+  agentBrowserPanel: boolean;
+  /** hosts the agent browser panel never shows or types into on this device (server/core/agent-browser.ts hostBlocked) */
+  agentBrowserBlockedHosts: string[];
   /** this device opens the pane herdr's own focus moves to (a `pane-focused` frame from the selected PC), as
    *  herdr's window does after `herdr tab focus` or a click there; off: only this device's own picks move it */
   followHerdrFocus: boolean;
@@ -285,19 +289,26 @@ export interface Settings {
   codexLaunchEffort: (typeof CODEX_EFFORTS)[number] | "";
 }
 
+/** The agent browser panel's blocked hosts: lowercase names, at most 64 (the server takes no more), `*.` dropped. */
+export function blockedHostList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const hosts = raw.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim().toLowerCase().replace(/^\*\./, "")).filter((entry) => /^[a-z0-9.-]{1,253}$/.test(entry));
+  return [...new Set(hosts)].slice(0, 64);
+}
+
 export const DIFF_STYLES = ["unified", "split"] as const;
 export type DiffStyle = (typeof DIFF_STYLES)[number];
 
 /** Raw custom text, key combinations and account keys are never copied. Requiring every other
  * Settings field in the projection makes a new field require an explicit collection decision.
- * keyBarExpanded, herdrPrefixKeys, agentLocks, lockedAgents, opencodeParentEnds, the named agent groups, fileOpen, reopenFileOnReturn, webLinks, reuseExternalLinkTab, the launch modes, followHerdrFocus, sidebarPeek, sidebarBackgroundWorkspaces, codexDrag, autoTabNames, composerArtifacts, composerPasteSend, composerBtw, terminalMirrorWrap, terminalImages, terminalAttachButton, terminalKeyboardOnRequest, terminalFoldKeyBar, sidebarFilter, sidebarContext, sidebarAgentTree, foldHelpers, pcLoad, voiceEngine, the agent groups, the
+ * keyBarExpanded, herdrPrefixKeys, agentLocks, lockedAgents, opencodeParentEnds, the named agent groups, fileOpen, reopenFileOnReturn, webLinks, reuseExternalLinkTab, the launch modes, followHerdrFocus, sidebarPeek, sidebarBackgroundWorkspaces, codexDrag, the agent browser panel and its blocked hosts, autoTabNames, composerArtifacts, composerPasteSend, composerBtw, terminalMirrorWrap, terminalImages, terminalAttachButton, terminalKeyboardOnRequest, terminalFoldKeyBar, sidebarFilter, sidebarContext, sidebarAgentTree, foldHelpers, pcLoad, voiceEngine, the agent groups, the
  * interface font, the file text size and the folds its blocks start in are not collected: the telemetry schema
  * (shared/telemetry.ts) does not carry them. */
 type TelemetrySourceSettings = Omit<Settings,
   "keyBarExtras" | "keyBarItems" | "keyBarExpanded" | "shortcutOverrides" | "herdrPrefixKeys" | "terminalFontFamily" | "chatFontFamily" | "uiFontFamily"
   | "quickReplies" | "agentLocks" | "lockedAgents" | "opencodeParentEnds" | "agentNamedGroups" | "agentGroupNames" | "agentGroupOf" | "usageOrder" | "usageHidden" | "fileOpen" | "filesPanel" | "webLinks" | "reuseExternalLinkTab" | "claudeLaunchMode" | "codexLaunchMode"
   | "claudeLaunchModel" | "claudeLaunchEffort" | "codexLaunchModel" | "codexLaunchEffort"
-  | "followHerdrFocus" | "sidebarPeek" | "sidebarBackgroundWorkspaces" | "codexDrag" | "composerArtifacts" | "composerPasteSend" | "composerBtw" | "terminalMirrorWrap" | "sidebarFilter" | "sidebarContext" | "sidebarAgentTree" | "foldHelpers" | "pcLoad"
+  | "followHerdrFocus" | "sidebarPeek" | "sidebarBackgroundWorkspaces" | "codexDrag" | "agentBrowserPanel" | "agentBrowserBlockedHosts" | "composerArtifacts" | "composerPasteSend" | "composerBtw" | "terminalMirrorWrap" | "sidebarFilter" | "sidebarContext" | "sidebarAgentTree" | "foldHelpers" | "pcLoad"
   | "expandThinking" | "foldWork" | "autoTabNames" | "voiceEngine" | "agentGroups" | "agentGroupSort" | "terminalImages" | "terminalAttachButton"
   | "terminalKeyboardOnRequest" | "terminalFoldKeyBar" | "fileFontSize" | "fileFontBase" | "editTextFiles" | "reopenFileOnReturn">;
 
@@ -392,6 +403,8 @@ export const SETTING_SCOPE = {
   followHerdrFocus: "device",
   // a desk's mouse, where Codex's copy reaches or not
   codexDrag: "device",
+  agentBrowserPanel: "device",
+  agentBrowserBlockedHosts: "device",
   // a desk's mouse, which a phone has not
   sidebarPeek: "device",
   // a phone's short list may set the workers apart while a desk keeps herdr's order, as with the filter
@@ -474,6 +487,8 @@ export const DEFAULT_SETTINGS: Settings = {
   releasePaneAway: false,
   followHerdrFocus: false,
   codexDrag: false,
+  agentBrowserPanel: false,
+  agentBrowserBlockedHosts: [],
   sidebarPeek: false,
   sidebarBackgroundWorkspaces: false,
   chatFontSize: null,
@@ -710,6 +725,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     releasePaneAway: typeof record["releasePaneAway"] === "boolean" ? record["releasePaneAway"] : DEFAULT_SETTINGS.releasePaneAway,
     followHerdrFocus: typeof record["followHerdrFocus"] === "boolean" ? record["followHerdrFocus"] : DEFAULT_SETTINGS.followHerdrFocus,
     codexDrag: record["codexDrag"] === true,
+    agentBrowserPanel: record["agentBrowserPanel"] === true,
+    agentBrowserBlockedHosts: blockedHostList(record["agentBrowserBlockedHosts"]),
     sidebarPeek: record["sidebarPeek"] === true,
     sidebarBackgroundWorkspaces: record["sidebarBackgroundWorkspaces"] === true,
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),

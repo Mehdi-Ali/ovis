@@ -1,0 +1,118 @@
+/* The agent browser panel (AgentBrowserPanel.tsx): the page's frame fitted in the panel, a floating control tile over it */
+.agent-browser-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  min-height: 0;
+}
+
+/* stretched across the body, which centers its children: a frame sized in % needs a stage of its own size */
+.agent-browser-stage {
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+  outline: none;
+  touch-action: auto;
+}
+
+.agent-browser-stage.is-controlling {
+  touch-action: none;
+  cursor: default;
+}
+
+.agent-browser-stage.is-controlling .agent-browser-frame {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.agent-browser-frame {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius-sm);
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.agent-browser-note {
+  max-width: 34em;
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-base);
+  text-align: center;
+}
+
+/* the title, and the shown page's address on its own line under it */
+.agent-browser-heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agent-browser-url {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-browser-tabs {
+  max-width: 12em;
+  min-height: var(--control-h);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+
+/* over the page's bottom edge, centered, as a live view's take-control tile */
+.agent-browser-tile {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-3);
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  max-width: calc(100% - 2 * var(--space-3));
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-pop);
+}
+
+.agent-browser-tile-note {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+.agent-browser-tile-note.is-refused {
+  color: var(--text-strong);
+}
+
+.agent-browser-tile-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--touch-target);
+}
+
+.agent-browser-tile-action svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+}

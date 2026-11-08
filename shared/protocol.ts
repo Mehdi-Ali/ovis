@@ -1131,6 +1131,25 @@ export interface PendingMessage {
   agent_only?: true;
 }
 
+/**
+ * Input for the agent browser panel's page (feature "agent-browser"), in CSS pixels of the page's viewport as its
+ * `browser-frame` names it. `modifiers`: CDP's bit field (1 Alt, 2 Ctrl, 4 Meta, 8 Shift).
+ */
+export type BrowserInput =
+  | { kind: "mouse"; action: "move" | "down" | "up"; x: number; y: number; button: "none" | "left" | "middle" | "right"; clicks?: number; modifiers?: number }
+  | { kind: "wheel"; x: number; y: number; dx: number; dy: number; modifiers?: number }
+  | { kind: "key"; action: "down" | "up"; key: string; code: string; text?: string; key_code?: number; modifiers?: number }
+  | { kind: "text"; text: string };
+
+export interface BrowserTab {
+  id: string;
+  title: string;
+  url: string;
+}
+
+/** `none`: no browser under the pane's shell; `pipe-only`: one driven over a pipe, which has no port to watch; `live`: watchable */
+export type BrowserStatus = "none" | "pipe-only" | "live";
+
 export type ClientMessage =
   /** Subscribe to this connection server's authorized machine document; requires machine-events. */
   | { type: "machine-events"; enabled: boolean }
@@ -1150,6 +1169,15 @@ export type ClientMessage =
   | { type: "prompt-watch"; pane_id: string; enabled: boolean }
   /** a pane another web bridge holds (`attach_held`): take herdr's attach slot from it, here, now */
   | { type: "take-over"; pane_id: string }
+  /** feature "agent-browser": follow the browser under the pane's shell (`browser-state`, `browser-frame`), read-only.
+   * `target_id` picks a tab; `blocked_hosts`: a tab on one of these hosts (or under one) sends this connection no
+   * frame and takes no input from it. At most 4 per connection (`too_many_browser_watches`). */
+  | { type: "browser-watch"; pane_id: string; enabled: boolean; target_id?: string; blocked_hosts?: string[] }
+  /** take or give back control of a watched pane's browser: only the one connection that took it sends input. A
+   * read-only device or an observer is refused (`browser_control_refused`); control ends with the watch or the connection. */
+  | { type: "browser-control"; pane_id: string; take: boolean }
+  /** input for the page, from the connection holding control only (else `browser_not_controlled`); never queued or replayed */
+  | { type: "browser-input"; pane_id: string; input: BrowserInput }
   /** `stop`: the composer's Stop (text a lone ESC). The bridge sends it in the pane's turn, after typing
    * still on its way, and a message sent next waits for it; an older bridge types it like any key.
    * `automatic`: the browser's terminal made the text itself (an answer to the program's query), nobody
@@ -1280,7 +1308,7 @@ export interface ClientConnectionTrace {
  * `conversation-watch-detached` and `prompt-watch`: a client may follow a pane's conversation and prompt without
  * attaching it (the `conversation-watch` and `prompt-watch` frames).
  */
-export type ServerFeature = "submit" | "pending-input" | "pending-hold" | "secret-input" | "input-ready" | "take-over" | "watch" | "conversation-watch" | "ping" | "terminal-insert" | "agent-only" | "machine-events" | "terminal-history" | "input-receipt" | "conversation-search" | "conversation-watch-detached" | "prompt-watch";
+export type ServerFeature = "submit" | "pending-input" | "pending-hold" | "secret-input" | "input-ready" | "take-over" | "watch" | "conversation-watch" | "ping" | "terminal-insert" | "agent-only" | "machine-events" | "terminal-history" | "input-receipt" | "conversation-search" | "conversation-watch-detached" | "prompt-watch" | "agent-browser";
 
 export type ServerMessage =
   | { type: "machine-event"; event: MachineEvent }
@@ -1368,6 +1396,11 @@ export type ServerMessage =
   | { type: "watch-data"; pane_id: string; data: string }
   /** the watch ended (pane gone, herdr closed it, or this herdr has no read-only view); the client keeps its last screen */
   | { type: "watch-end"; pane_id: string }
+  /** a watched pane's browser (`browser-watch`): its tabs, the one shown, who holds control (`you`, `other` or none) and
+   * whether the shown tab's host is one this connection blocked (then no frame comes) */
+  | { type: "browser-state"; pane_id: string; status: BrowserStatus; tabs: BrowserTab[]; target_id: string | null; control: "you" | "other" | null; blocked: boolean }
+  /** the shown tab's screen as a base64 JPEG; `width` and `height` are the page's viewport in CSS pixels, which input uses */
+  | { type: "browser-frame"; pane_id: string; target_id: string; data: string; width: number; height: number }
   /** the answer to a `ping`, with its id; only this frame, for a ping in flight, ends the client's liveness probe */
   | { type: "pong"; id: number }
   /** `pane_id` names the pane an error is about, when it is about one (`attach_held`) */
