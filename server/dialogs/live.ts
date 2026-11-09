@@ -85,6 +85,7 @@ function omoFooterIsActive(lines: string[]): boolean {
   return rules === 1;
 }
 
+/** Whether the parsed dialog's hint or footer is still the active tail at the bottom of `screen`. */
 export function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   const cleanLines = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine);
   const visible = cleanLines.filter((line) => line && !isDivider(line));

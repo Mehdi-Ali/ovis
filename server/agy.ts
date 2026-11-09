@@ -307,6 +307,7 @@ function outputRef(path: string, step: Step): string {
   const index = indexes.get(path)!;
   return `agy:${hash(JSON.stringify([path, index.identity, index.revision, step.start, step.digest]))}`;
 }
+/** Parses an Antigravity (`agy`) JSONL transcript into conversation turns. */
 export function parseAgyTranscript(text: string, path?: string): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   const steps = path ? new Map(indexes.get(path)?.visible.map((step) => [step.index, step])) : undefined;

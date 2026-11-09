@@ -841,7 +841,7 @@ describe("the answer route moves between questions, one key at a time, each seen
   });
 
   test("agy: Next sends →, Back sends ←, and answers single, custom write-in, and multi-select questions", async () => {
-    const agySingle = (at: number, cursor = 0, answered = -1): string => {
+    const agySingle = (at: number, cursor = 0, answered = -1, writeIn: string | null = null): string => {
       const q = at === 0
         ? ["Question 1/2: Which test runner should we use?", ["(Recommended) Bun test", "Vitest"]]
         : ["Question 2/2: Which environment?", ["Staging", "Production"]];
@@ -850,6 +850,9 @@ describe("the answer route moves between questions, one key at a time, each seen
         const check = idx === answered ? "✓ " : "";
         return `${mark}${idx + 1}. ${check}${label}`;
       });
+      if (writeIn !== null) {
+        return `Question\n────────────────────────────────────────\n\n${q[0]}\n\n${rows.join("\n")}\n\n  Your answer:\n  > ${writeIn}\n\nenter Submit · esc Back\n`;
+      }
       const nav = [
         "↑/↓ Navigate",
         ...(at > 0 ? ["← Back"] : []),
@@ -877,12 +880,16 @@ describe("the answer route moves between questions, one key at a time, each seen
     await withPane("agy", agySingle(0), async (pane) => {
       let at = 0;
       let cursor = 0;
+      let writeIn: string | null = null;
       pane.onSent = (key) => {
-        if (key === "right") { at = 1; cursor = 0; }
-        else if (key === "left") { at = 0; cursor = 0; }
+        if (key === "right") { at = 1; cursor = 0; writeIn = null; }
+        else if (key === "left") { at = 0; cursor = 0; writeIn = null; }
         else if (key === "down") cursor += 1;
         else if (key === "up") cursor = Math.max(0, cursor - 1);
-        pane.screen = agySingle(at, cursor);
+        else if (key === "enter" && cursor === 2 && writeIn === null) writeIn = "";
+        else if (key.startsWith("text:") && writeIn !== null) writeIn += key.slice(5);
+        else if (key === "enter" && writeIn !== null) writeIn = null;
+        pane.screen = agySingle(at, cursor, -1, writeIn);
       };
       expect(await move((await card()).id, { step_next: true })).toEqual({ status: 200, code: undefined });
       expect((await card()).question).toBe("Which environment?");
@@ -890,16 +897,38 @@ describe("the answer route moves between questions, one key at a time, each seen
       expect(pane.sent).toEqual(["right", "left"]);
 
       pane.sent.length = 0;
+      expect(await move((await card()).id, { custom_text: "abc\rdef" })).toEqual({ status: 400, code: "invalid_answer" });
+      expect(await move((await card()).id, { custom_text: "abc\u001bdef" })).toEqual({ status: 400, code: "invalid_answer" });
+      expect(pane.sent).toEqual([]);
+
       expect(await move((await card()).id, { custom_text: "deno\ntest" })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["down", "down", "enter", "text:deno test", "enter"]);
+
+      // If the write-in editor closes before Enter submits, the final Enter is refused.
+      pane.sent.length = 0;
+      at = 0;
+      cursor = 0;
+      writeIn = null;
+      pane.screen = agySingle(0);
+      pane.onSent = (key) => {
+        if (key === "down") cursor += 1;
+        else if (key === "enter" && cursor === 2 && writeIn === null) writeIn = "";
+        else if (key.startsWith("text:")) writeIn = null;
+        pane.screen = agySingle(at, cursor, -1, writeIn);
+      };
+      expect(await move((await card()).id, { custom_text: "deno test" })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down", "down", "enter", "text:deno test"]);
     });
 
-    const agyMulti = (cursor: number, checked: number[]): string => {
+    const agyMulti = (cursor: number, checked: number[], writeIn: string | null = null): string => {
       const choices = ["Desktop", "Mobile", "Web"];
       const rows = [
         ...choices.map((label, idx) => `${idx === cursor ? "▸ " : "  "}${idx + 1}. [${checked.includes(idx) ? "x" : " "}] ${label}`),
         `${cursor === choices.length ? "▸ " : "  "}4. Write-in...`,
       ];
+      if (writeIn !== null) {
+        return `Question\n────────────────────────────────────────\n\nQuestion 1/1: Which targets?\n\n${rows.join("\n")}\n\n  Your answer:\n  > ${writeIn}\n\nenter Submit · esc Back\n`;
+      }
       const enterLabel = cursor === choices.length ? "enter Write-in" : "enter Submit";
       return `Question\n────────────────────────────────────────\n\nQuestion 1/1: Which targets?\n\n${rows.join("\n")}\n\n↑/↓ Navigate · space Toggle · ${enterLabel} · esc Skip\n`;
     };
@@ -907,23 +936,36 @@ describe("the answer route moves between questions, one key at a time, each seen
     await withPane("agy", agyMulti(3, [0]), async (pane) => {
       let cursor = 3;
       const checked = new Set([0]);
+      let writeIn: string | null = null;
       pane.onSent = (key) => {
         if (key === "down") cursor += 1;
         else if (key === "up") cursor = Math.max(0, cursor - 1);
         else if (key === "space") {
           if (!checked.delete(cursor)) checked.add(cursor);
-        }
-        pane.screen = agyMulti(cursor, [...checked]);
+        } else if (key === "enter" && cursor === 3 && writeIn === null) writeIn = "";
+        else if (key.startsWith("text:") && writeIn !== null) writeIn += key.slice(5);
+        else if (key === "enter" && writeIn !== null) writeIn = null;
+        pane.screen = agyMulti(cursor, [...checked], writeIn);
       };
       const prompt = await card();
       expect(prompt).toMatchObject({
         title: "Question",
         multi_select: true,
-        custom_option_index: null,
+        checks_with_text: true,
+        custom_option_index: 3,
         default_option_indices: [0],
       });
       expect(await move(prompt.id, { option_indices: [0, 2] })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["up", "space", "enter"]);
+
+      pane.sent.length = 0;
+      cursor = 3;
+      checked.clear();
+      checked.add(0);
+      writeIn = null;
+      pane.screen = agyMulti(cursor, [...checked]);
+      expect(await move((await card()).id, { option_indices: [0, 2], custom_text: "CLI" })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["up", "space", "down", "enter", "text:CLI", "enter"]);
     });
 
     const writeInOpen = [

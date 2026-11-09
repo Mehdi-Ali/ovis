@@ -175,7 +175,7 @@ export type ParsedPrompt = InteractivePrompt & {
   /** each option's own steps, for a card whose options are not rows of a menu */
   optionSteps?: AnswerStep[][];
   /** the steps for a typed answer, for a card whose menu does not take one the usual way */
-  customSteps?: (text: string) => AnswerStep[];
+  customSteps?: (text: string, choices?: number[]) => AnswerStep[];
   /** the steps for a multiple choice, for a card whose menu does not toggle the usual way */
   multiSteps?: (choices: number[]) => AnswerStep[];
   /** the key the menu itself names for the row under the cursor now, for a card whose rows do not all take the same one */
@@ -310,6 +310,7 @@ function ownByIndex(words: readonly (CardWords | null)[]): Record<number, CardTe
   return found.length > 0 ? Object.fromEntries(found) : undefined;
 }
 
+/** Builds a `ParsedPrompt` with localized text metadata and a content hash (`id`). */
 export function finishPrompt(
   agent: string,
   draft: PromptDraft,

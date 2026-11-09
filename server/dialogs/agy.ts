@@ -56,6 +56,34 @@ export function agyWriteInWaits(screen: string): boolean {
 }
 
 /**
+ * Whether `screen` still shows `expected`'s inline `Write-in...` editor (`Your answer:` over
+ * `enter Submit · esc Back`) with the cursor on `Write-in...` and the expected multi-select checks.
+ */
+export function agyCustomEditorMatches(screen: string, expected: ParsedPrompt, checked: ReadonlySet<number>): boolean {
+  if (expected.responder !== "agy-question" || expected.customMenuIndex === null || !agyWriteInWaits(screen)) return false;
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hintIndex = findLastIndex(lines, (_, index) => AGY_WRITE_IN_HINT_RE.test(wrapped(lines, index)));
+  if (hintIndex < 0) return false;
+  const answerOffset = lines.slice(Math.max(0, hintIndex - 12), hintIndex).findIndex((line) => cleanLine(line) === "Your answer:");
+  if (answerOffset < 0) return false;
+  const answerIndex = Math.max(0, hintIndex - 12) + answerOffset;
+  const syntheticHint = [
+    "↑/↓ Navigate",
+    ...(expected.can_step_back ? ["← Back"] : []),
+    ...(expected.can_step_next ? ["→ Next"] : []),
+    ...(expected.multi_select ? ["space Toggle"] : []),
+    "enter Write-in",
+    "esc Skip",
+  ].join(" · ");
+  const restored = [...lines.slice(0, answerIndex), syntheticHint].join("\n");
+  const parsed = parseAgyQuestion(restored);
+  return parsed?.id === expected.id
+    && parsed.selectedIndex === expected.customMenuIndex
+    && parsed.checkedOptionIndices.length === checked.size
+    && parsed.checkedOptionIndices.every((index) => checked.has(index));
+}
+
+/**
  * Parses `agy`'s live `ask_question` prompt screen into an `InteractivePrompt`, or returns null
  * when the screen does not show a complete, unambiguous `ask_question` menu.
  */
@@ -151,7 +179,8 @@ export function parseAgyQuestion(screen: string): ParsedPrompt | null {
     body: null,
     options: choices.map((row) => ({ label: row.label, description: null })),
     multi_select: multi,
-    custom_option_index: multi ? null : choices.length,
+    ...(multi ? { checks_with_text: true as const } : {}),
+    custom_option_index: choices.length,
     ...(answeredIndex >= 0 ? { default_option_index: answeredIndex } : {}),
     ...(checked.length > 0 ? { default_option_indices: checked } : {}),
     ...(back ? { can_step_back: true } : {}),
@@ -162,15 +191,27 @@ export function parseAgyQuestion(screen: string): ParsedPrompt | null {
     menuLabels: namedRows.map((row) => row.label),
     selectedIndex,
     checkedOptionIndices: checked,
-    customMenuIndex: multi ? null : choices.length,
+    customMenuIndex: choices.length,
     rejectWithEscapeIndex: null,
-    ...(multi ? {} : {
-      customSteps: (text: string) => [
-        ...keySteps([...navigationKeys(choices.length - selectedIndex), KEY.enter]),
-        { text: text.replace(/\s*\r?\n\s*/g, " ").trim() },
+    customSteps: (text: string, picked?: number[]) => {
+      const normalized = text.replace(/\s*\r?\n\s*/g, " ").trim();
+      const keys: string[] = [];
+      let cursor = selectedIndex;
+      if (multi && picked !== undefined) {
+        const want = new Set(picked);
+        for (const index of choices.keys()) {
+          if (want.has(index) === checked.includes(index)) continue;
+          keys.push(...navigationKeys(index - cursor), KEY.space);
+          cursor = index;
+        }
+      }
+      keys.push(...navigationKeys(choices.length - cursor), KEY.enter);
+      return [
+        ...keySteps(keys),
+        { text: normalized },
         ...keySteps([KEY.enter]),
-      ],
-    }),
+      ];
+    },
     ...(multi ? {
       multiSteps: (picked: number[]) => {
         const want = new Set(picked);

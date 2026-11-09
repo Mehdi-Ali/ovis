@@ -61,6 +61,7 @@ const unconfused = (text: string): string => Array.from(text, (char) => confusab
 export const skeleton = (text: string): string => toCasefold(unconfused(toCasefold(toCasefold(text.normalize("NFD")).normalize("NFKD")).normalize("NFKD"))).normalize("NFKD")
   .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "").replace(/[^\p{L}\p{M}\p{N}]/gu, "").normalize("NFD");
 
+/** Strips a leading or trailing `(Recommended)` tag or keycap suffix from an option label. */
 function bareLabel(label: string): string {
   return spaced(label.replace(/^\(recommended\)\s+|\s*\((?:[a-z]|esc|recommended)\)$/i, ""));
 }
