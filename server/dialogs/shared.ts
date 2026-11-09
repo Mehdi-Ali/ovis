@@ -107,6 +107,7 @@ type Responder =
   | "omp-model"
   | "hermes-question"
   | "hermes-input"
+  | "agy-question"
   | "hermes-approval"
   | "hermes-help"
   | "hermes-status"
@@ -314,7 +315,7 @@ export function finishPrompt(
   draft: PromptDraft,
   internal: Omit<ParsedPrompt, keyof InteractivePrompt>,
   /** fields as the id reads them, where that is not as the card shows them (a fallback card's ticking working line) */
-  hashed: Partial<Pick<InteractivePrompt, "title" | "question" | "body" | "steps" | "can_step_back" | "can_step_next" | "default_custom_text">> & { call?: string } = {},
+  hashed: Partial<Pick<InteractivePrompt, "title" | "question" | "body" | "steps" | "can_step_back" | "can_step_next" | "default_option_index" | "default_option_indices" | "default_custom_text">> & { call?: string } = {},
 ): ParsedPrompt {
   // the card in English, field for field where the draft had them: the id reads the same words as ever
   const input: Omit<InteractivePrompt, "id" | "agent"> = {
