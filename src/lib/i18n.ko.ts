@@ -292,8 +292,6 @@ export const KO: Record<string, string> = {
   "Agents": "에이전트",
   "Agents in {name}": "{name}의 에이전트",
   "No agents running": "실행 중인 에이전트가 없습니다",
-  "Expand worktrees of {name}": "{name}의 워크트리 펼치기",
-  "Collapse worktrees of {name}": "{name}의 워크트리 접기",
   "Agents: {names}": "에이전트: {names}",
   "Loading workspaces…": "워크스페이스 불러오는 중…",
   "No workspaces yet": "아직 워크스페이스가 없습니다",
