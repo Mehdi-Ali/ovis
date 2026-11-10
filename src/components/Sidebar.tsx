@@ -238,6 +238,23 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     if (selectedPaneId && viewedWorkspaceId) rememberViewedPane("workspace", machineId, viewedWorkspaceId, selectedPaneId);
   }, [machineId, selectedPaneId, viewedWorkspaceId]);
 
+  // local: a workspace's nested agents fold under its face; kept per PC in this browser
+  const agentsFoldKey = `herdr-web-ui:ws-agents-folded:${machineId}`;
+  const [foldedAgents, setFoldedAgents] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem(agentsFoldKey) ?? "[]") as string[]); } catch { return new Set(); } });
+  const toggleAgentsFolded = (workspaceId: string): void => {
+    setFoldedAgents((current) => {
+      const next = new Set(current);
+      if (next.has(workspaceId)) next.delete(workspaceId); else next.add(workspaceId);
+      try { localStorage.setItem(agentsFoldKey, JSON.stringify([...next])); } catch { /* storage denied: the fold lasts this page */ }
+      return next;
+    });
+  };
+  const agentCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const entry of sidebarAgents(snapshot)) counts.set(entry.workspace.workspace_id, (counts.get(entry.workspace.workspace_id) ?? 0) + 1);
+    return counts;
+  }, [snapshot]);
+
   const setWorktreeCollapsed = (repoKey: string, collapsed: boolean): void => {
     setCollapsedWorktrees((current) => {
       if (current.has(repoKey) === collapsed) return current;
@@ -632,13 +649,18 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     // on two lines the row says what its pane is doing, and the workspace it has named until now sits under that
     const lines = twoLine ? taskRowLines({ paneTitle: displayPaneTitle(pane), labelled: Boolean(pane.label?.trim()), folder: cwdBasename(pane.cwd), workspace: rowTitle, alias: secondaryBranch }) : null;
     // a folded group still shows the checkout that is open; the count is of the ones put away
-    const foldedCount = collapsed ? children.filter((child) => !roster.some((candidate) => candidate.workspace_id === child.workspace_id && candidate.pane_id === selectedPaneId)).length : 0;
+    const agentCount = agentCounts.get(workspace.workspace_id) ?? 0;
+    const worktreeFold = children.length > 0 && repoKey !== undefined;
+    // one fold per top-level row: a repository's folds its worktrees and its agents, any other its agents
+    const rowFolded = worktreeFold ? collapsed : foldedAgents.has(workspace.workspace_id);
+    const foldable = !nested && (worktreeFold || agentCount > 0);
+    const foldedCount = (rowFolded ? agentCount : 0) + (collapsed ? children.filter((child) => !roster.some((candidate) => candidate.workspace_id === child.workspace_id && candidate.pane_id === selectedPaneId)).length : 0);
     const editingWorkspace = editingWorkspaceId === workspace.workspace_id;
     const fixed = fixedIds.has(workspace.workspace_id);
     const menuOpen = menu?.workspace.workspace_id === workspace.workspace_id;
     const contentsId = `${rosterId}-worktrees-${encodeURIComponent(workspace.workspace_id)}`;
     // without a project icon the folder itself says the fold's state: open while the worktrees show
-    const unfolded = children.length > 0 && repoKey !== undefined && !collapsed;
+    const unfolded = foldable && !rowFolded;
     const face = <WorkspaceFavicon root={workspace.worktree?.checkout_path ?? pane.cwd ?? null} fallback={<span className="sidebar-mark workspace-folder" aria-hidden="true">{unfolded ? <FolderOpen /> : <Folder />}</span>} />;
     const toggleMenu = (anchor: HTMLElement, point?: { x: number; y: number }, previousFocus?: HTMLElement | null): void => setMenu(menuOpen ? null : { anchor, point, previousFocus, workspace, title: rowTitle, place: [branchNote, ...paths].filter(Boolean).join(" · ") || workspace.label });
     return <li
@@ -655,15 +677,15 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
         onContextMenu={(event) => onRowContextMenu(event, toggleMenu)}>
         {/* a workspace leads with its own face, the project's icon or else a folder; when linked
             worktrees sit under it, that face is also the fold, and turns to an open or closed folder under a pointer */}
-        {nested ? null : children.length > 0 && repoKey !== undefined ? <button
+        {nested ? null : foldable ? <button
           type="button"
           className="sidebar-row-action workspace-toggle"
-          aria-label={collapsed ? t("Expand worktrees of {name}", { name: workspace.label }) : t("Collapse worktrees of {name}", { name: workspace.label })}
-          title={collapsed ? t("Expand worktrees of {name}", { name: workspace.label }) : t("Collapse worktrees of {name}", { name: workspace.label })}
-          aria-expanded={!collapsed}
-          aria-controls={contentsId}
-          onClick={() => setWorktreeCollapsed(repoKey, !collapsed)}
-        >{face}<span className="workspace-toggle-fold" aria-hidden="true">{collapsed ? <Folder /> : <FolderOpen />}</span></button> : face}
+          aria-label={rowFolded ? t("Expand {name}", { name: workspace.label }) : t("Collapse {name}", { name: workspace.label })}
+          title={rowFolded ? t("Expand {name}", { name: workspace.label }) : t("Collapse {name}", { name: workspace.label })}
+          aria-expanded={!rowFolded}
+          aria-controls={worktreeFold ? contentsId : undefined}
+          onClick={() => { if (worktreeFold) setWorktreeCollapsed(repoKey!, !collapsed); else toggleAgentsFolded(workspace.workspace_id); }}
+        >{face}<span className="workspace-toggle-fold" aria-hidden="true">{rowFolded ? <Folder /> : <FolderOpen />}</span></button> : face}
         <div
           className="pane-select workspace-select"
           role="button"
@@ -730,7 +752,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
         </div>
       </div>
       {/* local: the workspace's agents nest under it; the separate Agents list is gone */}
-      <NestedAgents snapshot={snapshot} workspace={workspace} machineId={machineId} online={online} selectedPaneId={selectedPaneId} onSelect={actions.selectPane} />
+      {!(foldable && rowFolded) && <NestedAgents snapshot={snapshot} workspace={workspace} machineId={machineId} online={online} selectedPaneId={selectedPaneId} onSelect={actions.selectPane} />}
       {inlineError?.workspaceId === workspace.workspace_id && <p className="sidebar-inline-error" role="alert">{inlineError.message}{inlineError.detail !== null && <><br /><code>{inlineError.detail}</code></>}</p>}
     </li>;
   };
