@@ -8,7 +8,6 @@ import { keepDismissed, noticeKey, readDismissed, waitingMachines, writeDismisse
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { Sidebar } from "./Sidebar.tsx";
-import { AgentSidebar } from "./AgentSidebar.tsx";
 import { SidebarActivityProvider, useSidebarActivityState } from "../lib/sidebarActivity.tsx";
 import { UsageMeters } from "./UsageMeters.tsx";
 import "./Machines.css";
@@ -37,8 +36,7 @@ export function MachineSidebar(props: Props) {
   const loadingWords = useAnnouncedText(props.machines.length === 0 ? t("Loading PCs…") : null);
   // no top bar: a workspace starts from its PC's header, and Add PC lives in Settings → Remote PCs
   return <SidebarActivityProvider value={activity}><div className="sidebar-shell">
-    {/* local: the agents stand on top, the PCs and their workspaces under them */}
-    <AgentSidebar machines={props.machines} selectedMachineId={props.selectedMachineId} selectedPaneId={props.selectedPaneId} stateWord={(machine) => t(STATE_WORD[machine.state])} onSelect={props.onSelect} />
+    {/* local: one tree, PC then workspace then its agents (Sidebar.tsx, NestedAgents.tsx); no separate Agents list */}
     <div className="machine-list" aria-label={t("PCs and workspaces")}>
       {props.machines.map((machine) => <MachineGroup key={machine.id} {...props} machine={machine} />)}
       <p className={loadingWords === null ? "visually-hidden" : "tree-state"} role="status">{loadingWords}</p>

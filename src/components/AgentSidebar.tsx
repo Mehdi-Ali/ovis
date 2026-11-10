@@ -35,7 +35,7 @@ interface AgentRowBodyProps {
  * One agent in a list: the coding agent's mark, what it is working on, who and where it is, and
  * how it is doing.
  */
-function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, plan, status }: AgentRowBodyProps) {
+export function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, plan, status }: AgentRowBodyProps) {
   return <>
     <span className="sidebar-mark" aria-hidden="true">{mark !== null ? <AgentMark agent={mark} size={18} /> : <Terminal />}</span>
     <span className="agent-copy">

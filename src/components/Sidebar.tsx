@@ -14,6 +14,7 @@ import { WorkspaceFavicon } from "./WorkspaceFavicon.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 import { WorktreeDialog, type WorktreeDialogMode } from "./WorktreeDialog.tsx";
+import { NestedAgents } from "./NestedAgents.tsx";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { folderName, shortPathTitle, stripPaneChrome, taskRowLines } from "../lib/paneName.ts";
 import { ApiError } from "../lib/api.ts";
@@ -728,6 +729,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           </button>
         </div>
       </div>
+      {/* local: the workspace's agents nest under it; the separate Agents list is gone */}
+      <NestedAgents snapshot={snapshot} workspace={workspace} machineId={machineId} online={online} selectedPaneId={selectedPaneId} onSelect={actions.selectPane} />
       {inlineError?.workspaceId === workspace.workspace_id && <p className="sidebar-inline-error" role="alert">{inlineError.message}{inlineError.detail !== null && <><br /><code>{inlineError.detail}</code></>}</p>}
     </li>;
   };

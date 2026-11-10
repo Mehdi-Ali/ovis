@@ -263,3 +263,13 @@
   .agent-row:enabled:active { opacity: 1; }
   .agent-item:has(> .agent-row:enabled:active) { background: var(--side-hover); }
 }
+
+/* local: agents nested under their workspace row (NestedAgents.tsx). Indented past the workspace's
+   face so the tree reads PC, workspace, agent; one-line rows keep the list compact. */
+.nested-agents { padding-left: var(--side-box); }
+.nested-agents .agent-row { min-height: var(--side-row); }
+.nested-agents .agent-copy { flex-direction: row; align-items: baseline; gap: var(--space-2); }
+.nested-agents .agent-title-line { flex: 0 1 auto; }
+.nested-agents .agent-context { flex: 1 1 0; min-width: 0; }
+/* the selected agent carries the highlight; its workspace row keeps no second fill */
+.workspace-group.is-selected:has(> .nested-agents .agent-item.is-selected) > .workspace-header { background: transparent; }

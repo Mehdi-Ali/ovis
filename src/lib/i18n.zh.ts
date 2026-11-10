@@ -294,6 +294,7 @@ export const ZH: Record<string, string> = {
   "Loading agents…": "正在加载代理…",
   "Herdr workspaces": "herdr 工作区",
   "Agents": "代理",
+  "Agents in {name}": "{name} 中的代理",
   "No agents running": "没有运行中的代理",
   "Expand worktrees of {name}": "展开 {name} 的工作树",
   "Collapse worktrees of {name}": "折叠 {name} 的工作树",
