@@ -42,7 +42,7 @@ async function drain({ after = () => {}, afterPaste = () => {}, mode = "gjc", ta
   const selected = readFileSync(join(import.meta.dir, "../fixtures/opencode-autocomplete-2.0.32-ansi-first-selected.ansi"), "utf8");
   spyOn(client, "paneRead").mockImplementation(async (options) => {
     if (mode !== "skill" || options.source !== "visible") {
-      const text = shown.screen;
+      const text = options.format === "ansi" && shown.ansi !== undefined ? shown.ansi : shown.screen;
       shown.onScreenRead?.();
       return { text } as Awaited<ReturnType<typeof client.paneRead>>;
     }
@@ -116,7 +116,7 @@ const listed = (): Array<[string, string | undefined, string | undefined]> => to
 /** `codex-queued`: a message queued to a Codex pane and drained once it is idle (`codex` is a held one's Send now) */
 type Mode = "gjc" | "claude" | "pi" | "codex" | "codex-queued" | "skill" | "missing";
 /** `onScreenRead`: as a read of the live screen is answered, after its text was taken */
-interface Pane { birth: number | null; screen: string; foreground: Array<{ pid: number; name: string; argv: string[] }>; onProcessRead?: () => void; onScreenRead?: () => void }
+interface Pane { birth: number | null; screen: string; /** the screen's colored reads, when they differ from its text */ ansi?: string; foreground: Array<{ pid: number; name: string; argv: string[] }>; onProcessRead?: () => void; onScreenRead?: () => void }
 
 it("types nothing into another process that took the agent's PID before the paste", async () => {
   expect(await drain({ after: (pane) => { pane.birth = 5_000; } })).toEqual([]);
@@ -138,6 +138,21 @@ it("types nothing into a masked prompt that appears during the last process chec
 it("withholds the Enter from a masked prompt that appears during the last process check before it", async () => {
   // the check before Enter reads the screen, then the process: the prompt comes up at the last process read
   expect(await drain({ afterPaste: (pane) => { let reads = 0; pane.onProcessRead = () => { if (++reads >= 3) pane.screen = PROMPT; }; } })).toEqual(["paste"]);
+});
+
+it("types nothing over a draft typed into gjc's box after its input check, before the paste (#3627)", async () => {
+  const rows = JSON.parse(readFileSync(join(import.meta.dir, "../fixtures/gjc-input-0.18.12-rows.json"), "utf8")) as Record<"empty" | "draft", { text: string; ansi: string }>;
+  spyOn(client, "paneScrollInfo").mockResolvedValue(null);
+  // the box is empty when it is checked; a draft is typed while the catalog for the paste is read
+  const writes = await drain({ screen: rows.empty.text, beforeDrain: (pane) => { pane.ansi = rows.empty.ansi; }, after: (pane) => { pane.screen = rows.draft.text; pane.ansi = rows.draft.ansi; } });
+  expect(writes).toEqual([]);
+  expect(listed()[0]?.[1]).toBe("input_draft");
+});
+
+it("pastes into gjc's box that stayed empty from its input check to the paste", async () => {
+  const rows = JSON.parse(readFileSync(join(import.meta.dir, "../fixtures/gjc-input-0.18.12-rows.json"), "utf8")) as Record<"empty", { text: string; ansi: string }>;
+  spyOn(client, "paneScrollInfo").mockResolvedValue(null);
+  expect(await drain({ screen: rows.empty.text, beforeDrain: (pane) => { pane.ansi = rows.empty.ansi; } })).toEqual(["paste", "Enter"]);
 });
 
 it("types nothing once the bound process is no longer in front", async () => {

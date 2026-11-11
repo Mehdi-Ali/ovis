@@ -29,6 +29,8 @@ import { userHome } from "../user-home.ts";
 const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
 
 const HERMES_INPUT_DRAFT_MESSAGE = "Hermes' input in the terminal is not empty (a draft, or an input that could not be read); send or clear it there, then send this message";
+/** how many times freeGjcInput reads the box again while its reads disagree */
+const GJC_BOX_READ_ROUNDS = 3;
 const GJC_INPUT_DRAFT_MESSAGE = "GJC's input box in the terminal is not empty (a draft, or a box that could not be read); send or clear it there, then send this message";
 
 /**
@@ -279,18 +281,37 @@ export async function freeGjcInput(paneId: string, identity?: PendingIdentity): 
   const colored = async (): Promise<string> => scroll !== null && scroll.offset_from_bottom > 0
     ? (await paneRead({ paneId, source: "recent", format: "ansi", lines: scroll.viewport_rows })).text
     : (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
-  const colors = await colored();
-  const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-  // the colors again after the live read: a suggestion taken into the box meanwhile keeps its characters
-  // and changes only its styling, so the box must be drawn alike in both colored reads, and its words alike
-  // in both text reads
-  const again = await colored();
-  const box = gjcBoxAnsi(again);
-  const steady = box !== null && box === gjcBoxAnsi(colors) && gjcBoxPlain(live) === gjcBoxPlain(before);
-  if (gjcInputDraft(live, steady ? again : null)) {
-    throw new InputDraftError(null, identity, null, GJC_INPUT_DRAFT_MESSAGE);
+  // gjc changes its own empty box at a turn's end (its busy placeholder for its idle one, then a suggestion),
+  // right when a queued message goes: reads that disagree are read again, a bounded number of times, until
+  // two agree, before the box counts as unverified
+  let text = before;
+  let colors = await colored();
+  for (let round = 0; round < GJC_BOX_READ_ROUNDS; round++) {
+    const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+    // the colors again after the live read: a suggestion taken into the box meanwhile keeps its characters
+    // and changes only its styling, so the box must be drawn alike in both colored reads, and its words alike
+    // in both text reads
+    const again = await colored();
+    const box = gjcBoxAnsi(again);
+    const steady = box !== null && box === gjcBoxAnsi(colors) && gjcBoxPlain(live) === gjcBoxPlain(text);
+    if (steady || round === GJC_BOX_READ_ROUNDS - 1) {
+      if (gjcInputDraft(live, steady ? again : null)) throw new InputDraftError(null, identity, null, GJC_INPUT_DRAFT_MESSAGE);
+      return live;
+    }
+    text = live;
+    colors = again;
   }
-  return live;
+  throw new Error("unreachable: the last round decides");
+}
+
+/**
+ * The last screen read before a queued paste, for a gjc box freeGjcInput let through as `checked`: the same box,
+ * or freeGjcInput reads it again (gjc may have repainted its empty box since) and holds the message over a draft
+ * typed meanwhile. A draft typed after this read cannot be told: that would take herdr comparing and writing in
+ * one step.
+ */
+export async function gjcBoxStill(paneId: string, screen: string, checked: string, identity?: PendingIdentity): Promise<void> {
+  if (gjcBoxPlain(screen) !== gjcBoxPlain(checked)) await freeGjcInput(paneId, identity);
 }
 
 /**

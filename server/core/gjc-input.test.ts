@@ -32,7 +32,23 @@ describe("freeGjcInput (#3627)", () => {
   });
 
   it("refuses when the suggestion was taken into the box between the colored reads: the same words, now typed", async () => {
-    restore = reads([strip(ghost), strip(taken)], [ghost, taken]);
+    // read again while they disagree: the box stays typed
+    restore = reads([strip(ghost), strip(taken), strip(taken)], [ghost, taken, taken]);
+    await expect(freeGjcInput("w1:p1")).rejects.toBeInstanceOf(InputDraftError);
+  });
+
+  it("reads again while gjc swaps its busy placeholder for its idle one at a turn's end, and lets the send go", async () => {
+    const idle = rows.empty.ansi;
+    const busy = idle.replace("Alt+Enter: Queue (busy)", "Enter: Steer · Alt+Enter: Queue");
+    expect(busy).not.toBe(idle);
+    restore = reads([strip(busy), strip(idle), strip(idle)], [busy, idle, idle]);
+    expect(await freeGjcInput("w1:p1")).toBe(strip(idle));
+  });
+
+  it("holds the send when the box keeps changing across every read", async () => {
+    const idle = rows.empty.ansi;
+    const frames = [0, 1, 2, 3].map((n) => idle.replace("Alt+Enter: Queue (busy)", `frame ${n} of a box that keeps changing`));
+    restore = reads(frames.map(strip), frames);
     await expect(freeGjcInput("w1:p1")).rejects.toBeInstanceOf(InputDraftError);
   });
 

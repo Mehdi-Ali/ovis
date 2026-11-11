@@ -260,7 +260,7 @@ export function gjcInputDraft(live: string, colors: string | null): boolean {
     // the box's right border, when drawn, ends the row
     if (cells[end]?.char !== "│" && cells[end]?.char !== "|") end = cells.length;
     return cells.slice(start, end > start ? end : cells.length).some((cell) => !blank(cell) && !gjcGhostDrawn(cell)
-      && !(cell.inverse && blank(cell)) && !((cell.char === "▏" || cell.char === "|") && cell.blink));
+      && !((cell.char === "▏" || cell.char === "|") && cell.blink));
   });
 }
 
