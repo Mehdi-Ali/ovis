@@ -56,8 +56,27 @@ function rowCells(row: string): Cell[] {
   return cells;
 }
 
-/** gjc paints typed text in the terminal's own color: any other color, or dim, is its ghost text (or its placeholder). */
-const gjcGhostDrawn = (cell: Cell): boolean => cell.fg !== null || cell.dim;
+/**
+ * The `dim` colors of gjc's built-in themes (gjc 0.18.12: blue-crab, claude-code, codex, gruvbox-dark, opencode,
+ * ouroboros, red-claw), the color it paints its placeholder and its suggested next prompt in, as truecolor and as
+ * the 256-color cell each falls back to (`Bun.color(hex, "ansi-256")`, as omp's do). Typed text takes the terminal's
+ * own color or the theme's `text`, a slash command its `accent`: none of these.
+ */
+const GJC_DIM_TRUECOLOR = new Set(["55708a", "666666", "5f6670", "7c6f64", "6a6a6a", "5b756d", "6f4743"]);
+const GJC_DIM_256 = new Set([60, 240, 241, 242]);
+
+/**
+ * Whether a cell is drawn as gjc's hint text: its placeholder or its suggestion, in a built-in theme's `dim`.
+ * Anything else counts as typed (#3627): a custom theme's hint then holds a send rather than a draft in a color of
+ * its own (a slash command, a theme's `text`) being taken for a hint and pasted over.
+ */
+function gjcGhostDrawn(cell: Cell): boolean {
+  if (cell.inverse || cell.fg === null) return false;
+  const codes = cell.fg.split(";").map(Number);
+  if (codes[1] === 5) return GJC_DIM_256.has(codes[2]!);
+  if (codes[1] !== 2) return false;
+  return GJC_DIM_TRUECOLOR.has(codes.slice(2, 5).map((value) => value.toString(16).padStart(2, "0")).join(""));
+}
 
 /**
  * The `dim` colors of omp's built-in themes (omp 18.18, pi-tui `theme/defaults.json`, `dark.json` and `light.json`),

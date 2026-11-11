@@ -51,11 +51,20 @@ describe("gjc's input box holding a draft (#3627)", () => {
   };
   const draft = (input: string) => gjcInputDraft(plain(box(input)), box(input));
 
-  test("gjc's suggestion, its microphone and its cursor are not typed", () => {
+  test("gjc's suggestion and its cursor are not typed", () => {
     expect(draft(`${DIM}run the tests again${RESET}`)).toBeFalse();
     expect(draft(`\u001b[5m▏${RESET}${DIM}run the tests again${RESET}`)).toBeFalse();
-    expect(draft(`${fg(200, 40, 40)}🎤${RESET}`)).toBeFalse();
+    // a built-in theme's dim as a 256-color cell, where the terminal has no truecolor
+    expect(draft(`\u001b[38;5;242mrun the tests again${RESET}`)).toBeFalse();
     expect(draft("")).toBeFalse();
+  });
+
+  test("text in any color but a built-in theme's dim is typed: a slash command, a theme's text, gjc's microphone", () => {
+    expect(draft(`${fg(255, 106, 61)}/compact${RESET}`)).toBeTrue();
+    expect(draft(`${fg(229, 229, 231)}typed in the theme's text color${RESET}`)).toBeTrue();
+    expect(draft(`\u001b[2mtyped, but dim${RESET}`)).toBeTrue();
+    // its microphone while it records speech holds a send too: speech is about to be typed
+    expect(draft(`${fg(200, 40, 40)}🎤${RESET}`)).toBeTrue();
   });
 
   test("anything drawn in the terminal's own color is typed, a suggestion after it or not", () => {
