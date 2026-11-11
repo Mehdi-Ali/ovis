@@ -149,6 +149,25 @@ it("types nothing over a draft typed into gjc's box after its input check, befor
   expect(listed()[0]?.[1]).toBe("input_draft");
 });
 
+it("types nothing when gjc's suggestion is taken into its box after the input check: the same words, now typed (#3627)", async () => {
+  const rows = JSON.parse(readFileSync(join(import.meta.dir, "../fixtures/gjc-input-0.18.12-rows.json"), "utf8")) as Record<"empty", { text: string; ansi: string }>;
+  const ghost = rows.empty.ansi.replace(/Type your message[^\u001b]*/, `run the tests again${" ".repeat(93)}`);
+  const taken = ghost.replace("\u001b[38;2;111;71;67mrun the tests again", "\u001b[0mrun the tests again");
+  const strip = (ansi: string) => ansi.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").split("\n").map((row) => row.replace(/\r$/, "").trimEnd()).join("\n");
+  spyOn(client, "paneScrollInfo").mockResolvedValue(null);
+  const writes = await drain({ screen: strip(ghost), beforeDrain: (pane) => { pane.ansi = ghost; }, after: (pane) => { pane.ansi = taken; } });
+  expect(writes).toEqual([]);
+  expect(listed()[0]?.[1]).toBe("input_draft");
+});
+
+it("types nothing into a masked prompt that comes up while gjc's box is checked again before the paste", async () => {
+  const rows = JSON.parse(readFileSync(join(import.meta.dir, "../fixtures/gjc-input-0.18.12-rows.json"), "utf8")) as Record<"empty", { text: string; ansi: string }>;
+  spyOn(client, "paneScrollInfo").mockResolvedValue(null);
+  // the prompt comes up as the box's second check reads the screen: the masked-prompt read after it sees it
+  const writes = await drain({ screen: rows.empty.text, beforeDrain: (pane) => { pane.ansi = rows.empty.ansi; }, after: (pane) => { pane.onScreenRead = () => { pane.screen = PROMPT; pane.onScreenRead = undefined; }; } });
+  expect(writes).toEqual([]);
+});
+
 it("pastes into gjc's box that stayed empty from its input check to the paste", async () => {
   const rows = JSON.parse(readFileSync(join(import.meta.dir, "../fixtures/gjc-input-0.18.12-rows.json"), "utf8")) as Record<"empty", { text: string; ansi: string }>;
   spyOn(client, "paneScrollInfo").mockResolvedValue(null);

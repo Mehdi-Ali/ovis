@@ -304,15 +304,6 @@ export async function freeGjcInput(paneId: string, identity?: PendingIdentity): 
   throw new Error("unreachable: the last round decides");
 }
 
-/**
- * The last screen read before a queued paste, for a gjc box freeGjcInput let through as `checked`: the same box,
- * or freeGjcInput reads it again (gjc may have repainted its empty box since) and holds the message over a draft
- * typed meanwhile. A draft typed after this read cannot be told: that would take herdr comparing and writing in
- * one step.
- */
-export async function gjcBoxStill(paneId: string, screen: string, checked: string, identity?: PendingIdentity): Promise<void> {
-  if (gjcBoxPlain(screen) !== gjcBoxPlain(checked)) await freeGjcInput(paneId, identity);
-}
 
 /**
  * Codex's screen as every chat send reads it last, right before herdr is written to. herdr reports Codex at rest
@@ -712,6 +703,9 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         }
         // the last read before herdr is written to: one of Codex's own screens gets no paste and no Enter
         if (agent === "codex") await freeCodexInput(paneId);
+        // gjc's box read once more right before herdr is written to: the checks and catalog above were awaited, and a
+        // suggestion accepted meanwhile keeps its words (#3627). After this read, only a compare-and-write in herdr could tell
+        if (gjcRoots !== null) { await freeGjcInput(paneId, identity ?? undefined); inTime(); }
         const watch = pane ? startOpenCodeWatch(pane, command, options.openCodeStateDir) : null;
         try {
           inTime();
