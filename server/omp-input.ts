@@ -181,6 +181,56 @@ export function parseGjcSuggestion(ansi: string): string | null {
   return suggestionWords(ghost.text);
 }
 
+/** The rows inside gjc's input box nearest the screen's end, `│ > ` row first: null when no such box is drawn. */
+function gjcBoxRows(raw: readonly string[]): number[] | null {
+  for (let prompt = raw.length - 1; prompt > 0; prompt--) {
+    if (!GJC_PROMPT_RE.test(raw[prompt]!.trimStart()) || !GJC_BOX_TOP_RE.test(raw[prompt - 1]!.trim())) continue;
+    const rows = [prompt];
+    for (let row = prompt + 1; row < raw.length; row++) {
+      if (GJC_BOX_BOTTOM_RE.test(raw[row]!.trim())) return rows;
+      if (!/^[│|] /u.test(raw[row]!.trimStart())) return null;
+      rows.push(row);
+    }
+    return null;
+  }
+  return null;
+}
+
+/** What a row of gjc's box holds between its gutter (`│ > `, `│   `) and its right border. */
+const gjcBoxText = (row: string): string => row.trimStart().slice(4).replace(/ ?[│|]\s*$/u, "");
+
+/**
+ * Whether gjc's input box is not known to be empty, so that a paste would join what is there and the Enter
+ * send both as one prompt (#3627; measured on gjc 0.18.12 and 0.20.0). The box is the one nearest the
+ * screen's end (`╭─╮`, `│ > …`, any wrapped `│   …` rows, `╰─╯`). gjc paints typed text in the terminal's
+ * own color, and its placeholder (`Type your message...`), its suggested next prompt and its microphone in
+ * another or dim, so with `colors` (the viewport's ANSI read, passed only once viewportShowsLive verified it,
+ * else null) the box is empty when every character in it is drawn that way, past gjc's own blinking cursor.
+ * Without colors only the placeholder reads as empty. A screen with no gjc box drawn (one of gjc's own
+ * pickers) is left to the send as before: this reads the box, nothing else.
+ */
+export function gjcInputDraft(live: string, colors: string | null): boolean {
+  const raw = live.split("\n").map((row) => row.replace(/\r$/, ""));
+  const rows = gjcBoxRows(raw);
+  if (rows === null) return false;
+  const typed = rows.map((row) => gjcBoxText(raw[row]!)).join("\n").replace(/\u00a0/g, " ").trim();
+  if (typed === "") return false;
+  if (colors === null) return !GJC_PLACEHOLDER_RE.test(typed);
+  const shown = screenRows(colors);
+  const shownRows = gjcBoxRows(shown.raw);
+  if (shownRows === null || shownRows.length !== rows.length || shownRows.some((row, index) => shown.raw[row]!.trimEnd() !== raw[rows[index]!]!.trimEnd())) return true;
+  return shownRows.some((row) => {
+    const cells = shown.cells[row]!;
+    const start = leadingBlanks(cells) + 4;
+    let end = cells.length - 1;
+    while (end > start && blank(cells[end]!)) end--;
+    // the box's right border, when drawn, ends the row
+    if (cells[end]?.char !== "│" && cells[end]?.char !== "|") end = cells.length;
+    return cells.slice(start, end > start ? end : cells.length).some((cell) => !blank(cell) && !gjcGhostDrawn(cell)
+      && !(cell.inverse && blank(cell)) && !((cell.char === "▏" || cell.char === "|") && cell.blink));
+  });
+}
+
 /** what comes before the text in omp's prompt row, by `composer.shape`: band's and box's `╰─ `, `❯ ` (claude, rule, borderless), the box's IME-safe `│ `, field's `▐ `, rail's `▎ `; pi's row has none */
 const OMP_GUTTER_RE = /^ *(?:╰─? |\+-? |❯ |[│|] |▐ |▎ )?/u;
 /**

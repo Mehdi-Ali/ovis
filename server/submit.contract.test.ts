@@ -38,6 +38,7 @@ let codex: Recorder;
 let codexApproval: Recorder;
 let claudeQueue: Recorder;
 let hermes: Recorder;
+let gjc: Recorder;
 let omp: Recorder;
 
 const chunks = (recorder: Recorder): Chunk[] =>
@@ -166,6 +167,8 @@ beforeAll(async () => {
   chmodSync(join(root, "hermes"), 0o755);
   copyFileSync(process.execPath, join(root, "omp"));
   chmodSync(join(root, "omp"), 0o755);
+  copyFileSync(process.execPath, join(root, "gjc"));
+  chmodSync(join(root, "gjc"), 0o755);
   shell = await recorder("shell", process.execPath);
   agent = await recorder("agent", join(root, "claude"));
   await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "idle" });
@@ -181,6 +184,8 @@ beforeAll(async () => {
   await herdrRpc("pane.report_agent", { pane_id: claudeQueue.pane, source: "manual", agent: "claude", state: "blocked" });
   hermes = await recorder("hermes", join(root, "hermes"));
   await herdrRpc("pane.report_agent", { pane_id: hermes.pane, source: "manual", agent: "hermes", state: "idle" });
+  gjc = await recorder("gjc", join(root, "gjc"));
+  await herdrRpc("pane.report_agent", { pane_id: gjc.pane, source: "manual", agent: "gjc", state: "idle" });
   omp = await recorder("omp", join(root, "omp"));
   await herdrRpc("pane.report_agent", { pane_id: omp.pane, source: "manual", agent: "omp", state: "idle" });
   // an omp with herdr's integration reports its session once it takes input; a send waits for that
@@ -787,6 +792,58 @@ describe("WebSocket submit", () => {
       expect(sendText).not.toHaveBeenCalled();
     } finally {
       sendText.mockRestore();
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  // gjc 0.18.12's last rows as herdr reads them from an owned pane, its placeholder and a draft typed there (#3627)
+  const gjcRows = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "gjc-input-0.18.12-rows.json"), "utf8")) as Record<"empty" | "draft", { text: string; ansi: string }>;
+  const mockGjcInput = (rows: { text: string; ansi: string }) => {
+    const originalRead = herdr.paneRead;
+    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
+      const result = await originalRead(options, socketPath);
+      return options.paneId === gjc.pane ? { ...result, text: options.format === "ansi" ? rows.ansi : rows.text } : result;
+    });
+    const scroll = spyOn(herdr, "paneScrollInfo").mockResolvedValue(null);
+    return { read, scroll };
+  };
+
+  it("refuses an immediate GJC chat send over a draft in its input box, typing nothing (#3627)", async () => {
+    const socket = await Socket.connect();
+    const screen = mockGjcInput(gjcRows.draft);
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendText = spyOn(herdr, "paneSendText").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 33, pane_id: gjc.pane, text: "PINEAPPLE", payload: "PINEAPPLE" });
+      const refused = await socket.result(33);
+      expect(refused).toMatchObject({ ok: false, code: "input_draft", message: "GJC's input box in the terminal is not empty (a draft, or a box that could not be read); send or clear it there, then send this message" });
+      expect(refused.draft).toBeUndefined();
+      expect(prompt).not.toHaveBeenCalled();
+      expect(sendText).not.toHaveBeenCalled();
+      expect(sendKeys).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
+      sendText.mockRestore();
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("sends an immediate GJC chat message when its box shows only GJC's placeholder", async () => {
+    const socket = await Socket.connect();
+    const screen = mockGjcInput(gjcRows.empty);
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 34, pane_id: gjc.pane, text: "PINEAPPLE", payload: "PINEAPPLE" });
+      expect(await socket.result(34)).toMatchObject({ ok: true, pane_id: gjc.pane });
+      expect(prompt).toHaveBeenCalledWith(gjc.pane, "PINEAPPLE", undefined, expect.any(Function));
+    } finally {
       prompt.mockRestore();
       screen.scroll.mockRestore();
       screen.read.mockRestore();

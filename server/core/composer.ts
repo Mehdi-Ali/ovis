@@ -17,7 +17,7 @@ import type { CommandSend } from "../outcome.ts";
 import { processStartedAt } from "../process-start.ts";
 import { isOmpProcess, ompLoadsIntegration } from "../omp.ts";
 import { processEnviron } from "../omo.ts";
-import { bindCommandProcess, CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, codexQuestionsCollapsed, heldCandidate, historyEndShowsLive, lastChatSubmitted, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
+import { bindCommandProcess, CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, codexQuestionsCollapsed, heldCandidate, historyEndShowsLive, lastChatSubmitted, gjcInputDraft, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
 import { codexOwnScreenOpen, CODEX_OWN_SCREEN_MESSAGE } from "../dialogs/codex.ts";
 import { CLAUDE_REWIND_OPEN_MESSAGE } from "../dialogs/claude.ts";
@@ -29,6 +29,7 @@ import { userHome } from "../user-home.ts";
 const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
 
 const HERMES_INPUT_DRAFT_MESSAGE = "Hermes' input in the terminal is not empty (a draft, or an input that could not be read); send or clear it there, then send this message";
+const GJC_INPUT_DRAFT_MESSAGE = "GJC's input box in the terminal is not empty (a draft, or a box that could not be read); send or clear it there, then send this message";
 
 /**
  * input_draft, naming the one-row draft the chat may offer to clear (claudeClearableDraft), or none.
@@ -260,6 +261,23 @@ export async function freeHermesInput(paneId: string, identity?: PendingIdentity
   const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
   if (hermesInputDraft(live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null)) {
     throw new InputDraftError(null, identity, null, HERMES_INPUT_DRAFT_MESSAGE);
+  }
+  return live;
+}
+
+/**
+ * gjc's input box, refused with input_draft unless gjcInputDraft knows it empty, read as freeHermesInput
+ * reads Hermes' (#3627): the colors only for a box holding something other than gjc's placeholder.
+ */
+export async function freeGjcInput(paneId: string, identity?: PendingIdentity): Promise<string> {
+  const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+  if (!gjcInputDraft(before, null)) return before;
+  const scrollBefore = await paneScrollInfo(paneId);
+  const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
+  const scrollAfter = await paneScrollInfo(paneId);
+  const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+  if (gjcInputDraft(live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null)) {
+    throw new InputDraftError(null, identity, null, GJC_INPUT_DRAFT_MESSAGE);
   }
   return live;
 }
@@ -552,6 +570,13 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         inTime();
         if (hermes) {
           beforeScreen = await freeHermesInput(paneId, identity ?? undefined);
+          inTime();
+        }
+        const gjcRoots = hermes ? null : await paneRootsAs(pane, "gjc");
+        seen ??= gjcRoots?.processes;
+        if (gjcRoots !== null) {
+          inTime();
+          beforeScreen = await freeGjcInput(paneId, identity ?? undefined);
           inTime();
         }
         // omp's `/model` opens its Models hub, which assigns roles and saves the default one for

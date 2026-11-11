@@ -165,6 +165,7 @@ export function submitNote(code: string, message: string, agent?: string | null)
   if (code === "read_only") return t("Not sent: this view only watches the pane.");
   if (code === "held_input") return t("Not sent: send or discard the held input first.");
   if (code === "input_draft" && agent === "hermes") return t("Not sent: Hermes' input in the terminal is not empty. Send or clear it there, then send this message.");
+  if (code === "input_draft" && agent === "gjc") return t("Not sent: GJC's input box in the terminal is not empty. Send or clear it there, then send this message.");
   if (code === "input_draft") return t("Not sent: Claude Code's input box in the terminal is not empty. Send or clear it there, then send this message.");
   if (code === "rewind_dialog_open") return t("Not sent: Claude Code's rewind dialog is open in the terminal. Finish or close it there (Esc), then send this message.");
   if (code === "pending_input_unsupported") return t("Update this PC to send messages in the next turn. Your draft stayed here.");

@@ -1,8 +1,54 @@
 import { describe, expect, test } from "bun:test";
-import { parseGjcSuggestion, parseOmpSuggestion } from "./omp-input.ts";
+import { readFileSync } from "node:fs";
+import { gjcInputDraft, parseGjcSuggestion, parseOmpSuggestion } from "./omp-input.ts";
 
 const fg = (r: number, g: number, b: number) => `\u001b[38;2;${r};${g};${b}m`;
 const RESET = "\u001b[0m";
+const plain = (ansi: string) => ansi.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").split("\n").map((line) => line.replace(/\r$/, "").trimEnd()).join("\n");
+
+describe("gjc's input box holding a draft (#3627)", () => {
+  // gjc 0.18.12 in an owned herdr pane at 120 columns: the last rows of `pane.read` (detection text, visible ansi)
+  const real = JSON.parse(readFileSync(new URL("./fixtures/gjc-input-0.18.12-rows.json", import.meta.url), "utf8")) as Record<"empty" | "draft" | "draft-wrapped", { text: string; ansi: string }>;
+
+  test("reads gjc's own placeholder as empty, and typed text, one row or wrapped, as a draft", () => {
+    expect(gjcInputDraft(real.empty.text, real.empty.ansi)).toBeFalse();
+    expect(gjcInputDraft(real.draft.text, real.draft.ansi)).toBeTrue();
+    expect(gjcInputDraft(real["draft-wrapped"].text, real["draft-wrapped"].ansi)).toBeTrue();
+  });
+
+  test("without a verified color read, only the placeholder is empty", () => {
+    expect(gjcInputDraft(real.empty.text, null)).toBeFalse();
+    expect(gjcInputDraft(real.draft.text, null)).toBeTrue();
+    // colors of another screen (the viewport scrolled) prove nothing
+    expect(gjcInputDraft(real.empty.text, real.draft.ansi)).toBeTrue();
+  });
+
+  const BORDER = fg(255, 106, 61);
+  const DIM = fg(111, 71, 67);
+  const box = (input: string, top = `╭${"─".repeat(44)}╮`, bottom = `╰${"─".repeat(44)}╯`) => {
+    const shown = input.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+    return ["earlier output", `${RESET}${BORDER}${top}${RESET} `, `${RESET}${BORDER}${top[0] === "+" ? "|" : "│"} >${RESET} ${input}${" ".repeat(Math.max(0, 40 - shown.length))}${RESET}${BORDER} ${top[0] === "+" ? "|" : "│"}${RESET} `, `${RESET}${BORDER}${bottom}${RESET} `].join("\r\n");
+  };
+  const draft = (input: string) => gjcInputDraft(plain(box(input)), box(input));
+
+  test("gjc's suggestion, its microphone and its cursor are not typed", () => {
+    expect(draft(`${DIM}run the tests again${RESET}`)).toBeFalse();
+    expect(draft(`\u001b[5m▏${RESET}${DIM}run the tests again${RESET}`)).toBeFalse();
+    expect(draft(`${fg(200, 40, 40)}🎤${RESET}`)).toBeFalse();
+    expect(draft("")).toBeFalse();
+  });
+
+  test("anything drawn in the terminal's own color is typed, a suggestion after it or not", () => {
+    expect(draft("hello")).toBeTrue();
+    expect(draft(`hello ${DIM}there${RESET}`)).toBeTrue();
+    expect(draft("Type your message")).toBeTrue();
+    expect(gjcInputDraft(plain(box("x", `+${"-".repeat(44)}+`, `+${"-".repeat(44)}+`)), box("x", `+${"-".repeat(44)}+`, `+${"-".repeat(44)}+`))).toBeTrue();
+  });
+
+  test("a screen without gjc's box is left to the send", () => {
+    expect(gjcInputDraft("Select a model\n> gpt-6-astra\n  opus-5.5", null)).toBeFalse();
+  });
+});
 
 describe("gjc's suggested next prompt", () => {
   // gjc 0.20.0 as herdr reads it with ANSI at 120 columns: its box (red-claw theme) ends the screen
