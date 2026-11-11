@@ -65,6 +65,12 @@ describe("gjc's input box holding a draft (#3627)", () => {
     expect(gjcInputDraft(plain(box("x", `+${"-".repeat(44)}+`, `+${"-".repeat(44)}+`)), box("x", `+${"-".repeat(44)}+`, `+${"-".repeat(44)}+`))).toBeTrue();
   });
 
+  test("a box whose top border went off the screen holds a draft taller than the screen", () => {
+    const taller = ["│   the middle of a long draft", "│   and its last line                       │", `╰${"─".repeat(44)}╯`].join("\n");
+    expect(gjcInputDraft(taller, null)).toBeTrue();
+    expect(gjcInputDraft(taller, taller)).toBeTrue();
+  });
+
   test("a screen without gjc's box is left to the send", () => {
     expect(gjcInputDraft("Select a model\n> gpt-6-astra\n  opus-5.5", null)).toBeFalse();
   });

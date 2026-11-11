@@ -45,7 +45,7 @@ export type { OmoAsk } from "./dialogs/shared.ts";
 export { parseFallbackPrompt } from "./dialogs/fallback.ts";
 export { CLAUDE_CLEAR_INPUT_KEYS, INPUT_BOX_SHOWN_CHARS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxContent, claudeInputBoxText, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, historyEndShowsLive, isClaudeHeld, parseClaudeSuggestion, shownInputBox, viewportShowsLive } from "./claude-input.ts";
 export { hermesInputDraft } from "./hermes-input.ts";
-export { gjcBoxAnsi, gjcInputDraft } from "./omp-input.ts";
+export { gjcBoxAnsi, gjcBoxPlain, gjcInputDraft } from "./omp-input.ts";
 export { OpenCodePromptState } from "./opencode-prompt.ts";
 export { openOmoAsks, pendingOmoAsk } from "./omo-questions.ts";
 export { codexQueuedPrompt } from "./codex-queue.ts";

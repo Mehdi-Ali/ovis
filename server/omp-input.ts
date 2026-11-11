@@ -196,6 +196,24 @@ function gjcBoxRows(raw: readonly string[]): number[] | null {
   return null;
 }
 
+/** gjc's input box rows as a text read shows them, or null when no box is drawn: two text reads agree on the box when these do. */
+export function gjcBoxPlain(text: string): string | null {
+  const raw = text.split("\n").map((row) => row.replace(/\r$/, ""));
+  const box = gjcBoxRows(raw);
+  return box === null ? null : box.map((row) => raw[row]!.trimEnd()).join("\n");
+}
+
+/**
+ * Whether the screen ends in gjc's box with its top border scrolled off the screen's top: a draft taller than the
+ * screen, `│ ` rows from the first row down to the bottom border.
+ */
+function gjcBoxTaller(raw: readonly string[]): boolean {
+  const rows = filledRows(raw);
+  const bottom = rows.at(-1);
+  if (bottom === undefined || !GJC_BOX_BOTTOM_RE.test(raw[bottom]!.trim())) return false;
+  return rows.slice(0, -1).length > 0 && raw.slice(rows[0], bottom).every((row) => /^[│|] /u.test(row.trimStart()));
+}
+
 /** gjc's input box rows as an ANSI read draws them, colors and all, or null when no box is drawn: two reads agree on the box when these do. */
 export function gjcBoxAnsi(ansi: string): string | null {
   const rows = ansi.split("\n").map((row) => row.replace(/\r$/, ""));
@@ -222,7 +240,8 @@ const gjcBoxText = (row: string): string => row.trimStart().slice(4).replace(/ ?
 export function gjcInputDraft(live: string, colors: string | null): boolean {
   const raw = live.split("\n").map((row) => row.replace(/\r$/, ""));
   const rows = gjcBoxRows(raw);
-  if (rows === null) return false;
+  // a box whose top border is off the screen holds a draft taller than the screen
+  if (rows === null) return gjcBoxTaller(raw);
   const typed = rows.map((row) => gjcBoxText(raw[row]!)).join("\n").replace(/\u00a0/g, " ").trim();
   if (typed === "") return false;
   if (colors === null) return true;

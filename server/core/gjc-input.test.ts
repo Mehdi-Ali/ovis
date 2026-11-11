@@ -11,13 +11,14 @@ const ghost = rows.empty.ansi.replace(/Type your message[^\u001b]*/, `run the te
 const taken = ghost.replace("\u001b[38;2;111;71;67mrun the tests again", "\u001b[0mrun the tests again");
 
 /** herdr's reads of the pane in the order freeGjcInput makes them, each kind answered from its own list */
-function reads(text: string[], ansi: string[]) {
+function reads(text: string[], ansi: string[], at: { offset_from_bottom: number; viewport_rows: number } | null = null, sources: string[] = []) {
   const read = spyOn(herdr, "paneRead").mockImplementation(async (options) => {
+    sources.push(options.source ?? "");
     const answer = options.format === "ansi" ? ansi.shift() : text.shift();
     if (answer === undefined) throw new Error(`an unexpected ${options.format} read`);
     return { text: answer } as Awaited<ReturnType<typeof herdr.paneRead>>;
   });
-  const scroll = spyOn(herdr, "paneScrollInfo").mockResolvedValue(null);
+  const scroll = spyOn(herdr, "paneScrollInfo").mockResolvedValue(at as Awaited<ReturnType<typeof herdr.paneScrollInfo>>);
   return () => { read.mockRestore(); scroll.mockRestore(); };
 }
 
@@ -33,5 +34,20 @@ describe("freeGjcInput (#3627)", () => {
   it("refuses when the suggestion was taken into the box between the colored reads: the same words, now typed", async () => {
     restore = reads([strip(ghost), strip(taken)], [ghost, taken]);
     await expect(freeGjcInput("w1:p1")).rejects.toBeInstanceOf(InputDraftError);
+  });
+
+  it("lets a send go when only gjc's footer or spinner was redrawn between the reads", async () => {
+    const empty = rows.empty.ansi;
+    const redrawn = empty.replace("⬢", "◒");
+    expect(redrawn).not.toBe(empty);
+    restore = reads([strip(empty), strip(redrawn)], [empty, redrawn]);
+    expect(await freeGjcInput("w1:p1")).toBe(strip(redrawn));
+  });
+
+  it("reads the history's last rows for the colors while the viewport is scrolled up, and lets a send go over the placeholder", async () => {
+    const sources: string[] = [];
+    restore = reads([strip(rows.empty.ansi), strip(rows.empty.ansi)], [rows.empty.ansi, rows.empty.ansi], { offset_from_bottom: 1, viewport_rows: 40 }, sources);
+    expect(await freeGjcInput("w1:p1")).toBe(strip(rows.empty.ansi));
+    expect(sources).toEqual(["detection", "recent", "detection", "recent"]);
   });
 });

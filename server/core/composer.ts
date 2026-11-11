@@ -17,7 +17,7 @@ import type { CommandSend } from "../outcome.ts";
 import { processStartedAt } from "../process-start.ts";
 import { isOmpProcess, ompLoadsIntegration } from "../omp.ts";
 import { processEnviron } from "../omo.ts";
-import { bindCommandProcess, CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, codexQuestionsCollapsed, heldCandidate, historyEndShowsLive, lastChatSubmitted, gjcBoxAnsi, gjcInputDraft, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
+import { bindCommandProcess, CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, codexQuestionsCollapsed, heldCandidate, historyEndShowsLive, lastChatSubmitted, gjcBoxAnsi, gjcBoxPlain, gjcInputDraft, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
 import { codexOwnScreenOpen, CODEX_OWN_SCREEN_MESSAGE } from "../dialogs/codex.ts";
 import { CLAUDE_REWIND_OPEN_MESSAGE } from "../dialogs/claude.ts";
@@ -266,20 +266,27 @@ export async function freeHermesInput(paneId: string, identity?: PendingIdentity
 }
 
 /**
- * gjc's input box, refused with input_draft unless gjcInputDraft knows it empty, read as freeHermesInput
- * reads Hermes' (#3627): the colors only for a box holding anything, and twice, around the live read.
+ * gjc's input box, refused with input_draft unless gjcInputDraft knows it empty (#3627): the colors are read
+ * only for a box holding anything, twice, around the live text read. Only the box decides: gjc redraws its
+ * footer and spinner while the box stays as it was, most of all right at a turn's end, when a queued message
+ * goes. A viewport scrolled into the history (any client's scroll is every client's) shows no live box, so the
+ * history's last rows are read for its colors, as claudeBoxReads does.
  */
 export async function freeGjcInput(paneId: string, identity?: PendingIdentity): Promise<string> {
   const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
   if (!gjcInputDraft(before, null)) return before;
-  const scrollBefore = await paneScrollInfo(paneId);
-  const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
-  const scrollAfter = await paneScrollInfo(paneId);
+  const scroll = await paneScrollInfo(paneId);
+  const colored = async (): Promise<string> => scroll !== null && scroll.offset_from_bottom > 0
+    ? (await paneRead({ paneId, source: "recent", format: "ansi", lines: scroll.viewport_rows })).text
+    : (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
+  const colors = await colored();
   const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
   // the colors again after the live read: a suggestion taken into the box meanwhile keeps its characters
-  // and changes only its styling, so the box must be drawn alike in both colored reads
-  const again = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
-  const steady = viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) && gjcBoxAnsi(again) === gjcBoxAnsi(colors);
+  // and changes only its styling, so the box must be drawn alike in both colored reads, and its words alike
+  // in both text reads
+  const again = await colored();
+  const box = gjcBoxAnsi(again);
+  const steady = box !== null && box === gjcBoxAnsi(colors) && gjcBoxPlain(live) === gjcBoxPlain(before);
   if (gjcInputDraft(live, steady ? again : null)) {
     throw new InputDraftError(null, identity, null, GJC_INPUT_DRAFT_MESSAGE);
   }
