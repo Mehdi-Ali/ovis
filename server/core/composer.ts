@@ -17,7 +17,7 @@ import type { CommandSend } from "../outcome.ts";
 import { processStartedAt } from "../process-start.ts";
 import { isOmpProcess, ompLoadsIntegration } from "../omp.ts";
 import { processEnviron } from "../omo.ts";
-import { bindCommandProcess, CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, codexQuestionsCollapsed, heldCandidate, historyEndShowsLive, lastChatSubmitted, gjcInputDraft, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
+import { bindCommandProcess, CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, codexQuestionsCollapsed, heldCandidate, historyEndShowsLive, lastChatSubmitted, gjcBoxAnsi, gjcInputDraft, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
 import { codexOwnScreenOpen, CODEX_OWN_SCREEN_MESSAGE } from "../dialogs/codex.ts";
 import { CLAUDE_REWIND_OPEN_MESSAGE } from "../dialogs/claude.ts";
@@ -267,7 +267,7 @@ export async function freeHermesInput(paneId: string, identity?: PendingIdentity
 
 /**
  * gjc's input box, refused with input_draft unless gjcInputDraft knows it empty, read as freeHermesInput
- * reads Hermes' (#3627): the colors only for a box holding something other than gjc's placeholder.
+ * reads Hermes' (#3627): the colors only for a box holding anything, and twice, around the live read.
  */
 export async function freeGjcInput(paneId: string, identity?: PendingIdentity): Promise<string> {
   const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
@@ -276,7 +276,11 @@ export async function freeGjcInput(paneId: string, identity?: PendingIdentity): 
   const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
   const scrollAfter = await paneScrollInfo(paneId);
   const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-  if (gjcInputDraft(live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null)) {
+  // the colors again after the live read: a suggestion taken into the box meanwhile keeps its characters
+  // and changes only its styling, so the box must be drawn alike in both colored reads
+  const again = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
+  const steady = viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) && gjcBoxAnsi(again) === gjcBoxAnsi(colors);
+  if (gjcInputDraft(live, steady ? again : null)) {
     throw new InputDraftError(null, identity, null, GJC_INPUT_DRAFT_MESSAGE);
   }
   return live;

@@ -138,7 +138,7 @@ beforeAll(() => {
   // The recorder polls its screen file: fs.watch can drop the change that follows writeFileSync's
   // truncation, leaving the cleared screen it read in between up for good.
   writeFileSync(join(root, "record.cjs"), `const fs=require("node:fs");const out=process.argv[2];process.stdin.setRawMode(true);process.stdin.resume();process.stdout.write("\\x1b[?2004h"+(process.argv[3]||"").replace(/\\\\x1b/g,"\\x1b"),()=>fs.writeFileSync(out,""));process.stdin.on("data",c=>fs.appendFileSync(out,JSON.stringify(c.toString("utf8"))+"\\n"));let shown="";setInterval(()=>{const next=fs.readFileSync(process.argv[4],"utf8");if(next!==shown){shown=next;process.stdout.write("\\x1b[2J\\x1b[H"+next);}},20);`);
-  for (const name of ["claude", "codex", "omp", "pi", "plain", "node"]) { copyFileSync(process.execPath, join(root, name)); chmodSync(join(root, name), 0o755); }
+  for (const name of ["claude", "codex", "omp", "pi", "plain", "node", "gjc"]) { copyFileSync(process.execPath, join(root, name)); chmodSync(join(root, name), 0o755); }
   // an npm-style launcher (`node .../bin/claude`) that does not exec its agent: it stays in front, listed before the
   // native agent it starts, and starts SESSION2 once SESSION1 exits. On SIGUSR1 it starts SESSION2 first and ends
   // SESSION1 only once SESSION2 runs: a replacement with an agent in front throughout, which no read can take for
@@ -1485,6 +1485,21 @@ describe("connection-owned pending input", () => {
     expect(await f.socket.action(10)).toMatchObject({ ok: true });
     await f.removed(message.id);
     await f.waitBytes(`${paste("queued message")}\r`);
+  }, 30_000);
+
+  it("holds a queued message rather than pasting it over a draft typed in GJC's input box (#3627)", async () => {
+    const f = await setup("gjc-draft", "gjc");
+    // gjc's box at the pane's 80 columns, as gjc 0.18.12 draws it: borders in its accent, typed text in the terminal's own color
+    const border = "\u001b[38;2;255;106;61m";
+    const reset = "\u001b[0m";
+    const box = [`${border}╭${"─".repeat(60)}╮${reset}`, `${border}│ >${reset} half a thought typed in the terminal${" ".repeat(20)}${border} │${reset}`, `${border}╰${"─".repeat(60)}╯${reset}`].join("\n");
+    await f.showScreen(`${box}\n`, "╯");
+    const message = await f.queue(1, "queued message");
+    await f.state("idle");
+    const held = await f.socket.wait((frame) => frame.type === "pending-messages" && frame.pane_id === f.pane
+      && frame.messages.some((item: PendingMessage) => item.id === message.id && item.state === "held"));
+    expect(held.messages.find((item: PendingMessage) => item.id === message.id).error.code).toBe("input_draft");
+    expect(f.bytes()).toBe("");
   }, 30_000);
 
   it("holds a queued message rather than clearing the stopped chat message Claude put back in its box", async () => {

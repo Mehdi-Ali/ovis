@@ -835,6 +835,22 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  it("refuses an immediate GJC send over a draft typed with the placeholder's own words", async () => {
+    const socket = await Socket.connect();
+    const screen = mockGjcInput((() => { const ansi = gjcRows.draft.ansi.replace("a draft typed in the terminal", "Type your message to the team"); return { ansi, text: gjcRows.draft.text.replace("a draft typed in the terminal", "Type your message to the team") }; })());
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 35, pane_id: gjc.pane, text: "PINEAPPLE", payload: "PINEAPPLE" });
+      expect(await socket.result(35)).toMatchObject({ ok: false, code: "input_draft" });
+      expect(prompt).not.toHaveBeenCalled();
+    } finally {
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
   it("sends an immediate GJC chat message when its box shows only GJC's placeholder", async () => {
     const socket = await Socket.connect();
     const screen = mockGjcInput(gjcRows.empty);

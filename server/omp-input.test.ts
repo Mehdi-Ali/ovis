@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { gjcInputDraft, parseGjcSuggestion, parseOmpSuggestion } from "./omp-input.ts";
+import { gjcBoxAnsi, gjcInputDraft, parseGjcSuggestion, parseOmpSuggestion } from "./omp-input.ts";
 
 const fg = (r: number, g: number, b: number) => `\u001b[38;2;${r};${g};${b}m`;
 const RESET = "\u001b[0m";
@@ -16,11 +16,31 @@ describe("gjc's input box holding a draft (#3627)", () => {
     expect(gjcInputDraft(real["draft-wrapped"].text, real["draft-wrapped"].ansi)).toBeTrue();
   });
 
-  test("without a verified color read, only the placeholder is empty", () => {
-    expect(gjcInputDraft(real.empty.text, null)).toBeFalse();
+  test("without a verified color read, anything in the box holds the send, the placeholder too", () => {
+    // only the styling tells the placeholder from the same words typed: the safer miss is a refusal
+    expect(gjcInputDraft(real.empty.text, null)).toBeTrue();
     expect(gjcInputDraft(real.draft.text, null)).toBeTrue();
     // colors of another screen (the viewport scrolled) prove nothing
     expect(gjcInputDraft(real.empty.text, real.draft.ansi)).toBeTrue();
+  });
+
+  test("a draft typed with the placeholder's own words is a draft", () => {
+    const typed = real.draft.ansi.replace("a draft typed in the terminal", "Type your message to the team");
+    expect(gjcInputDraft(plain(typed), typed)).toBeTrue();
+    expect(gjcInputDraft(plain(typed), null)).toBeTrue();
+  });
+
+  test("the placeholder after gjc's own cursor, or cut short, is empty with its colors", () => {
+    const cursor = real.empty.ansi.replace("\u001b[0m \u001b[0m\u001b[38;2;111;71;67mType", "\u001b[0m \u001b[5m▏\u001b[0m\u001b[38;2;111;71;67mType");
+    expect(cursor).not.toBe(real.empty.ansi);
+    expect(gjcInputDraft(plain(cursor), cursor)).toBeFalse();
+    expect(gjcInputDraft(plain(box(`${DIM}Type your mes…${RESET}`)), box(`${DIM}Type your mes…${RESET}`))).toBeFalse();
+  });
+
+  test("names the box as its colored read draws it, so two reads can be compared", () => {
+    expect(gjcBoxAnsi(real.empty.ansi)).toContain("Type your message");
+    expect(gjcBoxAnsi(real.empty.ansi)).not.toBe(gjcBoxAnsi(real.draft.ansi));
+    expect(gjcBoxAnsi("no box here")).toBeNull();
   });
 
   const BORDER = fg(255, 106, 61);

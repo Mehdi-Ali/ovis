@@ -196,6 +196,13 @@ function gjcBoxRows(raw: readonly string[]): number[] | null {
   return null;
 }
 
+/** gjc's input box rows as an ANSI read draws them, colors and all, or null when no box is drawn: two reads agree on the box when these do. */
+export function gjcBoxAnsi(ansi: string): string | null {
+  const rows = ansi.split("\n").map((row) => row.replace(/\r$/, ""));
+  const box = gjcBoxRows(screenRows(ansi).raw);
+  return box === null ? null : box.map((row) => rows[row]!.trimEnd()).join("\n");
+}
+
 /** What a row of gjc's box holds between its gutter (`│ > `, `│   `) and its right border. */
 const gjcBoxText = (row: string): string => row.trimStart().slice(4).replace(/ ?[│|]\s*$/u, "");
 
@@ -206,8 +213,11 @@ const gjcBoxText = (row: string): string => row.trimStart().slice(4).replace(/ ?
  * own color, and its placeholder (`Type your message...`), its suggested next prompt and its microphone in
  * another or dim, so with `colors` (the viewport's ANSI read, passed only once viewportShowsLive verified it,
  * else null) the box is empty when every character in it is drawn that way, past gjc's own blinking cursor.
- * Without colors only the placeholder reads as empty. A screen with no gjc box drawn (one of gjc's own
- * pickers) is left to the send as before: this reads the box, nothing else.
+ * Without verified colors, anything in the box holds the send, gjc's placeholder included: its words can be
+ * typed (`Type your message to the team`), and its cursor or a narrow pane change how it reads, so only its
+ * styling tells it apart. A send refused while gjc redraws or the viewport is scrolled is the safer miss than
+ * one pasted over a draft. A screen with no gjc box drawn (one of gjc's own pickers) is left to the send as
+ * before: this reads the box, nothing else.
  */
 export function gjcInputDraft(live: string, colors: string | null): boolean {
   const raw = live.split("\n").map((row) => row.replace(/\r$/, ""));
@@ -215,7 +225,7 @@ export function gjcInputDraft(live: string, colors: string | null): boolean {
   if (rows === null) return false;
   const typed = rows.map((row) => gjcBoxText(raw[row]!)).join("\n").replace(/\u00a0/g, " ").trim();
   if (typed === "") return false;
-  if (colors === null) return !GJC_PLACEHOLDER_RE.test(typed);
+  if (colors === null) return true;
   const shown = screenRows(colors);
   const shownRows = gjcBoxRows(shown.raw);
   if (shownRows === null || shownRows.length !== rows.length || shownRows.some((row, index) => shown.raw[row]!.trimEnd() !== raw[rows[index]!]!.trimEnd())) return true;
