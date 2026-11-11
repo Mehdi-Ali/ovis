@@ -204,14 +204,18 @@ export function gjcBoxPlain(text: string): string | null {
 }
 
 /**
- * Whether the screen ends in gjc's box with its top border scrolled off the screen's top: a draft taller than the
- * screen, `│ ` rows from the first row down to the bottom border.
+ * Whether the screen ends in a gjc box that cannot be read whole: its bottom border under an input row with no
+ * `│ > ` row and top border above it (the top off the screen's top, or gjc's editor scrolled inside a long
+ * draft), or its top border with input rows down to the screen's end and no bottom (a short terminal clips it).
+ * Something is typed in such a box, or it could be: it is not known to be empty.
  */
-function gjcBoxTaller(raw: readonly string[]): boolean {
-  const rows = filledRows(raw);
-  const bottom = rows.at(-1);
-  if (bottom === undefined || !GJC_BOX_BOTTOM_RE.test(raw[bottom]!.trim())) return false;
-  return rows.slice(0, -1).length > 0 && raw.slice(rows[0], bottom).every((row) => /^[│|] /u.test(row.trimStart()));
+function gjcBoxUnreadable(raw: readonly string[]): boolean {
+  const rows = filledRows(raw).map((row) => raw[row]!.trim());
+  const input = (row: string | undefined) => row !== undefined && /^[│|] /u.test(row);
+  const last = rows.length - 1;
+  if (last >= 1 && GJC_BOX_BOTTOM_RE.test(rows[last]!) && input(rows[last - 1])) return true;
+  for (let index = last; index >= 0 && input(rows[index]); index--) if (index > 0 && GJC_BOX_TOP_RE.test(rows[index - 1]!)) return true;
+  return false;
 }
 
 /** gjc's input box rows as an ANSI read draws them, colors and all, or null when no box is drawn: two reads agree on the box when these do. */
@@ -241,7 +245,7 @@ export function gjcInputDraft(live: string, colors: string | null): boolean {
   const raw = live.split("\n").map((row) => row.replace(/\r$/, ""));
   const rows = gjcBoxRows(raw);
   // a box whose top border is off the screen holds a draft taller than the screen
-  if (rows === null) return gjcBoxTaller(raw);
+  if (rows === null) return gjcBoxUnreadable(raw);
   const typed = rows.map((row) => gjcBoxText(raw[row]!)).join("\n").replace(/\u00a0/g, " ").trim();
   if (typed === "") return false;
   if (colors === null) return true;

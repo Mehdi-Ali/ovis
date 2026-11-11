@@ -65,10 +65,23 @@ describe("gjc's input box holding a draft (#3627)", () => {
     expect(gjcInputDraft(plain(box("x", `+${"-".repeat(44)}+`, `+${"-".repeat(44)}+`)), box("x", `+${"-".repeat(44)}+`, `+${"-".repeat(44)}+`))).toBeTrue();
   });
 
-  test("a box whose top border went off the screen holds a draft taller than the screen", () => {
-    const taller = ["│   the middle of a long draft", "│   and its last line                       │", `╰${"─".repeat(44)}╯`].join("\n");
-    expect(gjcInputDraft(taller, null)).toBeTrue();
-    expect(gjcInputDraft(taller, taller)).toBeTrue();
+  test("a box that shows but cannot be read whole is not known to be empty", () => {
+    const top = `╭${"─".repeat(44)}╮`;
+    const bottom = `╰${"─".repeat(44)}╯`;
+    const screens = {
+      // its top border off the screen's top: a draft taller than the screen
+      taller: ["│   the middle of a long draft", "│   and its last line                       │", bottom],
+      // gjc's editor scrolled inside a long draft: no `│ > ` row between the borders
+      scrolled: ["earlier output", top, "│   line 7 of a long draft                  │", "│   line 8                                  │", bottom],
+      // a short terminal clips the box's bottom
+      clipped: ["earlier output", top, "│ > a draft whose box is cut at the screen's end"],
+    };
+    for (const [name, rows] of Object.entries(screens)) {
+      expect(gjcInputDraft(rows.join("\n"), null), name).toBeTrue();
+      expect(gjcInputDraft(rows.join("\n"), rows.join("\n")), name).toBeTrue();
+    }
+    // gjc's own session panel above the box is no input box
+    expect(gjcInputDraft(["╭──┬──╮", "│ a │ b │", "╰──┴──╯", "status line"].join("\n"), null)).toBeFalse();
   });
 
   test("a screen without gjc's box is left to the send", () => {
