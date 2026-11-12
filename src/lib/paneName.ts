@@ -53,3 +53,23 @@ export function unsaidLine(title: string, parts: readonly (string | null | undef
 export function placeLine(workspace: string, folder: string): string {
   return !folder || folder === workspace ? workspace : !workspace ? folder : `${workspace} · ${folder}`;
 }
+
+/** the state words a plugin's line may repeat, which the row's own badge already shows */
+const STATE_WORDS = ["idle", "working", "blocked", "done", "unknown"];
+
+/** A token's text as a row compares it: herdr's braille-blank padding and spaces dropped, any case. */
+const sayable = (text: string): string => text.replace(/\u2800/g, " ").trim().toLowerCase();
+
+/**
+ * The plugin tokens a row draws on its own line, less the ones that only repeat it: a token whose every
+ * " · " part is already on the row (its title, name, workspace, tab) or is a state word the badge shows.
+ * A plugin written for herdr's own sidebar reports the topic and "workspace · state" there, which the
+ * web row already says on its first line.
+ */
+export function unsaidTokens(tokens: readonly string[], said: readonly (string | null | undefined)[]): string[] {
+  const known = new Set([...STATE_WORDS, ...said.flatMap((part) => (part ? part.split(" · ") : [])).map(sayable).filter(Boolean)]);
+  return tokens.filter((token) => {
+    const parts = token.split(/\s+·\s+/).map(sayable).filter(Boolean);
+    return parts.length > 0 && !parts.every((part) => known.has(part));
+  });
+}

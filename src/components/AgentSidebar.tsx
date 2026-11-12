@@ -7,6 +7,7 @@ import { paneTokenValues } from "../../shared/pane-tokens.ts";
 import type { AgentStatus, HerdrPane, PaneContext, PlanSummary, TabInfo } from "../../shared/protocol.ts";
 import { currentAgentRowTokens, subscribeAgentRowTokens } from "../lib/agentRowTokens.ts";
 import { useT } from "../lib/i18n.ts";
+import { unsaidTokens } from "../lib/paneName.ts";
 import { useAnnouncedText } from "../lib/useAnnouncedText.ts";
 import { useEdgeFades } from "../lib/useEdgeFades.ts";
 import { agentGroup, agentRoster, groupAgentRows, splitBackgroundRows, type AgentGroup, type AgentRow } from "../lib/agentRoster.ts";
@@ -509,7 +510,8 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     const kind = kindLabel?.trim() || null;
     const markKind = kind && kind !== title.trim() && !contextParts.includes(kind) ? kind : null;
     // a PC that is away says nothing of its agents now, its plugins' words included
-    const tokens = online ? paneTokenValues(rowTokens, entry.canonicalAgent, pane.tokens ?? agent?.tokens) : [];
+    // a token that only repeats the row (a plugin's line for herdr's own sidebar: topic, workspace, state) is not drawn again
+    const tokens = online ? unsaidTokens(paneTokenValues(rowTokens, entry.canonicalAgent, pane.tokens ?? agent?.tokens), [said, title, drawn, name, kindLabel, workspace.label, workspace.worktree?.is_linked_worktree ? compactWorktreeName(workspace.label) : null, parts.tabName, ...contextParts]) : [];
     // on one line a row leads with what the agent is on (its own label, else its tab's name) and says its workspace once
     if (compact) {
       const lead = drawn;
