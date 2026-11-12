@@ -125,7 +125,7 @@ import { Droplet } from "./components/Droplet.tsx";
 import { MarkdownLinkMenu } from "./components/MarkdownLinkMenu.tsx";
 import { paneDragData, PANE_DRAG_TYPE, slotSide, type SplitSlot, type SplitTarget } from "./lib/split.ts";
 import { paneMoveNotice, useLayoutNotice, useLayoutRefused, useMoveRefused } from "./lib/useLayoutNotice.ts";
-import { PaneFollowContext, PanePressContext } from "./lib/paneSubmitContext.ts";
+import { PaneFollowContext, PanePressContext, PaneSelectContext } from "./lib/paneSubmitContext.ts";
 import { SplitDividers } from "./components/SplitDividers.tsx";
 import { SplitDropPreview } from "./components/SplitDropPreview.tsx";
 import { CrashProbe, RegionCrash } from "./components/AppCrash.tsx";
@@ -410,6 +410,8 @@ export function App() {
     if (view.split !== null) setSplit(view.split);
     if (view.selection !== null) selectTargetRef.current(machineId, view.selection);
   };
+  // local patch: the adb Run button opens the pane it split off (PaneSelectContext)
+  const selectPaneById = useCallback((machineId: string, paneId: string) => selectTargetRef.current(machineId, paneId), [selectTargetRef]);
   const { takeNotificationTargetRef } = useNotificationTargets({ machinesRef, selectTargetRef, selectionHint, pendingLink, pendingFile, setLinkLanded, linkSince, rosterSeq, setLinkTick, load });
 
 
@@ -1049,7 +1051,7 @@ export function App() {
         {moreGroup && groupItems.length > 0 && <RowMenu anchor={moreGroup.anchor} title={t(moreGroup.kind === "find" ? "Find…" : "Pane and tab…")} items={groupItems} onClose={closeMoreGroup} />}
       </header>
 
-      <PanePressContext.Provider value={pressPane}>
+      <PaneSelectContext.Provider value={selectPaneById}><PanePressContext.Provider value={pressPane}>
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}${sidebarPeeking ? " is-peek" : ""}`} role={drawerModal ? "dialog" : undefined} aria-modal={drawerModal ? true : undefined} tabIndex={drawerModal ? -1 : undefined} aria-label={drawerModal ? t("Workspace list") : undefined}
           // the header's toggle and + are drawn as the open drawer's top row: a screen reader that keeps to the modal finds them in it
@@ -1283,7 +1285,7 @@ export function App() {
         {webPage !== null && !(viewing !== null && fileDocked) &&
           <WebPanel key={webPage} url={webPage} docked={filePanelAvailable} covered={webDialogCover} onClose={closeWebPage} panelStart={filePanelAvailable ? <FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} /> : undefined} />}
       </div>
-      </PanePressContext.Provider>
+      </PanePressContext.Provider></PaneSelectContext.Provider>
 
       <MachineContext.Provider value={newSessionMachineId}><NewSessionDialog
         key={newSessionMachineId}

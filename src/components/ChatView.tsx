@@ -29,6 +29,8 @@ import { seenKey } from "../lib/seenFinishes.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError, pinPaneConversation, runAdbBlock, unpinPaneConversation } from "../lib/api.ts";
+import { PaneSelectContext } from "../lib/paneSubmitContext.ts";
+import { SOLO_PANE_QUERY } from "../lib/paneCanvas.ts";
 import { copyText } from "../lib/clipboard.ts";
 import type { GalleryImage } from "../lib/imageViewer.ts";
 import { toolGalleryImage, userGalleryImages } from "../lib/chatImages.ts";
@@ -2897,7 +2899,26 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
   // queue lives in the store, so a reader who goes to another tab and comes back still sees it.
   const waitKey = waitingKey(machineId, paneId);
   // local patch: the Run button on adb code blocks (Markdown.tsx CodeRunContext)
-  const runAdb = useCallback((command: string) => runAdbBlock(paneId, command, machineId), [paneId, machineId]);
+  const selectPane = useContext(PaneSelectContext);
+  const runAdb = useCallback(async (command: string) => {
+    const started = await runAdbBlock(paneId, command, machineId);
+    // a phone shows one pane at a time: go to the new one, after the roster has had a moment to list it
+    const phone = started.paneId !== null && selectPane !== null && window.matchMedia(SOLO_PANE_QUERY).matches;
+    if (phone) {
+      const target = started.paneId as string;
+      window.setTimeout(() => selectPane(machineId, target), 700);
+    }
+    // ...and back to this agent once the pane closes itself after a success (adb-run.js: 5 s)
+    let returned = false;
+    return async () => {
+      const status = await started.read();
+      if (phone && !returned && status.state === "ok") {
+        returned = true;
+        window.setTimeout(() => selectPane(machineId, paneId), 5500);
+      }
+      return status;
+    };
+  }, [paneId, machineId, selectPane]);
   const sentWaiting = useWaitingSends(machineId, paneId, connected);
   // before paint: a frame never shows a send's turn and its waiting bubble together. Only a
   // conversation read that answered says what the chat holds: a failed read leaves it unknown. Each

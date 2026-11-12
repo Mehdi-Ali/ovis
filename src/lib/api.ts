@@ -1175,12 +1175,13 @@ export async function resizePane(paneId: string, direction: PaneDirection, machi
 }
 
 /** POST /api/pane/adb-run (local patch): runs an adb code block in a small pane split under the agent's. */
-export async function runAdbBlock(paneId: string, command: string, machineId = "local"): Promise<AdbRunStatusReader> {
+export async function runAdbBlock(paneId: string, command: string, machineId = "local"): Promise<{ paneId: string | null; read: AdbRunStatusReader }> {
   const response = await sendJson(machinePath(machineId, "pane/adb-run"), "POST", { pane_id: paneId, command });
-  const runId = ((await response.json()) as { run_id?: string | null }).run_id ?? null;
-  return async () => runId === null
+  const started = (await response.json()) as { run_id?: string | null; pane_id?: string | null };
+  const runId = started.run_id ?? null;
+  return { paneId: started.pane_id ?? null, read: async () => runId === null
     ? { state: "unknown", lines: [] }
-    : getJson<AdbRunStatus>(machinePath(machineId, `pane/adb-run/status?${new URLSearchParams({ run: runId }).toString()}`));
+    : getJson<AdbRunStatus>(machinePath(machineId, `pane/adb-run/status?${new URLSearchParams({ run: runId }).toString()}`)) };
 }
 
 /** What the adb-run pane is doing: one line per step, the last one current. */

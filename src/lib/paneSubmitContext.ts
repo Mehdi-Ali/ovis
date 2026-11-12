@@ -14,4 +14,6 @@ export const PaneShownContext = createContext(true);
  *  pty, and this half draws its screen at that grid instead of taking it (lib/split.ts) */
 export const PaneFollowContext = createContext(false);
 /** App's chat prefetch for a press on an agent pane's tab or sidebar row (usePaneLens pressPane); null outside App */
+/** local patch: App's selectTarget, for a chat block that opens a pane of its own (the adb Run button) */
+export const PaneSelectContext = createContext<((machineId: string, paneId: string) => void) | null>(null);
 export const PanePressContext = createContext<((machineId: string, paneId: string) => void) | null>(null);
