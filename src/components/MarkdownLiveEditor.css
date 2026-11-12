@@ -1,0 +1,82 @@
+/* Live preview (Atomic Editor) in the file editor: it fills the editor's column, and takes every colour
+   from the app's theme, so it follows dark, light and custom themes instead of Atomic's own palette.
+   The --md-* roles are the Preview's (gruvbox colouring); without them the text colours stand in. */
+.file-live-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.file-live-editor > * { flex: 1 1 auto; min-height: 0; }
+
+.file-editor .file-live-editor .atomic-cm-editor {
+  --atomic-editor-bg: var(--bg-input);
+  --atomic-editor-bg-panel: var(--bg-panel);
+  --atomic-editor-bg-surface: var(--bg-elevated);
+  --atomic-editor-fg: var(--text);
+  --atomic-editor-fg-muted: var(--text-dim);
+  --atomic-editor-fg-faint: color-mix(in srgb, var(--text-dim) 70%, transparent);
+  --atomic-editor-border: var(--border);
+  --atomic-editor-accent: var(--accent);
+  --atomic-editor-accent-bright: var(--accent);
+  --atomic-editor-accent-soft: var(--accent-tint);
+  --atomic-editor-link: var(--md-link, var(--accent));
+  --atomic-editor-link-hover: var(--md-link, var(--accent));
+  --atomic-editor-selection-bg: var(--selection-bg);
+  --atomic-editor-search-bg: var(--accent-tint);
+  --atomic-editor-search-bg-active: color-mix(in srgb, var(--accent) 40%, transparent);
+  --atomic-editor-code-bg: var(--bg-elevated);
+  --atomic-editor-code-rail: var(--md-rail, var(--border-strong));
+  --atomic-editor-font: var(--font-ui);
+  --atomic-editor-font-mono: var(--font-mono);
+  --atomic-editor-body-size: calc(var(--fs-sm) * var(--file-source-scale, 1));
+  --atomic-editor-measure: 100%;
+  --atomic-editor-hl-comment: var(--syntax-comment);
+  --atomic-editor-hl-keyword: var(--syntax-keyword);
+  --atomic-editor-hl-string: var(--syntax-string);
+  --atomic-editor-hl-number: var(--syntax-number);
+  --atomic-editor-hl-function: var(--syntax-function);
+  --atomic-editor-hl-variable: var(--syntax-variable);
+  --atomic-editor-hl-property: var(--syntax-variable);
+  --atomic-editor-hl-type: var(--syntax-type);
+  --atomic-editor-hl-tag: var(--syntax-keyword);
+  --atomic-editor-hl-operator: var(--syntax-meta);
+  --atomic-editor-hl-regexp: var(--syntax-string);
+  --atomic-editor-hl-escape: var(--syntax-meta);
+  --atomic-editor-hl-invalid: var(--syntax-deleted);
+  height: 100%;
+}
+
+.file-editor .file-live-editor .cm-content { padding: var(--space-3); }
+
+/* the Preview's colour roles, so a heading reads the same in both */
+.file-editor .file-live-editor .cm-line.cm-atomic-h1 { color: var(--md-h1, var(--text-strong)); }
+.file-editor .file-live-editor .cm-line.cm-atomic-h2 { color: var(--md-h2, var(--text-strong)); }
+.file-editor .file-live-editor .cm-line.cm-atomic-h3 { color: var(--md-h3, var(--text-strong)); }
+.file-editor .file-live-editor .cm-line.cm-atomic-h4,
+.file-editor .file-live-editor .cm-line.cm-atomic-h5,
+.file-editor .file-live-editor .cm-line.cm-atomic-h6 { color: var(--md-h4, var(--text-strong)); }
+.file-editor .file-live-editor .cm-atomic-strong { color: var(--md-strong, inherit); }
+.file-editor .file-live-editor .cm-atomic-em { color: var(--md-em, inherit); }
+.file-editor .file-live-editor .cm-atomic-inline-code { color: var(--md-code, inherit); }
+.file-editor .file-live-editor .cm-line.cm-atomic-blockquote { color: var(--md-quote, var(--text-dim)); }
+.file-editor .file-live-editor .cm-atomic-list-marker,
+.file-editor .file-live-editor .cm-atomic-bullet { color: var(--md-marker, var(--text-dim)); }
+
+/* YAML frontmatter (lib/markdownFrontmatter.ts): a quiet monospace block, like a fence */
+.file-editor .file-live-editor .cm-line.cm-ovis-frontmatter {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--text-dim);
+  background: var(--bg-elevated);
+}
+.file-editor .file-live-editor .cm-line.cm-ovis-frontmatter-fence { color: color-mix(in srgb, var(--text-dim) 60%, transparent); }
+
+/* a phone keeps the size iOS does not zoom the page in for */
+@media (pointer: coarse) {
+  .file-editor .file-live-editor .atomic-cm-editor { --atomic-editor-body-size: max(var(--fs-input), calc(var(--fs-sm) * var(--file-source-scale, 1))); }
+}

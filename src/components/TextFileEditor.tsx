@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import type { EditableText } from "../../shared/files.ts";
 import { ApiError } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+
+/** Live preview editing for markdown: CodeMirror and Atomic Editor load only when a file is first edited live. */
+const MarkdownLiveEditor = lazy(() => import("./MarkdownLiveEditor.tsx"));
+
+/** How the text is edited: drawn as it is typed (markdown only), or as plain text. */
+export type EditSurface = "live" | "raw";
 
 /**
  * Text typed and not saved yet, by PC and file, kept above the viewer: Close, Back, the viewer moved
@@ -22,6 +28,11 @@ function keepDraft(key: string, kept: { file: EditableText; draft: string } | nu
   else drafts.set(key, kept);
   if (!had && drafts.size > 0) window.addEventListener("beforeunload", askBeforeUnload);
   if (had && drafts.size === 0) window.removeEventListener("beforeunload", askBeforeUnload);
+}
+
+/** A link with a scheme opens in a new tab; a relative one has nowhere to go without the viewer. */
+function openExternal(href: string): void {
+  if (/^(?:https?|mailto):/i.test(href)) window.open(href, "_blank", "noopener,noreferrer");
 }
 
 /** Whether text typed into `path` on `machineId` waits to be saved, for the viewer to open its editor again. */
@@ -46,6 +57,10 @@ export interface TextFileEditorProps {
   onDone: (saved: boolean) => void;
   /** whether the text now differs from the file as it was opened, so the viewer does not close over it */
   onChanged: (changed: boolean) => void;
+  /** live preview (markdown files) or the plain text box; switching keeps the text typed */
+  surface?: EditSurface;
+  /** a link pressed in the live editor, its href as written */
+  onLink?: (href: string) => void;
 }
 
 /**
@@ -55,7 +70,7 @@ export interface TextFileEditorProps {
  * does with a buffer whose file changed on disk (without its Overwrite: a save never replaces
  * changes this editor has not seen).
  */
-export function TextFileEditor({ path, paneId, name, onDone, onChanged }: TextFileEditorProps) {
+export function TextFileEditor({ path, paneId, name, onDone, onChanged, surface = "raw", onLink }: TextFileEditorProps) {
   const t = useT();
   const { fetchEditableText, saveEditableText } = useMachineApi();
   const key = draftKey(useMachineId(), path);
@@ -174,7 +189,13 @@ export function TextFileEditor({ path, paneId, name, onDone, onChanged }: TextFi
 
   return <div className="file-editor">
     {bar}
-    {file !== null && <textarea className="file-editor-text" value={draft} onChange={(event) => setDraft(event.target.value)}
+    {file !== null && surface === "live" && <Suspense fallback={<p className="file-viewer-note" role="status">{t("Opening…")}</p>}>
+      {/* a new editor per file revision and reload, opening on the text typed so far */}
+      <MarkdownLiveEditor key={`${file.path}\u0000${file.revision}\u0000${opens}`} documentId={`${file.path}\u0000${file.revision}\u0000${opens}`}
+        text={draft} onChange={setDraft} readOnly={state.kind === "saving" || state.kind === "confirming"}
+        onLink={onLink ?? openExternal} label={t("Text of {name}", { name })} />
+    </Suspense>}
+    {file !== null && surface === "raw" && <textarea className="file-editor-text" value={draft} onChange={(event) => setDraft(event.target.value)}
       readOnly={state.kind === "saving" || state.kind === "confirming"} aria-label={t("Text of {name}", { name })}
       spellCheck={false} autoCapitalize="off" autoCorrect="off" />}
   </div>;
