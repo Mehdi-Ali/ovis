@@ -155,7 +155,7 @@ let sentenceClosedAt = Number.NEGATIVE_INFINITY;
  * a field or a select is a pointer's, though `:focus-visible` matches there. Until anything is pressed, the keyboard's.
  */
 let lastInput: "keyboard" | "pointer" = "keyboard";
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("keydown", () => { lastInput = "keyboard"; }, true);
   window.addEventListener("pointerdown", () => { lastInput = "pointer"; }, true);
 }
@@ -197,7 +197,8 @@ function useRowSentence(on: boolean): {
   // the last press on the row came from a finger
   const finger = useRef(false);
   const drawn = useRef(false);
-  useEffect(() => () => window.clearTimeout(rest.current), []);
+  // only a row that set its timer has one to clear: a test's stand-in window has no timers
+  useEffect(() => () => { if (rest.current !== undefined) window.clearTimeout(rest.current); }, []);
   useEffect(() => {
     if (shown === null) return;
     closeSentence?.();
