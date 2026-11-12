@@ -34,6 +34,12 @@ export interface WaitingSend {
   at: number;
   /** what the chat held at send time; null when it had shown no turns, and `at` is the only guard */
   after: WaitingBaseline | null;
+  /**
+   * Its turn had not come WAITING_SEND_MS after it was sent, with the agent at rest (markUnanswered): no
+   * longer on its way, and not in the conversation. It stays, said so, until its turn comes after all, the
+   * user dismisses it or the pane closes, and a reload or a lost connection keeps it (this tab's storage).
+   */
+  unanswered?: true;
 }
 
 type Turn = Pick<ConversationTurn, "role" | "parts" | "ts">;
@@ -199,6 +205,7 @@ export function stampedBaseline(after: WaitingBaseline | null, sendingAt: string
 }
 
 export function rememberWaitingSend(key: string, text: string, at = Date.now(), after: WaitingBaseline | null = null): void {
+  restore();
   // the text the composer types: paste markers it strips are no part of the turn
   const typed = composerMessage(text);
   if (typed.trim() === "" || !becomesTurn(typed)) return;
@@ -206,22 +213,67 @@ export function rememberWaitingSend(key: string, text: string, at = Date.now(), 
   const id = ++nextId;
   pane.sends = [...pane.sends, { id, pane: key, text: typed, at, after }];
   waiting.set(key, pane);
-  setTimeout(() => expireWaitingSends(key), Math.max(0, at + WAITING_SEND_MS - Date.now()));
   announce();
 }
 
-/** Drop the sends whose turn has not come within WAITING_SEND_MS (the browser's clock on both sides). */
-export function expireWaitingSends(key: string, now = Date.now()): void {
+/**
+ * A send whose turn has not come within WAITING_SEND_MS (the browser's clock on both sides) while the agent
+ * rests is said to be unanswered from then on, and kept: an agent that fails a turn before it writes it (a
+ * sign-in lapsed, a model gone) shows why only in its terminal. While the agent works it is still on its way.
+ */
+export function markUnanswered(key: string, resting: boolean, now = Date.now()): void {
   const pane = waiting.get(key);
-  if (!pane) return;
-  const remaining = pane.sends.filter((send) => now - send.at < WAITING_SEND_MS);
-  if (remaining.length === pane.sends.length) return;
-  pane.sends = remaining;
+  if (!pane || !resting || !pane.sends.some((send) => send.unanswered !== true && now - send.at >= WAITING_SEND_MS)) return;
+  pane.sends = pane.sends.map((send) => send.unanswered !== true && now - send.at >= WAITING_SEND_MS ? { ...send, unanswered: true } : send);
+  stored();
   announce();
+}
+
+/** The user has seen that a send went unanswered and let it go. */
+export function dismissWaitingSend(key: string, id: number): void {
+  const pane = waiting.get(key);
+  if (!pane || !pane.sends.some((send) => send.id === id)) return;
+  pane.sends = pane.sends.filter((send) => send.id !== id);
+  stored();
+  announce();
+}
+
+/** Where this tab keeps its unanswered sends across a reload: the user's own words, never sent again from it. */
+const STORE_KEY = "ovis:unanswered-sends";
+/** an unanswered send older than this is let go when the tab is read again */
+const UNANSWERED_KEEP_MS = 24 * 60 * 60 * 1000;
+let restored = false;
+function storage(): Storage | null {
+  try { return typeof sessionStorage === "undefined" ? null : sessionStorage; } catch { return null; }
+}
+/** The unanswered sends of every pane, written whole on each change. */
+function stored(): void {
+  const store = storage();
+  if (store === null) return;
+  const kept = [...waiting.entries()].flatMap(([key, pane]) => pane.sends.filter((send) => send.unanswered === true).map((send) => ({ key, text: send.text, at: send.at })));
+  try {
+    if (kept.length === 0) store.removeItem(STORE_KEY); else store.setItem(STORE_KEY, JSON.stringify(kept));
+  } catch { /* full or refused: kept in memory only */ }
+}
+/** The tab's unanswered sends read back once, before anything is asked of the store. */
+function restore(now = Date.now()): void {
+  if (restored) return;
+  restored = true;
+  let kept: unknown;
+  try { kept = JSON.parse(storage()?.getItem(STORE_KEY) ?? "[]"); } catch { return; }
+  if (!Array.isArray(kept)) return;
+  for (const item of kept) {
+    const { key, text, at } = (item ?? {}) as { key?: unknown; text?: unknown; at?: unknown };
+    if (typeof key !== "string" || typeof text !== "string" || typeof at !== "number" || !(now - at < UNANSWERED_KEEP_MS)) continue;
+    const pane = waiting.get(key) ?? { sends: empty, claimed: new Set<string>() };
+    pane.sends = [...pane.sends, { id: ++nextId, pane: key, text, at, after: null, unanswered: true }];
+    waiting.set(key, pane);
+  }
 }
 
 /** Stable snapshots for useSyncExternalStore, retained while another pane is active. */
 export function currentWaitingSends(key: string): readonly WaitingSend[] {
+  restore();
   return waiting.get(key)?.sends ?? empty;
 }
 
@@ -241,6 +293,7 @@ export function settleWaitingSends(key: string, turns: readonly Turn[], now = Da
     const same = before !== undefined && before.latest === latest && before.keys.size === keys.size && [...keys].every((item) => before.keys.has(item));
     if (!same) shown.set(key, { keys, latest, takenAt: now });
   }
+  restore();
   const pane = waiting.get(key);
   if (!pane || pane.sends.length === 0) return;
   const remaining = pane.sends.filter((send) => {
@@ -250,7 +303,9 @@ export function settleWaitingSends(key: string, turns: readonly Turn[], now = Da
     return false;
   });
   if (remaining.length === pane.sends.length) return;
+  const settledUnanswered = pane.sends.some((send) => send.unanswered === true && !remaining.includes(send));
   pane.sends = remaining;
+  if (settledUnanswered) stored();
   announce();
 }
 
@@ -258,7 +313,9 @@ export function settleWaitingSends(key: string, turns: readonly Turn[], now = Da
 export function forgetWaitingSends(key: string): void {
   shown.delete(key);
   clocks.delete(key);
-  if (waiting.delete(key)) announce();
+  if (!waiting.delete(key)) return;
+  stored();
+  announce();
 }
 
 /** The chat dropped its transcript for another history: the turns it showed are no baseline for its next send. */
@@ -273,9 +330,14 @@ export function forgetWaitingBaseline(key: string): void {
  */
 export function clearMachineWaitingSends(machineId: string): void {
   if (typeof paneLifetimes.generation(machineId) !== "string") { forgetMachineWaitingSends(machineId); return; }
+  // a send already said unanswered stays: the transcript had its chance, and the user has not let it go
   let changed = false;
-  for (const key of waiting.keys()) {
-    if (key.startsWith(`${machineId}:`)) { waiting.delete(key); changed = true; }
+  for (const [key, pane] of waiting) {
+    if (!key.startsWith(`${machineId}:`)) continue;
+    const kept = pane.sends.filter((send) => send.unanswered === true);
+    if (kept.length === pane.sends.length) continue;
+    changed = true;
+    if (kept.length === 0) waiting.delete(key); else pane.sends = kept;
   }
   if (changed) announce();
 }
