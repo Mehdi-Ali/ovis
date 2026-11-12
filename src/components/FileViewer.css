@@ -441,10 +441,18 @@
   color: var(--md-quote);
 }
 .markdown.file-viewer-markdown .markdown-list > li::marker { color: var(--md-marker); }
-/* Local: indent guides, a hairline down each nested list lined up with the parent item's text,
-   like the editor's guides in Live edit. */
+/* Local: indent guides. A nested list steps in further than the chat's, and draws a hairline down
+   its side under the parent item's marker (the list is pulled left by --md-guide-x, the distance
+   from the parent's text back to its marker's centre, and padded back by the same amount, so its
+   items stay put), as Live edit does (lib/markdownIndentGuides.ts). */
 .markdown.file-viewer-markdown .markdown-list .markdown-list {
+  --md-guide-x: 0.85em;
+  margin-inline-start: calc(-1 * var(--md-guide-x));
+  padding-left: calc(var(--md-guide-x) + max(var(--space-5), 2ch) + 0.4em);
   border-inline-start: var(--hairline) solid var(--border);
+}
+.markdown.file-viewer-markdown ol.markdown-list > li > .markdown-list {
+  --md-guide-x: calc((var(--markdown-list-digits) + 1) * 0.5ch + 0.2em);
 }
 
 /*

@@ -10,7 +10,6 @@ import { ensureSyntaxTree, indentOnInput, LanguageDescription, LanguageSupport, 
 import { search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { drawSelection, dropCursor, EditorView, highlightSpecialChars, keymap } from "@codemirror/view";
-import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { useEffect, useRef } from "react";
 
 import { frontmatterLook, frontmatterSyntax } from "../lib/markdownFrontmatter.ts";
@@ -18,6 +17,7 @@ import { ovisMarkdownSyntax, previewLook } from "../lib/markdownLook.ts";
 import type { OutlineEntry } from "../lib/markdownOutline.ts";
 import type { OutlineLocator } from "./MarkdownOutline.tsx";
 import { markdownTables } from "../lib/markdownTables.ts";
+import { markdownIndentGuides } from "../lib/markdownIndentGuides.ts";
 
 /** C# fences (Unity docs are full of them): not in Atomic's curated list, loaded the first time a fence names it. */
 const CSHARP = LanguageDescription.of({
@@ -56,12 +56,6 @@ export function liveMarkdownExtensions(link: (href: string) => void): Extension[
     previewLook,
   ];
 }
-
-/** Local: VS Code style indent guides in the file editor's Live edit (not the composer). Colours take the theme's tokens. */
-const indentGuides = indentationMarkers({
-  thickness: 1,
-  colors: { light: "var(--border)", dark: "var(--border)", activeLight: "var(--md-rail)", activeDark: "var(--md-rail)" },
-});
 
 /** The live editor's headings for the viewer's outline (MarkdownOutline), and how to find them in the editor. */
 export interface LiveOutline {
@@ -157,7 +151,7 @@ export default function MarkdownLiveEditor({ documentId, text, onChange, readOnl
         doc: text,
         extensions: [
           ...liveMarkdownExtensions(link),
-          indentGuides,
+          markdownIndentGuides,
           EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
           readOnlyPart.current.of(readOnlyExtension(latest.current.readOnly)),
           EditorView.updateListener.of((update) => {
