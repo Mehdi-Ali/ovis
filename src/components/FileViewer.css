@@ -869,15 +869,5 @@
   align-self: center;
 }
 
-/* a markdown file's view: Preview, Live edit, Edit, one button that names the view shown and moves to the next */
-.file-viewer-view-cycle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding-inline: var(--space-2);
-  white-space: nowrap;
-}
-.file-viewer-view-cycle svg { width: 1em; height: 1em; flex: none; }
-.file-viewer-view-cycle[data-view="live"],
-.file-viewer-view-cycle[data-view="raw"] { color: var(--accent); }
-.file-viewer-view-name { font-size: var(--fs-sm); }
+/* a markdown file's view (Preview | Live edit): an icon button like the others, marked while editing */
+.file-viewer-view-cycle[data-view="live"] { color: var(--accent); }

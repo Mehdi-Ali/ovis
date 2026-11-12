@@ -596,10 +596,9 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const newTabSrc = useResourceUrl(newTabHref);
   const rawSrc = relay ? readerHref(machineId, `${shownPath}#L1`) : urlSrc;
   // Preview | Live edit: the first of the header's actions, before the outline
-  const viewButton = canEdit && markdown && <button type="button" className="btn btn-ghost file-viewer-action file-viewer-view-cycle" data-view={viewing}
+  const viewButton = canEdit && markdown && <button type="button" className="icon-button file-viewer-action file-viewer-view-cycle" aria-pressed={editing} data-view={viewing}
       aria-label={viewTitle} title={viewTitle} disabled={editing && editChanged} onClick={() => setEditing(!editing)}>
       {viewing === "preview" ? <Eye aria-hidden="true" /> : <NotebookPen aria-hidden="true" />}
-      <span className="file-viewer-view-name">{viewNames[viewing]}</span>
     </button>;
   const fileActions = <>
     {!page && onTogglePresentation && <button type="button" className="icon-button file-viewer-action" aria-label={docked ? t("Show as a popup") : t("Show beside the pane")} title={docked ? t("Show as a popup") : t("Show beside the pane")} onClick={onTogglePresentation}>
