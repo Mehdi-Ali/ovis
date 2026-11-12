@@ -57,6 +57,8 @@
 }
 .file-live-editor .cm-cursor { border-left-color: var(--accent); }
 
+/* Never a margin on a .cm-line: CodeMirror measures lines by their boxes, so a margin moves every line
+   under it off where clicks land (each click a line too low). Spacing is padding. */
 /* headings: the Preview's steps (--fs-h1/h2/h3, then body size), semibold, gruvbox colours, a rule under h1 and h2 */
 .file-live-editor .cm-line[class*="cm-atomic-h"] {
   font-weight: var(--fw-semibold);
@@ -73,7 +75,7 @@
 .file-live-editor .cm-line.cm-atomic-h5 { font-size: 1em; color: var(--md-h4, var(--text-strong)); }
 .file-live-editor .cm-line.cm-atomic-h6 { font-size: 1em; color: var(--text-dim); }
 .file-live-editor .cm-line.cm-atomic-h1,
-.file-live-editor .cm-line.cm-atomic-h2 { border-bottom: var(--hairline) solid var(--border); margin-bottom: var(--space-2); }
+.file-live-editor .cm-line.cm-atomic-h2 { border-bottom: var(--hairline) solid var(--border); }
 
 .file-live-editor .cm-atomic-strong { color: var(--md-strong, var(--text-strong)); font-weight: var(--fw-semibold); }
 .file-live-editor .cm-atomic-em { color: var(--md-em, inherit); }
