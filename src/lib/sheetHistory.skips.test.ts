@@ -15,6 +15,8 @@ function fakeBrowser() {
   let index = 0;
   const listeners = new Map<string, Array<(event: { state: unknown }) => void>>();
   const activation = { isActive: false };
+  /** the browser drops the next traversal asked for by key, as when another one overtakes it */
+  let dropping = false;
   const land = (next: number): void => {
     if (next === index || next < 0 || next >= entries.length) return;
     index = next;
@@ -33,7 +35,11 @@ function fakeBrowser() {
     get location() { return { href: entries[index]!.href }; },
     navigation: {
       get currentEntry() { return { key: entries[index]!.key }; },
-      traverseTo(key: string) { land(entries.findIndex((entry) => entry.key === key)); return { committed: Promise.resolve(), finished: Promise.resolve() }; },
+      traverseTo(key: string) {
+        if (dropping) return { committed: Promise.reject(new Error("dropped")), finished: Promise.reject(new Error("dropped")) };
+        land(entries.findIndex((entry) => entry.key === key));
+        return { committed: Promise.resolve(), finished: Promise.resolve() };
+      },
     },
     addEventListener(type: string, listener: (event: { state: unknown }) => void) { listeners.set(type, [...(listeners.get(type) ?? []), listener]); },
   };
@@ -41,6 +47,7 @@ function fakeBrowser() {
     window, entries, activation,
     at: () => index,
     key: () => entries[index]!.key,
+    drop: (on: boolean) => { dropping = on; },
     /** a tap the browser counts as one */
     tap: () => { activation.isActive = true; for (const listener of listeners.get("pointerup") ?? []) listener({ state: null }); },
   };
@@ -117,6 +124,25 @@ describe("a phone's sheet where Back skips an entry made with no tap", () => {
     h.back(); await settled();
     expect(asked).toBe(2); expect(fake.at()).toBe(start);
     expect(own).toEqual([true, true, false]);
+    leave(); await settled();
+  });
+
+  it("makes the entry of a sheet that refused Back at the next tap, when the way back onto its old one is dropped", async () => {
+    const start = fake.at();
+    let busy = true;
+    fake.tap();
+    const leave = enter(() => { if (busy) return false; });
+    const entries = fake.entries.length;
+    fake.drop(true);
+    h.back(); await settled();
+    fake.drop(false);
+    // still up, on the entry it opened over, with none added behind the user's back
+    expect(fake.at()).toBe(start); expect(fake.entries.length).toBe(entries);
+    fake.tap();
+    expect(fake.at()).toBe(start + 1);
+    busy = false;
+    h.back(); await settled();
+    expect(fake.at()).toBe(start);
     leave(); await settled();
   });
 

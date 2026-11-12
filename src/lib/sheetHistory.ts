@@ -325,13 +325,16 @@ if (typeof window !== "undefined") {
       // going onto it again makes no entry
       for (const kept of again) { open.set(kept.id, kept.onBack); if (kept.under && kept.id !== owner) covered.add(kept.id); }
       returning = { entry: from, owner, href: window.location.href };
-      try {
-        // a traversal the browser drops (another one overtook it) is no error of the page's
-        const way = navigation()!.traverseTo(left);
-        way.committed.catch(() => undefined);
-        way.finished.catch(() => undefined);
-        return;
-      } catch { returning = null; for (const kept of again) { open.delete(kept.id); covered.delete(kept.id); } }
+      // a traversal the browser drops (another one overtook it) leaves them up with no entry: the next tap makes theirs
+      const dropped = (): void => {
+        if (returning?.entry !== from) return;
+        returning = null;
+        for (const kept of again) { covered.delete(kept.id); waiting.add(kept.id); }
+      };
+      const way = navigation()!.traverseTo(left);
+      way.committed.catch(dropped);
+      way.finished.catch(() => undefined);
+      return;
     }
     // their entries are made again over where the history landed
     for (const kept of again) remake(kept.id, kept.onBack);
