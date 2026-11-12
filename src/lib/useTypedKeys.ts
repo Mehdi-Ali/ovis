@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, type Dispatch, type RefObject, type Set
 import type { Terminal } from "@xterm/xterm";
 import { hasModifiers, navigationSequence, stepModifier, terminalChord, type ModifierLatch, type StickyModifiers } from "./keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "./keyBar.ts";
-import { hermesCtrlCTooSoon, stopKey } from "./hermesStop.ts";
+import { DOUBLE_ESCAPE_GAP_MS, hermesCtrlCTooSoon, stopKey } from "./hermesStop.ts";
 import type { Translate } from "./i18n.ts";
 import type { HerdrSocket } from "./ws.ts";
 import type { AgentStatus } from "../../shared/protocol.ts";
@@ -89,17 +89,27 @@ export function useTypedKeys(deps: TypedKeysDeps) {
     if (key === null) {
       const t = tRef.current;
       if (hermesStopSentRef.current) return;
-      setInputError(hermesCtrlCTooSoon(hermesCtrlCAtRef.current, now)
-        ? t("Not stopped: Hermes got Ctrl+C under 2 seconds ago, and a second one would quit it. Try again in a moment.")
-        : t("Not stopped: Hermes does not show a turn to interrupt. Check the terminal."));
+      setInputError(agent === "grok"
+        ? (hermesCtrlCTooSoon(hermesCtrlCAtRef.current, now)
+          ? t("Not stopped: Grok got Ctrl+C under 2 seconds ago, and a second one may quit it. Try again in a moment.")
+          : t("Not stopped: Grok does not show a turn to cancel. Check the terminal."))
+        : hermesCtrlCTooSoon(hermesCtrlCAtRef.current, now)
+          ? t("Not stopped: Hermes got Ctrl+C under 2 seconds ago, and a second one would quit it. Try again in a moment.")
+          : t("Not stopped: Hermes does not show a turn to interrupt. Check the terminal."));
       return;
     }
     if (key === "\u0003") {
       hermesStopSentRef.current = true;
       hermesCtrlCAtRef.current = now;
     }
-    stopKeyRef.current = true;
-    try { term.input(key); } finally { stopKeyRef.current = false; }
+    const press = (sent: string): void => {
+      stopKeyRef.current = true;
+      try { term.input(sent); } finally { stopKeyRef.current = false; }
+    };
+    if (key !== "\u001b\u001b") return press(key);
+    // two Escapes as two key presses: written together they read as one Alt+Escape
+    press("\u001b");
+    setTimeout(() => { if (socketRef.current?.connected && termRef.current === term) press("\u001b"); }, DOUBLE_ESCAPE_GAP_MS);
   }, [agent]);
 
   return { pressKey, toggleModifier, abortTurn };
