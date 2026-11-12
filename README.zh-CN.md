@@ -86,7 +86,7 @@ Ovis 不会取代其中任何一个。Ovis 中显示的 herdr 会话和 Herdr �
 你的电脑需要开着。从手机连接有三种方式：
 
 - **[Ovis 中继](docs/guide.md#through-the-ovis-relay)：** 扫一次二维码，在任何地方都能用。流量经端到端加密（[信任模型](docs/relay.md#trust-model)），但会经过 `relay.ovis.sh`，该服务不保证始终在线。
-- **同一 Wi-Fi：** 通过中继配对一次之后，iPhone 和 Android 应用会直接连接电脑，但只在电脑所在的网络内有效。
+- **同一 Wi-Fi：** 通过中继配对一次之后，iPhone 和 Android 应用在电脑所在的网络内会直接连接电脑，连不上时改走中继。
 - **Tailscale：** 使用只在你自己的 Tailscale 网络内可用的 HTTPS 地址。它不经过 Ovis 中继，但电脑和手机都需要运行 Tailscale。
 
 VPN、SSH 隧道或你自己的 HTTPS 代理也可以（[访问与安全](docs/guide.md#access-and-safety)）。

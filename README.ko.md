@@ -86,7 +86,7 @@ Ovis는 이 가운데 어느 것도 대신하지 않습니다. Ovis에 보이는
 컴퓨터는 켜져 있어야 합니다. 휴대폰에서 접속하는 방법은 세 가지입니다.
 
 - **[Ovis 릴레이](docs/guide.md#through-the-ovis-relay):** QR 코드를 한 번 찍으면 어디서든 쓸 수 있습니다. 종단 간 암호화되지만([신뢰 모델](docs/relay.md#trust-model)) `relay.ovis.sh`를 거치며, 항상 켜져 있다고 약속하는 서비스는 아닙니다.
-- **같은 Wi-Fi:** 릴레이로 한 번 페어링해 두면 iPhone·Android 앱이 컴퓨터에 바로 연결됩니다. 컴퓨터와 같은 네트워크에서만 됩니다.
+- **같은 Wi-Fi:** 릴레이로 한 번 페어링해 두면 iPhone·Android 앱이 같은 네트워크에서는 컴퓨터에 바로 연결되고, 그게 안 되는 곳에서는 릴레이를 씁니다.
 - **Tailscale:** 내 Tailscale 네트워크 안에서만 열리는 HTTPS 주소를 씁니다. Ovis 릴레이를 거치지 않지만, 컴퓨터와 휴대폰 양쪽에 Tailscale이 있어야 합니다.
 
 VPN, SSH 터널, 직접 운영하는 HTTPS 프록시로도 됩니다([접근과 보안](docs/guide.md#access-and-safety)).

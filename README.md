@@ -82,7 +82,7 @@ Ovis replaces none of them: the terminals it shows from herdr or the Herdr app a
 Your computer has to be on. A phone reaches it in one of three ways:
 
 - **[Ovis relay](docs/guide.md#through-the-ovis-relay):** works from anywhere after one QR scan. It is end-to-end encrypted ([trust model](docs/relay.md#trust-model)), but runs through `relay.ovis.sh` on a best effort.
-- **Same Wi-Fi:** once paired through the relay, the iPhone and Android apps connect straight to the computer, on its own network only.
+- **Same Wi-Fi:** once paired through the relay, the iPhone and Android apps connect straight to the computer on its own network, and use the relay wherever that fails.
 - **Tailscale:** an HTTPS address inside your own Tailscale network. It skips the Ovis relay, but needs Tailscale on the computer and the phone.
 
 A VPN, an SSH tunnel or your own HTTPS proxy work too ([access and safety](docs/guide.md#access-and-safety)).
