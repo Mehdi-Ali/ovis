@@ -45,6 +45,8 @@ https://github.com/user-attachments/assets/2f030569-1004-425e-835d-9e775ec6e4c8
 
 > **Setting it up with a coding agent?** Point it at [INSTALL.md](../INSTALL.md), a step-by-step guide written for agents.
 
+> **Rather have an app with nothing else to install?** Get [the desktop app](#the-desktop-app) for Mac, Windows or Linux. The steps below set Ovis up with herdr instead.
+
 **1. Install it** with one line, on Linux (x64, arm64) or macOS:
 
 ```bash
@@ -135,6 +137,16 @@ the pinned card.
 
 
 **3. Take it with you.** Scan the installer's QR code with a phone signed in to the same Tailscale account, then install the app from the browser. No Tailscale? Turn on the [Ovis relay](#through-the-ovis-relay) and scan its QR code instead. See [On your phone](#on-your-phone).
+
+### The desktop app
+
+The desktop app carries everything Ovis needs: the Ovis server, herdr-core (`hc`) for its terminals, and Bun to run the server. Nothing else has to be installed, neither herdr nor the plugin.
+
+- **Mac:** [Apple silicon](https://ovis.sh/Ovis-mac-arm64.dmg) or [Intel](https://ovis.sh/Ovis-mac-x64.dmg); drag it to **Applications**.
+- **Windows (x64):** [Ovis-win-x64.exe](https://ovis.sh/Ovis-win-x64.exe); run it. If Windows shows **Windows protected your PC**, choose **More info** → **Run anyway**.
+- **Linux:** on Debian or Ubuntu, the `.deb` for [x64](https://ovis.sh/Ovis-linux-x64.deb) or [arm64](https://ovis.sh/Ovis-linux-arm64.deb) (`sudo apt install ./Ovis-linux-*.deb`); elsewhere the AppImage, [x64](https://ovis.sh/Ovis-linux-x64.AppImage) or [arm64](https://ovis.sh/Ovis-linux-arm64.AppImage) (`chmod +x Ovis-linux-*.AppImage`).
+
+Its terminals are its own. The app starts a herdr-core of its own (the session `ovis`), apart from herdr's sessions and from the Herdr app's terminals, so it shows neither of those: to see them in Ovis, install with the one line above instead ([Herdr app terminals](#herdr-app-terminals)). Closing the window leaves Ovis running in the tray, so a phone or a browser keeps reaching it; **Quit Ovis** there stops the server, and the terminals keep running for the next start. A phone connects as with any other install ([On your phone](#on-your-phone)). [app/electron/README.md](../app/electron/README.md) has the rest: where the app keeps its files, its tray menu and its updates.
 
 ### In a terminal
 
@@ -486,11 +498,11 @@ On an iPhone or iPad the app needs iOS 16 or later (Safari 16 or later on a Mac)
 
 ### Through the Ovis relay
 
-The Ovis relay lets your phone reach this PC from anywhere, with no Tailscale, no account and nothing to set up on the phone. It's off until you turn it on. While it's on, the PC and the phone each connect out to a relay that Ovis runs at `relay.ovis.sh`, which passes their traffic between them. Everything they send is end-to-end encrypted between the phone and the PC, so the relay can't read it. To turn it on, open **Settings → Phone & devices** on the PC, switch on **Ovis relay**, then point the phone's camera at the QR code that shows up. On a fresh install, the setup guide's **Connect your phone** offers it first: choose **Turn on the Ovis relay** and its QR code shows right there. **Use Tailscale or Wi-Fi instead**, under it, shows this page's own address and pairing QR code, or sends you to **Settings → Phone & devices** when the page is open on the PC itself.
+The Ovis relay lets your phone reach this PC from anywhere, with no Tailscale, no account and nothing to set up on the phone. It's off until you turn it on. While it's on, the PC and the phone each connect out to a relay that Ovis runs at `relay.ovis.sh`, which passes their traffic between them. Everything they send is end-to-end encrypted between the phone and the PC, so the relay can't read it. To turn it on, open **Settings → Devices and PCs → Add a connection → Ovis relay** on the PC, switch it on, then point the phone's camera at the QR code that shows up. On a fresh install, the setup guide's **Connect your phone** offers it first: choose **Turn on the Ovis relay** and its QR code shows right there. **Use Tailscale or Wi-Fi instead**, under it, shows this page's own address and pairing QR code, or sends you to **Settings → Phone & devices** when the page is open on the PC itself.
 
 Step by step:
 
-1. On the PC, open **Settings → Devices and PCs**, choose **Connect** next to **Connect a device**, and turn on the **Ovis relay** switch. Once it is online, a QR code shows with a code to type beside it. Both work for ten minutes, and **Refresh** makes new ones. Signed in to your Ovis account, the dialog asks the new device to sign in instead, and you approve it once on a device already in the account; **Connect with a code (no sign-in)** still shows the QR code. The relay's switch and **Reset relay identity** are also under **More settings** on that page.
+1. On the PC, open **Settings → Devices and PCs**, choose **Add a connection**, and turn on the switch on its **Ovis relay** tab. Once it is online, a QR code shows with a code to type beside it. Both work for ten minutes, and **Refresh** makes new ones. Signed in to your Ovis account, the dialog asks the new device to sign in instead, and you approve it once on a device already in the account; **Connect with a code (no sign-in)** still shows the QR code. The relay's switch and **Reset relay identity** are also under **More settings** on that page.
 2. Scan the QR code with the phone's camera. Ovis opens in the phone's browser at `app.ovis.sh` and asks whether to pair with this PC: tap **Pair**.
 3. Install it: in Safari, choose **Share → Add to Home Screen**; in Chrome, choose **Install app** or **Add to Home screen** from its menu. Then open the **⋯** menu at the top right and tap **Alerts** to get alerts on this phone. iPhone needs iOS 16.4+ and the home-screen app.
 
