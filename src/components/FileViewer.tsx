@@ -22,6 +22,8 @@ import { formatBytes } from "../lib/bridgeProgress.ts";
 import { LOCAL_MACHINE, paneStorageId } from "../../shared/machines.ts";
 import { useOpeningPaneLane } from "../lib/chatLane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+import { useReadAloud } from "../lib/useReadAloud.ts";
+import { ReadAloudControls } from "./ReadAloudControls.tsx";
 import { copyText, selectContents } from "../lib/clipboard.ts";
 import { fileLineTarget, pathParts } from "../lib/filePaths.ts";
 import { lineRequest, readBudget, shownSource, sourceLayout, virtualHighlightable } from "../lib/sourcePreview.ts";
@@ -467,13 +469,13 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const draftWaits = canEdit && hasDraft(machineId, info.path);
   useEffect(() => { if (draftWaits) setEditing(true); }, [draftWaits]);
   const markdown = info?.kind === "text" && /\.(?:md|markdown)$/i.test(info.name);
-  // a markdown file opens in Live edit, and goes back to it after Save or Cancel, unless Preview was
-  // picked for this file
-  const [previewPicked, setPreviewPicked] = useState<string | null>(null);
+  // local patch: a markdown file opens in Preview; once Live edit is picked for this file it goes back
+  // to Live edit after Save or Cancel
+  const [livePicked, setLivePicked] = useState<string | null>(null);
   const [liveAgain, setLiveAgain] = useState(0);
   useEffect(() => {
-    if (markdown && canEdit && previewPicked !== path) setEditing(true);
-  }, [markdown, canEdit, previewPicked, path, liveAgain]);
+    if (markdown && canEdit && livePicked === path) setEditing(true);
+  }, [markdown, canEdit, livePicked, path, liveAgain]);
   // Preview or Live edit, for a markdown file; Preview shows the file on disk, so with unsaved changes
   // the button waits for Save or Cancel
   const viewing: "preview" | "live" = editing ? "live" : "preview";
@@ -492,6 +494,13 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     try { decoded = decodeURIComponent(bare); } catch { /* kept as written */ }
     (onOpen ?? setPath)(joinFilePath(info.path, decoded));
   }, [info, onOpen]);
+  // local patch: read aloud a Markdown Preview: the selection inside it, else the whole document
+  // (frontmatter left out, as the Preview draws it apart)
+  const readable = markdown && !editing && view === "markdown" && preview.status === "ready" && loaded !== null;
+  const wholeText = useCallback(() => (loaded?.text ?? "").replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, ""), [loaded]);
+  const docRoot = useCallback(() => bodyRef.current, []);
+  const readAloud = useReadAloud({ paneId: `${paneId ?? ""}:${path}`, machineId, frame: bodyRef, lastReply: wholeText, active: readable, fallbackRoot: docRoot });
+  const readControls = readable && <ReadAloudControls read={readAloud} idleTitle={t("Read aloud (the selection, else the whole document)")} />;
   // a page of just the document, not the app over it (FileReader)
   const previewUrl = readerHref(machineId, shownPath + (target.line === null ? "" : `#L${target.line}`));
   // images of a markdown file load through the file endpoint, as the file itself does
@@ -604,7 +613,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const rawSrc = relay ? readerHref(machineId, `${shownPath}#L1`) : urlSrc;
   // Preview | Live edit: the first of the header's actions, before the outline
   const viewButton = canEdit && markdown && <button type="button" className="icon-button file-viewer-action file-viewer-view-cycle" aria-pressed={editing} data-view={viewing}
-      aria-label={viewTitle} title={viewTitle} disabled={editing && editChanged} onClick={() => { setPreviewPicked(editing ? path : null); setEditing(!editing); }}>
+      aria-label={viewTitle} title={viewTitle} disabled={editing && editChanged} onClick={() => { setLivePicked(editing ? null : path); setEditing(!editing); }}>
       {viewing === "preview" ? <Eye aria-hidden="true" /> : <NotebookPen aria-hidden="true" />}
     </button>;
   const fileActions = <>
@@ -681,7 +690,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     <main ref={surface} className="file-reader">
       {header}
       {/* the focus starts here, as in the popup: a scroll box takes Space and the arrows */}
-      {withOutline(<div ref={bodyRef} className={`${bodyClass} file-reader-body`} tabIndex={-1}>{body}{openingNote}</div>)}
+      {withOutline(<div ref={bodyRef} className={`${bodyClass} file-reader-body`} tabIndex={-1}>{body}{openingNote}{readControls}</div>)}
     </main>
   );
 
@@ -691,7 +700,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       <section className="file-viewer file-viewer-docked">
         {header}
         {toolbar}
-        {withOutline(<div ref={bodyRef} className={bodyClass}>{body}</div>)}
+        {withOutline(<div ref={bodyRef} className={bodyClass}>{body}{readControls}</div>)}
       </section>
     </aside>
   );
@@ -701,7 +710,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       <section className={virtual !== null && view === "code" ? "modal file-viewer file-viewer-virtual" : "modal file-viewer"} role="dialog" aria-modal="true" aria-label={info?.name ?? path} ref={surface} tabIndex={-1}>
         {header}
         {/* the focus starts here (a scroll box takes Space and the arrows), and moves on to a player */}
-        {withOutline(<div ref={bodyRef} className={bodyClass} tabIndex={-1}>{body}{openingNote}</div>)}
+        {withOutline(<div ref={bodyRef} className={bodyClass} tabIndex={-1}>{body}{openingNote}{readControls}</div>)}
       </section>
     </div>
   );
