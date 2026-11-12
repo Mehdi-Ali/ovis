@@ -12,8 +12,9 @@
  * are a stack, Back closes the one on top, and that one's own close comes back to the one under
  * it. So does a sheet made to stay up under a navigation opened over it (a terminal peek under
  * Settings), whose entry the navigation took: the Back that leaves it does not close the sheet.
- * Nor does a step back that another part of the app takes by itself (Settings closing by its own
- * controls) close a sheet: one that opened as it closed (Add PC) gets its entry where the step lands.
+ * Nor does a step back that another part of the app takes by itself (Settings, a file or a diff
+ * closing by its own controls) close a sheet: one that opened as Settings closed (Add PC) gets its
+ * entry where the step lands, and Files has its own again once a file opened from it has closed.
  *
  * No entry is made where Back would not keep it. Chromium's Back skips every entry of a page that
  * added one with no tap since it loaded or since the user's last Back or Forward (its history

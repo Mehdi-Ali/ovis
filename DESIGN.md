@@ -1239,9 +1239,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   system's Back closes what is open, one thing at a time. Each surface over the app (a dialog, a
   sheet, a menu, a popover, the workspace drawer) holds a history entry while it is up
   (`usePhoneSheetBack`, `lib/sheetHistory.ts`), and Back closes the one on top. One still up under
-  it stays, and the top one's own close comes back to it. Settings closing by itself is no Back
-  either: a dialog that opens as it closes (Add PC, from Add a connection) stays up, over the
-  screen Settings was opened from. A busy dialog keeps Back, and a device's
+  it stays, and the top one's own close comes back to it. Settings, a file or a diff closing by
+  itself is no Back either: a dialog that opens as Settings closes (Add PC, from Add a connection)
+  stays up, over the screen Settings was opened from, and Files takes Back again as soon as a file
+  opened from it has closed. A busy dialog keeps Back, and a device's
   request to join answers nothing on it: Deny and Approve are its ways out. With nothing open,
   Back goes to the pane before, and from the first one it leaves the app at once, with no second
   press asked for: Android draws that way out itself (predictive back), and a press held back

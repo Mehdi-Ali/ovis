@@ -4,8 +4,9 @@
  * then the drawer; the New workspace dialog opened from the drawer, the agent list and the folder
  * browser inside it, then the dialog; the header's More sheet; the terminal's find bar, which goes
  * and leaves the terminal shown; the drawer with another pane opened before it, which stays the
- * pane shown; Add PC opened from Settings' Add a connection, which stays up as Settings closes
- * under it, then closes by Back with nothing of Settings left. On its side (844x390) a menu is a
+ * pane shown; Files after a file opened from it closed by its X; Add PC opened from Settings' Add
+ * a connection, which stays up as Settings closes under it, then closes by Back with nothing of
+ * Settings left. On its side (844x390) a menu is a
  * popover, and Back closes it the same. Back on the first screen, with nothing open, leaves the app.
  *
  * Chromium's own Back skips every entry of a page that added one with no tap since the user's last
@@ -222,6 +223,26 @@ try {
       await stillHere(page, origin, moved, "the drawer over a pane opened after another");
     });
 
+    // a file opened from Files and closed by its X: the file steps back by itself, which is no Back of
+    // the user's, so Files, on top again, has the entry at once and the next Back closes it
+    await open(browser, origin, UPRIGHT, async (page) => {
+      const shown = await paneShown(page);
+      await page.locator(".header-more-button").tap();
+      await page.getByRole("dialog", { name: "More", exact: true }).getByRole("button", { name: "Browse files", exact: true }).tap();
+      const files = page.getByRole("dialog", { name: "Files", exact: true });
+      await files.getByRole("button", { name: "Documents", exact: true }).tap();
+      await files.locator(".md-docs-item").first().tap();
+      const viewer = page.locator(".modal.file-viewer");
+      await viewer.waitFor();
+      await viewer.getByRole("button", { name: "Close file", exact: true }).tap();
+      await viewer.waitFor({ state: "detached" });
+      assert.equal(await files.count(), 1, "a file closed by its X leaves Files up under it");
+      await entryHeld(page);
+      await back(page);
+      await files.waitFor({ state: "detached" });
+      await stillHere(page, origin, shown, "Files after a file closed by its X");
+    });
+
     // Add PC opens as Settings closes (Add, in Add a connection's SSH tab): Settings steps back by
     // itself, which is no Back for Add PC, and Add PC's entry lies over the one Settings opened over
     await open(browser, origin, UPRIGHT, async (page) => {
@@ -266,7 +287,7 @@ try {
     await browser.close();
     await server.stop(true);
   }
-  console.log("PASS a phone's Back closes the drawer, a menu over it, New workspace and its lists one at a time, and Add PC opened as Settings closed, upright and on its side, and adds no entry with no tap behind it");
+  console.log("PASS a phone's Back closes the drawer, a menu over it, New workspace and its lists one at a time, Files after a file closed by its X and Add PC opened as Settings closed, upright and on its side, and adds no entry with no tap behind it");
 } finally {
   rmSync(app, { recursive: true, force: true });
 }

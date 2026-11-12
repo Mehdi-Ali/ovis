@@ -186,6 +186,27 @@ describe("a phone's sheet where Back skips an entry made with no tap", () => {
     leaveSecond(); await settled();
   });
 
+  it("makes the entry of a dialog that comes back from under a file closed by its own control, with no new tap", async () => {
+    const start = fake.at();
+    fake.tap();
+    // Files, and a file opened from it: the file takes Files' entry, and Files gives up Back while the file is up
+    const leaveFiles = enter(() => {});
+    h.pushState({ file: true }, "");
+    leaveFiles(); await settled();
+    expect(fake.at()).toBe(start + 1);
+    // the file closes by its X: its own step back, told to the sheets (lib/historyNavigation.ts)
+    expect(sheetStep.goingBack(h.state)).toBe(false);
+    h.go(-1); await settled();
+    expect(fake.at()).toBe(start);
+    // Files is on top again: its entry is made at once, and Back closes it
+    let closed = 0;
+    const leaveAgain = enter(() => { closed += 1; });
+    expect(fake.at()).toBe(start + 1);
+    h.back(); await settled();
+    expect(closed).toBe(1); expect(fake.at()).toBe(start);
+    leaveAgain(); await settled();
+  });
+
   it("makes the entry of a sheet left up by a step the app took by itself at once, where the step landed", async () => {
     const start = fake.at();
     fake.tap();
