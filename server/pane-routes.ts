@@ -424,6 +424,30 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
     }
   }
 
+  // local patch: the Run button on an adb code block hands the block to adb-run.js
+  // (myClaude/herdr/adb-run), which splits a small pane under the agent and runs only adb there,
+  // each step without a shell; it refuses anything else before opening a pane
+  if (pathname === "/api/pane/adb-run") {
+    setRequestRoute(pathname);
+    if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+    const payload = await readJsonObject<{ pane_id?: unknown; command?: unknown }>(request);
+    if (payload instanceof Response) return payload;
+    if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
+    if (typeof payload.command !== "string" || !payload.command.trim() || payload.command.length > 8000) return badRequest("invalid_command", "command must be a non-empty string under 8000 characters");
+    const script = process.env.OVIS_ADB_RUN_SCRIPT ?? "C:/Pers/myClaude/herdr/adb-run/adb-run.js";
+    try {
+      const child = Bun.spawn(["node", script, "--pane", payload.pane_id, "--cmd-b64", Buffer.from(payload.command, "utf8").toString("base64")], { stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true });
+      const [out, err] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      const last = out.trim().split("\n").pop() ?? "";
+      let result: { ok?: boolean; pane_id?: string; error?: string } = {};
+      try { result = JSON.parse(last) as typeof result; } catch { result = { ok: false, error: (err || out).trim() || "adb-run gave no answer" }; }
+      if (result.ok !== true) return badRequest("adb_run_failed", result.error ?? "adb-run failed");
+      return jsonResponse({ ok: true, pane_id: result.pane_id ?? null });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+
   // herdr's own layout operations, as its TUI has them: prefix+v and prefix+- (split), prefix+z
   // (zoom), prefix+shift+hjkl (swap), its resize mode, and pane clear. Explicit swaps also restore
   // herdr's prior focus; the browser's rearrangement must not select another workspace there. No

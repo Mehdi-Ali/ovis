@@ -1174,6 +1174,11 @@ export async function resizePane(paneId: string, direction: PaneDirection, machi
   return (await response.json()) as PaneResized;
 }
 
+/** POST /api/pane/adb-run (local patch): runs an adb code block in a small pane split under the agent's. */
+export async function runAdbBlock(paneId: string, command: string, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "pane/adb-run"), "POST", { pane_id: paneId, command });
+}
+
 /** POST /api/pane/clear: clears the pane's terminal screen in herdr. */
 export async function clearPane(paneId: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/clear"), "POST", { pane_id: paneId });

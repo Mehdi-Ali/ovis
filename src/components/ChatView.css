@@ -748,6 +748,16 @@ ol.markdown-list {
   color: var(--text);
 }
 
+/* local patch: Run (adb blocks only) sits beside Copy */
+.markdown-code-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.markdown-code-run-spin { animation: markdown-code-run-spin 0.9s linear infinite; }
+@keyframes markdown-code-run-spin { to { transform: rotate(360deg); } }
+
 .markdown-code-header {
   min-height: var(--control-h);
   padding-inline: var(--space-3);

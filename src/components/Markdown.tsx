@@ -1,6 +1,6 @@
 import { Visualization } from "./Visualization.tsx";
 import { createContext, Fragment, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
-import { BookOpen, Check, Copy, ImageOff, Maximize2 } from "lucide-react";
+import { BookOpen, Check, Copy, ImageOff, LoaderCircle, Maximize2, Play } from "lucide-react";
 
 import { foldCode, mathNestsTooDeep, parseInline, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../../shared/markdown.ts";
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
@@ -381,6 +381,13 @@ function List({ block }: { block: ListBlock }) {
   );
 }
 
+/**
+ * Local patch: runs an adb code block in a small pane under the agent's (server /api/pane/adb-run).
+ * Only the chat view provides it, so a block elsewhere (file preview, docs) shows no Run button.
+ */
+export const CodeRunContext = createContext<((command: string) => Promise<void>) | null>(null);
+const ADB_LINE = /^\s*adb\s/m;
+
 /** A fence in no language, or in one that says plain output (a log, a command's answer): the files it names open. */
 const PLAIN_FENCE = /^(?:|text|txt|plain|plaintext|log|console|output|shell-session)$/i;
 
@@ -393,6 +400,23 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const runCode = useContext(CodeRunContext);
+  const runnable = runCode !== null && ADB_LINE.test(value);
+  const [running, setRunning] = useState<"idle" | "starting" | "started">("idle");
+  const [runError, setRunError] = useState<string | null>(null);
+  const run = async (): Promise<void> => {
+    if (runCode === null || running === "starting") return;
+    setRunning("starting");
+    setRunError(null);
+    try {
+      await runCode(value);
+      setRunning("started");
+      window.setTimeout(() => setRunning("idle"), 2000);
+    } catch (error) {
+      setRunning("idle");
+      setRunError(error instanceof Error ? error.message : String(error));
+    }
+  };
   const block = useRef<HTMLDivElement>(null);
   // no inner scroll: a long block folds, with a visible "Show all" row
   const fold = useMemo(() => foldCode(value), [value]);
@@ -420,10 +444,18 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
     <div className="markdown-code" ref={block}>
       <div className="markdown-code-header">
         <span>{language || "text"}</span>
-        <button type="button" className="icon-button markdown-code-copy" onClick={() => void copy()} aria-label={t(copied ? "Code copied" : "Copy code")} title={t(copied ? "Code copied" : "Copy code")}>
-          {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-        </button>
+        <span className="markdown-code-actions">
+          {runnable && (
+            <button type="button" className="icon-button markdown-code-copy markdown-code-run" disabled={running === "starting"} onClick={() => void run()} aria-label={running === "started" ? "Started in a pane below" : "Run on headset"} title={running === "started" ? "Started in a pane below" : "Run on headset (opens a pane below the agent)"}>
+              {running === "starting" ? <LoaderCircle aria-hidden="true" className="markdown-code-run-spin" /> : running === "started" ? <Check aria-hidden="true" /> : <Play aria-hidden="true" />}
+            </button>
+          )}
+          <button type="button" className="icon-button markdown-code-copy" onClick={() => void copy()} aria-label={t(copied ? "Code copied" : "Copy code")} title={t(copied ? "Code copied" : "Copy code")}>
+            {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+          </button>
+        </span>
       </div>
+      {runError !== null && <p className="markdown-code-error" role="alert">{`Couldn't run: ${runError}`}</p>}
       {copyFailed && <p className="markdown-code-error" role="alert">{t("Couldn't copy. Select the text and copy it manually.")}</p>}
       {/* a block in no language is output (a log, a command's answer): the files it names open */}
       <HighlightedCode code={fold !== null && !expanded ? fold.head : value} language={grammar} limit={CHAT_HIGHLIGHT_LIMIT} open={plain ? open : null} />
