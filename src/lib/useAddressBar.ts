@@ -136,7 +136,19 @@ export function useAddressBar({ inbox, newSessionOpen, selectedPane, selectedPan
   // a tab that closed takes its remembered file with it, so a later pane with its id never shows it
   useEffect(() => { forgetLeftFiles(paneLive); }, [machines, forgetLeftFiles, paneLive]);
   useEffect(() => {
-    if (locked !== false || machines.length === 0 || snapshot === null || linkWorkspaceId === undefined || !linkLanded) return;
+    if (locked !== false || machines.length === 0 || snapshot === null || !linkLanded) return;
+    if (linkWorkspaceId === undefined) {
+      // the pane New workspace made is not listed yet and the dialog has closed: the entry it was open on
+      // stops saying it is, so Back from the new pane does not open it again
+      const written = writtenLink.current;
+      if (!newSessionOpen && written?.create && !popUnread(window.event, readPop.current)) {
+        const link: AppLink = { ...written, create: null, ...(written.pane === null && written.workspace === null ? { machine: LOCAL_MACHINE } : {}) };
+        writtenLink.current = link;
+        const search = linkSearch(link, pageSearch());
+        if (search !== pageSearch()) window.history.replaceState(window.history.state, "", pageAddress(window.location.pathname, search, window.location.hash));
+      }
+      return;
+    }
     // A popped entry's PC can land before its fallback pane. Keep Forward until that pane is known.
     // An offline PC never picks one, so its entry is written as it stands.
     if (!inboxShown && poppedTo.current && selectedPaneId === null && snapshot.panes.length > 0 && selectedMachine?.state === "connected") return;
@@ -170,7 +182,8 @@ export function useAddressBar({ inbox, newSessionOpen, selectedPane, selectedPan
     if (!popped && !settingsOpen && !newSessionOpen && moved) {
       const state = leftInbox ? { [NAV_KEY]: true, [INBOX_FROM_KEY]: true } : { [NAV_KEY]: true };
       // a move that leaves the open file behind takes the file's entry: no entry is left between
-      if (fileLeft && !kept) window.history.replaceState(state, "", url);
+      // leaving the list is never that: the list's own entry stays under the pane
+      if (fileLeft && !kept && !leftInbox) window.history.replaceState(state, "", url);
       else window.history.pushState(state, "", url);
       // a file left on the pane moved to opens over the move's entry, as its own (#3179)
       if (selectedPaneId !== null) restoreFileRef.current(selectedMachineId, selectedPaneId);

@@ -41,6 +41,8 @@ const roster = (): Snapshot => ({
 let place: { paneId: string; newSessionOpen: boolean; newFields: Omit<CreateDraft, "kind"> | null; sidebarCollapsed: boolean; snapshot: Snapshot; viewing: Preview | null; linkLanded: boolean; inbox: { open: boolean; enabled: boolean } };
 /** what the handler asked of a phone's agent list */
 let inboxCalls: string[];
+/** Reopen files on return: whether a file left behind is kept on its entry */
+let reopenFiles: boolean;
 /** the panes the handler asked the app to select */
 let asked: Array<string | null>;
 /** every history write: the method, the entry it was made on and the address it left there */
@@ -78,10 +80,11 @@ function Probe() {
       leave: () => { inboxCalls.push("leave"); place.inbox = { ...place.inbox, open: false }; draw(); },
     },
     newSessionOpen, newFields, sidebarCollapsed, snapshot, selectedPaneId: paneId, selectedPane: pane,
-    selectedWorkspace: snapshot.workspaces.find((workspace) => workspace.workspace_id === pane.workspace_id) as HerdrWorkspace,
+    // a pane its roster does not list yet (one New workspace just made) has no workspace
+    selectedWorkspace: snapshot.workspaces.find((workspace) => workspace.workspace_id === pane?.workspace_id) as HerdrWorkspace,
     selectedMachineId: "local", selectedMachine: machine, machines: refs.machines.current, machinesRef: refs.machines,
     // Reopen files on return: a file left behind is hidden and its entry keeps it (lib/useFilePanels.ts)
-    viewing, leaveFile: () => { place.viewing = null; draw(); return true; },
+    viewing, leaveFile: () => { place.viewing = null; draw(); return reopenFiles; },
     restoreFile: () => {}, fileFromPop: () => 0, forgetLeftFiles: () => {}, openFile: () => {},
     locked: false, linkLanded, view: "chat", wideScreen: true, autoSelected: false, newTab: null,
     settingsOpen: false, settingsPage: null, settingsLinkPage: null, settingsLinkSection: null,
@@ -102,6 +105,7 @@ beforeEach(() => {
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
   place = { paneId: "p2", newSessionOpen: false, newFields: null, sidebarCollapsed: false, snapshot: roster(), viewing: null, linkLanded: true, inbox: { open: false, enabled: false } };
   inboxCalls = [];
+  reopenFiles = true;
   sheetStep = false;
   asked = [];
   writes = [];
@@ -422,4 +426,41 @@ it("leaves the list alone on a Settings entry and on a sheet's step off its entr
   // Then neither showed nor left the list, nor selected anything.
   expect(inboxCalls).toEqual([]);
   expect(asked).toEqual([]);
+});
+
+it("pushes a row opened from the list over the list's entry while a file is still up, not in its place", async () => {
+  // Given a phone on its list over p2, a file still up on p2, and files not kept on return.
+  place = { ...place, viewing: { path: "README.md", paneId: "p2", machineId: "local" }, inbox: { open: true, enabled: true } };
+  await mount([""]);
+  reopenFiles = false;
+
+  // When p1 is opened from the list, leaving the file behind.
+  await act(async () => { place.paneId = "p1"; place.inbox = { ...place.inbox, open: false }; draw(); });
+
+  // Then p1's entry is pushed over the list's, which stays for Back.
+  expect(writes).toEqual([`pushState 1 ${P1}`]);
+  expect(addresses()).toEqual(["", P1]);
+  expect(entries[1]!.state).toEqual(FROM_INBOX);
+});
+
+it("takes the New workspace dialog off its entry once it closes, before the pane it made is listed", async () => {
+  // Given the dialog open over the list.
+  place = { ...place, newSessionOpen: true, newFields: { cwd: null, name: "New", agent: null }, inbox: { open: true, enabled: true } };
+  await mount([""]);
+  await act(async () => { draw(); });
+  expect(addresses()[0]).toContain("new=workspace");
+
+  // When it closes on a new pane p3 that no roster lists yet.
+  await act(async () => { place.newSessionOpen = false; place.newFields = null; place.paneId = "p3"; place.inbox = { ...place.inbox, open: false }; draw(); });
+
+  // Then the entry it was open on says the list's place again.
+  expect(addresses()).toEqual([""]);
+
+  // When the roster lists p3.
+  const listed = roster();
+  listed.panes.push({ pane_id: "p3", workspace_id: "w1", focused: false } as unknown as HerdrPane);
+  await act(async () => { place.snapshot = listed; draw(); });
+
+  // Then p3's entry is pushed over the list's, and Back from it finds no dialog.
+  expect(addresses()).toEqual(["", "?ws=w1-api&pane=p3&view=chat"]);
 });
