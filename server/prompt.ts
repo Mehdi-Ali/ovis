@@ -24,7 +24,7 @@ import { ANSI_RE, type AnswerStep, KEY, type OmoAsk, type ParsedPrompt, type Pro
 import { executeInteractionPlan } from "./dialogs/interaction-plan.ts";
 import { liveScreen, parsePrompt, promptTailIsActive } from "./dialogs/live.ts";
 import { LETTA_SEARCH_MAX, lettaPick, lettaSearchShown } from "./dialogs/letta.ts";
-import { agyCustomEditorMatches, parseAgyQuestion } from "./dialogs/agy.ts";
+import { agyCustomEditorMatches, agySameQuestion, parseAgyQuestion } from "./dialogs/agy.ts";
 import { sameText } from "./dialogs/omo.ts";
 import { OMP_REVIEW_HINT_RE, OMP_TABS_HINT_RE } from "./dialogs/omp.ts";
 import { INVISIBLE_CHAR_RE } from "./dialogs/claude.ts";
@@ -2004,7 +2004,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
             const dialog = parsePiDialog(screen, true);
             return dialog?.id === parsed.id && dialog.selectedIndex === cursor && promptTailIsActive(dialog, screen);
           }
-          return shown?.id === parsed.id && shown.selectedIndex === cursor && ticked(shown)
+          if (shown === null || !(responder === "agy-question" ? agySameQuestion(shown, parsed) : shown.id === parsed.id)) return false;
+          return shown.selectedIndex === cursor && ticked(shown)
             && (responder !== "pi-questionnaire-question" || shown.piQuestionnaireInput === undefined);
         };
         /**
@@ -2047,7 +2048,9 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
             const card = parsedByPublicPrompt.get(parseFallbackPrompt(agent, screen));
             return card?.id === parsed.id && (!onCursor || card.selectedIndex === cursor);
           }
-          return shown?.id === parsed.id && shown.question === parsed.question && shown.ompCall === parsed.ompCall
+          // an Antigravity multiple choice's id reads its ticks, which this answer's own Spaces change (ticked checks them)
+          if (shown === null || !(responder === "agy-question" ? agySameQuestion(shown, parsed) : shown.id === parsed.id)) return false;
+          return shown.question === parsed.question && shown.ompCall === parsed.ompCall
             && shown.nativeSteps?.index === parsed.nativeSteps?.index
             && (!onCursor || (shown.selectedIndex === cursor && ticked(shown) && (settled === null || (settled.selectedIndex === cursor && ticked(settled)))));
         };
@@ -2143,10 +2146,10 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
                 Bun.sleep(Math.max(0, deadline - Date.now())).then(() => null),
               ]);
               if (!read || !asks() || request.signal.aborted || Date.now() >= deadline) return false;
-              if (agyCustomEditorMatches(read.text, parsed, ticks)) return true;
+              if (agyCustomEditorMatches(read.text, parsed, ticks, draft)) return true;
               if (customTyped) return false;
               const before = parseAgyQuestion(read.text);
-              if (before?.id !== parsed.id || before.selectedIndex !== parsed.customMenuIndex || !ticked(before)) return false;
+              if (!agySameQuestion(before, parsed) || before.selectedIndex !== parsed.customMenuIndex || !ticked(before)) return false;
               await Bun.sleep(50);
             }
             return false;

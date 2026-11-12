@@ -27,6 +27,16 @@ test("ticks rows and types a write-in in one answer on Antigravity 1.5.6's multi
   expect(answerKeys(prompt, { option_indices: [1], custom_text: "TV" })).toEqual([...["down", "space", "down", "down", "enter"].map((key) => ({ keys: [key] })), { text: "TV" }, { keys: ["enter"] }]);
 });
 
+test("gives a multiple choice a new card when its ticks change in the terminal", () => {
+  const multi = readFileSync(new URL("../fixtures/agy-1.5.6-ask-multi.txt", import.meta.url), "utf8");
+  const desktop = parseInteractivePrompt("agy", multi.replace("[ ] (Recommended) Desktop", "[x] (Recommended) Desktop"))!;
+  const mobile = parseInteractivePrompt("agy", multi.replace("[ ] Mobile", "[x] Mobile"))!;
+  expect(desktop.default_option_indices).toEqual([0]);
+  expect(mobile.default_option_indices).toEqual([1]);
+  // a card already shown with the first ticks would otherwise stay, and its answer would undo the terminal's
+  expect(mobile.id).not.toBe(desktop.id);
+});
+
 test("refuses ticks with typed text for a card whose own steps cannot take both", () => {
   // a multiple choice that says it takes ticks with text, as pi-ask's form does, but has no steps of its own for them
   const parsed = finishPrompt("pi", { kind: "question", title: "Question", question: "Which?", body: null, options: [{ label: "A", description: null }, { label: "B", description: null }], multi_select: true, checks_with_text: true, custom_option_index: 2 },

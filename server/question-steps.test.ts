@@ -918,6 +918,35 @@ describe("the answer route moves between questions, one key at a time, each seen
       };
       expect(await move((await card()).id, { custom_text: "deno test" })).toEqual({ status: 409, code: "prompt_changed" });
       expect(pane.sent).toEqual(["down", "down", "enter", "text:deno test"]);
+
+      // A write-in editor that opens holding text (typed in the terminal or from another device) takes none of the answer.
+      pane.sent.length = 0;
+      cursor = 0;
+      writeIn = null;
+      pane.screen = agySingle(0);
+      pane.onSent = (key) => {
+        if (key === "down") cursor += 1;
+        else if (key === "enter" && cursor === 2 && writeIn === null) writeIn = "foo";
+        else if (key.startsWith("text:") && writeIn !== null) writeIn += key.slice(5);
+        else if (key === "enter" && writeIn !== null) writeIn = null;
+        pane.screen = agySingle(at, cursor, -1, writeIn);
+      };
+      expect(await move((await card()).id, { custom_text: "bar" })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down", "down", "enter"]);
+
+      // And one that swallowed the typed text is not submitted empty.
+      pane.sent.length = 0;
+      cursor = 0;
+      writeIn = null;
+      pane.screen = agySingle(0);
+      pane.onSent = (key) => {
+        if (key === "down") cursor += 1;
+        else if (key === "enter" && cursor === 2 && writeIn === null) writeIn = "";
+        else if (key === "enter" && writeIn !== null) writeIn = null;
+        pane.screen = agySingle(at, cursor, -1, writeIn);
+      };
+      expect(await move((await card()).id, { custom_text: "bar" })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down", "down", "enter", "text:bar"]);
     });
 
     const agyMulti = (cursor: number, checked: number[], writeIn: string | null = null): string => {
