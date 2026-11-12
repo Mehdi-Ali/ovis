@@ -135,8 +135,11 @@ export function UsageMeters({ onLocalLogin, watching = false }: { /** opens a si
   const { settings } = useSettings();
   const { report, loading, refresh } = useUsage(settings.showUsage);
   const [open, setOpen] = useState(false);
+  // an account hidden in Settings is left out of the strip and the popover alike
+  const shown = report ? orderProviders(report.providers, settings.usageOrder).filter((usage) => !settings.usageHidden.includes(usage.key)) : [];
+  const drawn = settings.showUsage && shown.length > 0;
   // Back closes the popover, as Escape does, and leaves the drawer it is in
-  usePhoneSheetBack(() => setOpen(false), open);
+  usePhoneSheetBack(() => setOpen(false), open && drawn);
   // Sign in again from the popover, followed in a dialog of its own: the popover closes as it opens
   const [following, setFollowing] = useState<Extract<UsageLoginRequest, { provider: "claude" | "codex" }> | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -144,8 +147,8 @@ export function UsageMeters({ onLocalLogin, watching = false }: { /** opens a si
   const stripRef = useRef<HTMLButtonElement>(null);
   const [room, setRoom] = useState<{ all: number; folding: number } | null>(null);
 
-  // turned off in Settings, the popover closes: its listener and the clock go with it
-  useEffect(() => { if (!settings.showUsage) setOpen(false); }, [settings.showUsage]);
+  // turned off in Settings, or with no account left to show, the popover closes: its listener and the clock go with it
+  useEffect(() => { if (!drawn) setOpen(false); }, [drawn]);
   // reset countdowns and run-out warnings move on between reports, popover closed or open
   useEffect(() => {
     if (!settings.showUsage) return;
@@ -200,9 +203,7 @@ export function UsageMeters({ onLocalLogin, watching = false }: { /** opens a si
   });
 
   const count = settings.usageCount;
-  // an account hidden in Settings is left out of the strip and the popover alike
-  const shown = report ? orderProviders(report.providers, settings.usageOrder).filter((usage) => !settings.usageHidden.includes(usage.key)) : [];
-  if (!settings.showUsage || shown.length === 0) return null;
+  if (!drawn) return null;
   const fits = room ?? { all: FALLBACK_CHIPS, folding: FALLBACK_CHIPS - 1 };
   const chips = shown.length > fits.all ? shown.slice(0, fits.folding) : shown;
   const folded = shown.length - chips.length;
