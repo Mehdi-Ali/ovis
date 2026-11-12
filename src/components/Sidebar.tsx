@@ -176,7 +176,7 @@ export function ContextBadge({ context }: { context?: PaneContext | undefined })
   const t = useT();
   const left = context ? contextLeftPercent(context) : null;
   if (!context || left === null || context.window === null) return null;
-  const label = `${t("Context {percent}% left", { percent: left })} · ${t("{used} of {window} tokens", { used: formatTokens(context.used), window: formatTokens(context.window) })}`;
+  const label = `${t("Context {percent}% used", { percent: 100 - left })} · ${t("{used} of {window} tokens", { used: formatTokens(context.used), window: formatTokens(context.window) })}`;
   const radius = 6;
   const circumference = 2 * Math.PI * radius;
   return (
