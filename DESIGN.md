@@ -4043,8 +4043,11 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   closes the sentence and the next does what Escape does (empties the search, closes Settings), as
   [React Aria's tooltip](https://github.com/adobe/react-spectrum/blob/main/packages/react-aria/src/tooltip/useTooltipTrigger.ts)
   takes Escape while it is open and stops it there: closing Settings would move the focus, which
-  1.4.13 does not allow a dismissal to do. In a text field that Escape is the field's too, and the
-  first text typed closes it. A finger has no hover: a tap on the row, anywhere but its control, opens the sentence in the
+  1.4.13 does not allow a dismissal to do. A press on the row's control closes the sentence too, the
+  keyboard's as a pointer's (a choice, not a question; that tooltip's `shouldCloseOnPress`), so
+  Escape after a choice is Settings' at once. A focus is the keyboard's when a key came last: a
+  click or a tap that puts the focus in a field or a select shows no sentence. In a text field that
+  Escape is the field's too, and the first text typed closes it. A finger has no hover: a tap on the row, anywhere but its control, opens the sentence in the
   row, under the name and the control at the row's width (`.settings-row-sentence`), and a second
   tap closes it, so nothing is drawn over a phone's page. The row's switch, select, stepper or
   group of choices is described by the same sentence (`aria-describedby`), as

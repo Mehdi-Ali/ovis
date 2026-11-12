@@ -956,6 +956,19 @@ async function rowSentences(browser: import("playwright-core").Browser, url: str
     await page.keyboard.press("Escape");
     await page.locator(".settings-dialog").waitFor({ state: "detached" });
 
+    // a press on the control is a choice, not a question: the keyboard's press closes the sentence, and the next
+    // Escape is Settings' again
+    await appearance(page);
+    await control.getByRole("button", { name: "Comfortable", exact: true }).focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await sentence.waitFor();
+    await page.keyboard.press("Space");
+    await sentence.waitFor({ state: "detached" });
+    assert.equal(await focusedRow(), "Density", "the focus stays on the choice that was pressed");
+    await page.keyboard.press("Escape");
+    await page.locator(".settings-dialog").waitFor({ state: "detached" });
+
     // a text field: what is typed closes the sentence, and Escape is still the field's
     await appearance(page);
     const size = page.getByRole("textbox", { name: "Terminal font size", exact: true });
@@ -966,6 +979,11 @@ async function rowSentences(browser: import("playwright-core").Browser, url: str
     await page.keyboard.press("Escape");
     assert.equal(await size.inputValue(), String(DEFAULT_SETTINGS.terminalFontSize), "Escape still takes a typed size back");
     assert.equal(await page.locator(".settings-dialog").count(), 1);
+    // a click that puts the focus in a field is a pointer's, not the keyboard's: no sentence shows for it
+    await appearance(page);
+    await size.click();
+    assert.equal(await size.evaluate((field) => field === document.activeElement), true);
+    assert.equal(await sentence.count(), 0, "a click into a field shows no sentence");
 
     // a device that only watches reads the same sentence
     await appearance(page, "&demo_devices=watch");
@@ -1003,11 +1021,15 @@ async function rowSentences(browser: import("playwright-core").Browser, url: str
     assert.equal(await opened.count(), 1, "a tap on the control is the control's: the sentence stays as it was");
     await density.locator(".settings-label").tap();
     await opened.waitFor({ state: "detached" });
+    // a tap that puts the focus in a field draws nothing over the page either
+    await page.getByRole("textbox", { name: "Terminal font size", exact: true }).tap();
+    await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Terminal font size");
+    assert.equal(await page.locator(".settings-help").count(), 0, "a tap into a field draws no sentence over the page");
     assert.deepEqual(errors, []);
   } finally {
     await phone.close();
   }
-  console.log("PASS a row's sentence: over the page on a resting mouse and on keyboard focus, off its control and the row below, closed alone by Escape, opened in the row by a tap, and the same on a watching device");
+  console.log("PASS a row's sentence: over the page on a resting mouse and on keyboard focus, off its control and the row below, closed alone by Escape and by a press on its control, none for a click or a tap into a field, opened in the row by a tap, and the same on a watching device");
 }
 
 async function mergedRows(browser: import("playwright-core").Browser, url: string): Promise<void> {

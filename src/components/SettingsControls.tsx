@@ -151,9 +151,14 @@ const SENTENCE_FOLLOW_MS = 400;
 let closeSentence: (() => void) | null = null;
 let sentenceClosedAt = Number.NEGATIVE_INFINITY;
 
-/** Whether the keyboard put the focus there, which is what the focus ring follows; a browser without the selector says yes. */
-function keyboardFocus(target: Element): boolean {
-  try { return target.matches(":focus-visible"); } catch { return true; }
+/**
+ * What the reader last used. A focus is the keyboard's when a key came last: a click or a tap that puts the focus in
+ * a field or a select is a pointer's, though `:focus-visible` matches there. Until anything is pressed, the keyboard's.
+ */
+let lastInput: "keyboard" | "pointer" = "keyboard";
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", () => { lastInput = "keyboard"; }, true);
+  window.addEventListener("pointerdown", () => { lastInput = "pointer"; }, true);
 }
 
 /** Whether the focus is where text is typed: such a field keeps Escape for its own draft, and for the dialog behind it. */
@@ -167,10 +172,12 @@ function inTextField(): boolean {
 /**
  * A bare row's sentence on demand (#3275). A mouse resting on the row and the keyboard's focus on its control
  * show it over the page (RowSentence); Escape closes it alone, and it then stays closed until the pointer or the
- * focus leaves the row. In a text field the Escape is the field's too (a typed size goes back, as before), and the
- * first text typed there closes the sentence, so it is never in the way of what is being written. A finger has no hover: a tap on the row, anywhere but on its control, opens the sentence
- * in the row, under its name and control and as wide as the row, and a second tap closes it. `on`: the row has a
- * sentence and its page does not show it.
+ * focus leaves the row. A press on the row's control is a choice, not a question: it closes the sentence too, the
+ * keyboard's press as a pointer's, so Escape after a choice is Settings' again. In a text field the Escape is the
+ * field's too (a typed size goes back, as before), and the first text typed there closes the sentence, so it is
+ * never in the way of what is being written. A finger has no hover: a tap on the row, anywhere but on its control,
+ * opens the sentence in the row, under its name and control and as wide as the row, and a second tap closes it.
+ * `on`: the row has a sentence and its page does not show it.
  */
 function useRowSentence(on: boolean): {
   row: RefObject<HTMLDivElement | null>;
@@ -239,8 +246,8 @@ function useRowSentence(on: boolean): {
         window.clearTimeout(rest.current);
         if (shown === "hover") setShown(null);
       },
-      onFocus: (event) => {
-        if (opened || dismissed.current || !keyboardFocus(event.target)) return;
+      onFocus: () => {
+        if (opened || dismissed.current || lastInput !== "keyboard") return;
         window.clearTimeout(rest.current);
         setShown("focus");
       },
@@ -255,8 +262,13 @@ function useRowSentence(on: boolean): {
         setShown(null);
       },
       onClick: (event) => {
-        if (!finger.current) return;
         const target = event.target as Element;
+        // the sentence the keyboard's focus showed: a press on the row's control closes it, as a pointer's press does a hover's
+        if (shown === "focus" && target.closest("button, a, input, select, textarea") !== null && target.closest(".settings-help") === null) {
+          dismissed.current = true;
+          setShown(null);
+        }
+        if (!finger.current) return;
         // the row's name and the room around it, never its control; the ↺ and a link in a condition keep their own tap
         if (target !== event.currentTarget && target.closest(".settings-row-text") === null) return;
         if (target.closest("button, a, input, select, textarea")) return;
