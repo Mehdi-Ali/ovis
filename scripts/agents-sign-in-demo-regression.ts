@@ -61,6 +61,9 @@ try {
         await page.screenshot({ path: join(evidence, `${name}-${at}.png`) });
       };
       const press = (locator: ReturnType<Page["locator"]>) => width === 390 ? locator.tap() : locator.click();
+      // a phone's dialog holds a history entry, and steps off it a moment after it closes: a page
+      // load asked for before that step lands is dropped by it
+      const offDialogEntry = (): Promise<unknown> => page.waitForFunction(() => (history.state as Record<string, unknown> | null)?.["ovis:sheet"] === undefined);
       try {
         // Claude Code's first sign-in, from its Agents row
         await page.goto(`${root}&settings=agents`);
@@ -113,6 +116,7 @@ try {
 
         // Sign in again on a shut row: the dialog lives on the page, so a click into it toggles no row
         // and the end of the expiry it was opened for does not take it away
+        await offDialogEntry();
         await page.goto(`${root}&demo_usage=refused&settings=agents`);
         const expired = page.locator(".agents-item[data-agent='claude']");
         const renew = expired.getByRole("button", { name: /^Sign in again/ });
@@ -132,6 +136,7 @@ try {
         console.log(`PASS Sign in again on a shut row stays open through clicks and the end of the expiry, to its outcome (${at})`);
 
         // closing the dialog stops the sign-in: Escape while Claude's waits for its code cancels it by its id
+        await offDialogEntry();
         await page.goto(`${root}&settings=agents`);
         await page.evaluate(() => {
           const passing = window.fetch;
@@ -153,6 +158,7 @@ try {
         console.log(`PASS closing the dialog stops the sign-in it was following (${at})`);
 
         // the setup guide offers the first sign-in under its tiles
+        await offDialogEntry();
         await page.goto(`${root}&settings=agents`);
         await page.locator(".agents-item").first().waitFor();
         await press(page.getByRole("button", { name: "Open setup guide", exact: true }));

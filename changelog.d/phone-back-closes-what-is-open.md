@@ -5,5 +5,5 @@
   folder, a branch) and a file's More menu close by themselves, and with two things open Back
   closes the one on top only.
 - With a phone on its side, or on a tablet, Back closes an open menu or dialog as it does upright.
-- A confirmation opened over the Files dialog no longer closes the dialog when it is cancelled on a
-  phone.
+- On a phone, closing what was opened over the Files dialog (a confirmation, the command palette)
+  no longer closes Files with it.
