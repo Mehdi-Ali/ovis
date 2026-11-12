@@ -1,0 +1,42 @@
+/**
+ * The phone's agent inbox as a state of the shell (App.tsx): whether it is offered (the setting, at a
+ * phone's width), whether it stands in the pane's place now, and what the reader left in it.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { inboxStartsOpen, type InboxFilter } from "./agentInbox.ts";
+import type { AppLink } from "./deepLink.ts";
+import { SHEET_QUERY } from "./sheets.ts";
+import { useMediaQuery } from "./useMediaQuery.ts";
+
+/** The history entry's mark that it was pushed on leaving the list: Back on such an entry returns to it. */
+export const INBOX_FROM_KEY = "ovis:from-inbox";
+
+export function useInbox({ setting, initialLink, drawerOpenRef }: { setting: boolean; initialLink: AppLink | null; drawerOpenRef: RefObject<boolean> }) {
+  const phone = useMediaQuery(SHEET_QUERY);
+  const enabled = setting && phone;
+  // open until a pane is picked: a window that narrows again, or a setting turned on, shows the list
+  const [open, setOpen] = useState(() => inboxStartsOpen(setting && typeof window !== "undefined" && window.matchMedia?.(SHEET_QUERY).matches === true, initialLink));
+  const shown = open && enabled;
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  // no pane was opened since the page loaded: nothing is mounted for one under the list
+  const coldRef = useRef(shown);
+  useEffect(() => { if (!shown) coldRef.current = false; }, [shown]);
+  const cold = shown && coldRef.current;
+  const show = useCallback(() => setOpen(true), []);
+  const leave = useCallback(() => setOpen(false), []);
+  /** the header's Back: the entry the list pushed is left through the history, any other place opens the list */
+  const back = useCallback(() => {
+    if ((window.history.state as Record<string, unknown> | null)?.[INBOX_FROM_KEY] === true) window.history.back();
+    else setOpen(true);
+  }, []);
+  const [filter, setFilter] = useState<InboxFilter>("all");
+  const [query, setQuery] = useState("");
+  /** the list's scroll offset, kept while a thread is open */
+  const scroll = useRef(0);
+  /** whether the drawer or the list covers the selected pane: its finishes are not read, its alerts not held back */
+  const coveredRef = useMemo(() => ({ get current(): boolean { return drawerOpenRef.current === true || shownRef.current; } }) as RefObject<boolean>, [drawerOpenRef]);
+  return { enabled, shown, cold, shownRef, enabledRef, coveredRef, show, leave, back, filter, setFilter, query, setQuery, scroll };
+}
