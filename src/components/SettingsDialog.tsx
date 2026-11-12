@@ -33,7 +33,6 @@ import { onSettingsHistory, recordSettings, settingsEntry, settingsLevels, type 
 import { ThemeFiles, themeLabel } from "./ThemeFiles.tsx";
 import { ChipToggles, SettingsBare, Segmented, SettingsFold, SettingsGroup, SettingsQuery, SettingsRow, SettingsSelect, Stepper, Toggle, settingsQueryWords, useSettingsRowSentence } from "./SettingsControls.tsx";
 import { PcLoadSetting } from "./MachineStats.tsx";
-import { helpDemo } from "../lib/settingsHelpDemo.ts";
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
 import { UI_FONT_MAX, UI_FONT_MIN, UI_FONT_PRESET_FAMILY, uiFontPreset, type UiFontPreset } from "../lib/typography.ts";
 import { canListInstalledFonts, filterFamilies, isMonospaceFamily, queryInstalledFonts } from "../lib/installedFonts.ts";
@@ -464,7 +463,7 @@ function ThemePicker() {
   return (
     <>
       <SettingsRow icon={Palette} label={label} description={t("The colors used in dark mode and in light mode, one theme for each. Dark and Light on this row only switch which themes you are choosing from; Theme, above, sets the mode.")}
-        condition={helpDemo() === "line" ? <span className="settings-condition">{t("Dark and Light here only switch which themes you choose from.")}</span> : undefined} keywords={`${t("Dark theme")} ${t("Light theme")} ${t("Shown in dark mode")} ${t("Shown in light mode")}`} reset={[side === "dark" ? "darkTheme" : "lightTheme"]}
+        condition={<span className="settings-condition">{t("Dark and Light here only switch which themes you choose from.")}</span>} keywords={`${t("Dark theme")} ${t("Light theme")} ${t("Shown in dark mode")} ${t("Shown in light mode")}`} reset={[side === "dark" ? "darkTheme" : "lightTheme"]}
         resetAlso={{ changed: custom[side] !== null, restore: () => update((latest) => ({ customThemes: { ...latest.customThemes, [side]: null } })) }}>
         <Segmented label={`${t("Dark theme")} · ${t("Light theme")}`} value={side} onChange={setPicked} options={[{ value: "dark", label: t("Dark"), name: t("Show dark themes") }, { value: "light", label: t("Light"), name: t("Show light themes") }]} />
       </SettingsRow>
@@ -708,7 +707,7 @@ function ChatPage() {
           <Segmented label={t("Open files")} value={settings.fileOpen} onChange={(fileOpen) => update({ fileOpen })} options={FILE_OPEN_TARGETS.map((fileOpen) => ({ value: fileOpen, label: fileOpen === "panel" ? t("Beside the pane") : t("In a popup") }))} />
         </SettingsRow>
         <SettingsRow icon={Globe} label={t("Web links")} description={t(filePanelAvailable ? "Where a web address opens when you click it; Shift-click opens it the other way. Only a page this PC serves, such as a dev server on localhost, can open beside the pane: any other site opens in a new tab." : "Where a web address opens when you press it; Shift-click opens it the other way. Only a page this PC serves, such as a dev server on localhost, can open in the app: any other site opens in a new tab.")}
-          condition={helpDemo() === "line" ? <span className="settings-condition">{t(filePanelAvailable ? "Only pages this PC serves can open beside the pane." : "Only pages this PC serves can open in the app.")}</span> : undefined} wide reset={["webLinks"]}>
+          condition={<span className="settings-condition">{t(filePanelAvailable ? "Only pages this PC serves can open beside the pane." : "Only pages this PC serves can open in the app.")}</span>} wide reset={["webLinks"]}>
           <Segmented label={t("Web links")} value={settings.webLinks} onChange={(webLinks) => update({ webLinks })} options={WEB_LINK_TARGETS.map((webLinks) => ({ value: webLinks, label: webLinks === "panel" ? t(filePanelAvailable ? "Beside the pane" : "In the app") : t("In a new tab") }))} />
         </SettingsRow>
       </SettingsGroup>

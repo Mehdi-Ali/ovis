@@ -170,9 +170,8 @@
   padding-inline-start: var(--settings-icon-column);
 }
 
-/* the ↺ beside a label whose value moved off its default; DEMO ONLY: the button that opens a row's sentence (?help=info) */
-.settings-reset,
-.settings-help-button {
+/* the ↺ beside a label whose value moved off its default */
+.settings-reset {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -190,15 +189,13 @@
 }
 
 @media (hover: hover) {
-  .settings-reset:hover,
-  .settings-help-button:hover {
+  .settings-reset:hover {
     background: var(--bg-hover);
     color: var(--text-strong);
   }
 }
 
-.settings-reset svg,
-.settings-help-button svg {
+.settings-reset svg {
   width: var(--icon-size-sm);
   height: var(--icon-size-sm);
 }
@@ -724,8 +721,7 @@
     min-height: var(--touch-target);
   }
 
-  .settings-reset,
-  .settings-help-button {
+  .settings-reset {
     min-width: var(--touch-target);
     min-height: var(--touch-target);
     width: var(--touch-target);

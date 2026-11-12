@@ -1,10 +1,9 @@
 import { Children, cloneElement, createContext, Fragment, isValidElement, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type FocusEvent as ReactFocusEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronRight, Info, Minus, Plus, RotateCcw, type LucideIcon } from "lucide-react";
+import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw, type LucideIcon } from "lucide-react";
 
 import { DEFAULT_SETTINGS, useSettings, type Settings } from "../lib/settings.ts";
 import { useT } from "../lib/i18n.ts";
-import { helpDemo } from "../lib/settingsHelpDemo.ts";
 
 import "./SettingsControls.css";
 
@@ -187,7 +186,6 @@ function useRowSentence(on: boolean): {
   drawn: RefObject<boolean>;
   /** in the row now, opened by a tap */
   opened: boolean;
-  toggle: () => void;
   rowEvents: { onPointerEnter?: (event: ReactPointerEvent) => void; onPointerLeave?: () => void; onPointerDown?: (event: ReactPointerEvent) => void; onFocus?: (event: ReactFocusEvent) => void; onBlur?: (event: ReactFocusEvent) => void; onInput?: () => void; onClick?: (event: ReactMouseEvent) => void };
 } {
   const row = useRef<HTMLDivElement>(null);
@@ -225,11 +223,9 @@ function useRowSentence(on: boolean): {
       sentenceClosedAt = performance.now();
     };
   }, [shown]);
-  const hide = (): void => { window.clearTimeout(rest.current); setShown(null); };
-  const toggle = (): void => { hide(); setOpened((was) => !was); };
-  if (!on) return { row, shown: null, drawn, opened: false, toggle, rowEvents: {} };
+  if (!on) return { row, shown: null, drawn, opened: false, rowEvents: {} };
   return {
-    row, shown: opened ? null : shown, drawn, opened, toggle,
+    row, shown: opened ? null : shown, drawn, opened,
     rowEvents: {
       onPointerEnter: (event) => {
         if (event.pointerType === "touch" || opened) return;
@@ -394,10 +390,7 @@ export function SettingsRow({ label, description, keywords, held = false, htmlFo
   const { settings, update } = useSettings();
   const t = useT();
   const sentenceId = useId();
-  // DEMO ONLY: `off` is Settings as on main, `info` adds the button (lib/settingsHelpDemo.ts)
-  const demo = helpDemo();
-  const sentence = useRowSentence(description !== undefined && bare !== false && demo !== "off");
-  const helpButton = description !== undefined && bare !== false && demo === "info";
+  const sentence = useRowSentence(description !== undefined && bare !== false);
   if (!held && words.length > 0 && !matchesSettingsQuery(words, label, description, keywords, condition, children)) return null;
   // `reset`: the keys this row sets; once any is off its default, a button beside the label puts them back
   const changed = onReset !== undefined || (reset !== undefined && reset.some((key) => JSON.stringify(settings[key]) !== JSON.stringify(DEFAULT_SETTINGS[key]))) || resetAlso?.changed === true;
@@ -410,13 +403,10 @@ export function SettingsRow({ label, description, keywords, held = false, htmlFo
   return (
     <div ref={sentence.row} className={`settings-row${wide ? " is-wide" : ""}${sentence.opened ? " is-explained" : ""}`} data-setting="" {...sentence.rowEvents}>
       <div className="settings-row-text">
-        {changed || Icon !== undefined || helpButton ? (
+        {changed || Icon !== undefined ? (
           <span className="settings-label-line">
             {Icon !== undefined && <Icon className="settings-row-icon" aria-hidden="true" />}
             {label_}
-            {helpButton && <button type="button" className="settings-help-button" aria-expanded={sentence.opened} aria-controls={sentenceId} aria-label={`${t("Details")}: ${label}`} onClick={sentence.toggle}>
-              <Info aria-hidden="true" />
-            </button>}
             {changed && <button type="button" className="settings-reset" title={t("Restore defaults")} aria-label={`${t("Restore defaults")}: ${label}`} onClick={(event) => {
               // the button goes once the values are back: the row's own control takes the focus first
               event.currentTarget.closest(".settings-row")?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), [role='radio'], button:not(.settings-reset):not(:disabled)")?.focus();
