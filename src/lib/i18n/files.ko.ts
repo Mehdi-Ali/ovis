@@ -227,6 +227,6 @@ export const FILES_KO: Record<string, string> = {
   "Diff layout": "비교 보기 방식",
   "Unified": "한 열",
   "Split": "나란히",
-  "The text size of a file you open, in its preview and its source. It follows the chat's size until you set one here.": "열어 본 파일의 글자 크기입니다(미리보기와 소스 모두). 여기서 정하기 전까지는 채팅 글자 크기를 따릅니다.",
+  "The text size of a file you open, in its preview and its source. It follows the chat font size until you set one here.": "열어 본 파일의 글자 크기입니다(미리보기와 소스 모두). 여기서 정하기 전까지는 채팅 글자 크기를 따릅니다.",
   "On a wide window, Browse files opens as a panel to the right of the pane and not as a popup. With Open files on Beside the pane, a file opened from the list takes its place, and closing the file brings the list back.": "넓은 창에서 파일 찾아보기를 팝업 대신 패널 오른쪽에 엽니다. 파일 열기가 '패널 옆에'이면 목록에서 연 파일이 그 자리에 보이고, 파일을 닫으면 목록이 돌아옵니다.",
 };

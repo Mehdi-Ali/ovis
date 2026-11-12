@@ -73,7 +73,7 @@ function LaunchDefaultRows({ agent, model, effort, efforts, onModel, onEffort }:
   const effortId = `settings-${agent}-launch-effort`;
   return <>
     <SettingsRow icon={Cpu} label={t("Model")} htmlFor={modelId} wide reset={agent === "claude" ? ["claudeLaunchModel"] : ["codexLaunchModel"]} resetAlso={{ changed: false, restore: () => setDraft("") }}
-      description={t("The model a new agent starts with when you open it from this app. New workspace and New tab fill it in and let you change it there; New worktree starts with it as is. Empty leaves it to the agent, and a running agent is not changed.")}
+      description={t("The model a new agent starts with: New workspace and New tab fill it in, still changeable there, and New worktree uses it as is. Empty leaves the choice to the agent, and an agent already running is not changed.")}
       condition={invalid ? <span id={`${modelId}-error`} className="settings-condition" role="alert">{t("One model name, without spaces.")}</span> : undefined}>
       <input id={modelId} className="input settings-font-input" value={draft} placeholder={t("Agent default")}
         list={suggestions.length > 0 ? `${modelId}-list` : undefined} aria-invalid={invalid || undefined} aria-describedby={invalid ? `${modelId}-error` : undefined}
@@ -159,7 +159,7 @@ function IntegrationRow({ integration, label }: { integration: AgentIntegration;
   };
   const state = integration.state === "outdated" ? t("Installed, but older than this herdr: run this to update it") : t("Not installed");
   return (
-    <SettingsRow icon={History} label={label} description={t("herdr's own integration for this agent. Ovis does not install it, because that changes the agent's settings: run the command shown in a terminal on this PC.")} keywords={state} wide condition={<span className="settings-condition">{state}</span>}>
+    <SettingsRow icon={History} label={label} description={t("herdr's own integration for resuming this agent's session. Installing it changes the agent's settings, so Ovis shows the command to run and does not install it itself.")} keywords={state} wide condition={<span className="settings-condition">{state}</span>}>
       {/* the command stays in sight on a page without sentences: it is what Copy copies */}
       <span className="settings-integration-action">
         <code ref={commandRef} className="settings-integration-command">{command}</code>
@@ -313,12 +313,12 @@ function PlanLimits({ watching }: { watching: boolean }) {
   // one row: off, or on and counted one way; the row says what it shows, the sign-in sentence is the account's own (G-095, G-098)
   return (
     <SettingsGroup section="plan-limits" className="agents-limits">
-      <SettingsRow icon={Gauge} label={t("Plan limits")} description={t("Off hides the meters. Used shows the share of each limit already spent, Remaining what is left of it. Applies on every device that opens this Ovis.")}
+      <SettingsRow icon={Gauge} label={t("Plan limits")} description={t("Meters of your plans' limits, on every device: Used shows the share already spent, Remaining what is left, and Off hides them.")}
         condition={<span className="settings-condition">{t("Shows plan usage beside Settings. Sign-ins are sent to each provider's usage API; never refreshed here.")}</span>} keywords={`${t("Plan limits")} ${t("Show plan limits")} ${t("Meters show")} ${t("Shows plan usage beside Settings. Sign-ins are sent to each provider's usage API; never refreshed here.")}`} wide reset={settings.showUsage ? ["showUsage", "usageCount"] : ["showUsage"]}>
         <Segmented label={t("Plan limits")} value={settings.showUsage ? settings.usageCount : "off"} onChange={(shown) => update(shown === "off" ? { showUsage: false } : { showUsage: true, usageCount: shown })} options={[{ value: "off", label: t("Off") }, { value: "used", label: t("Used") }, { value: "left", label: t("Remaining") }] as const} />
       </SettingsRow>
       {settings.showUsage && <>
-        <SettingsRow icon={CalendarClock} label={t("Limit shown")} description={t("Which limit the meter shows first: the plan's week, or its short session (5 hours on Claude and Codex). An account without that limit shows the one closest to running out.")} wide reset={["usageGlance"]}>
+        <SettingsRow icon={CalendarClock} label={t("Limit shown")} description={t("Which limit the meter shows first: the week's or the 5-hour session's. An account without that limit shows the one closest to running out.")} wide reset={["usageGlance"]}>
           <Segmented label={t("Limit shown")} value={settings.usageGlance} onChange={(usageGlance) => update({ usageGlance })} options={[{ value: "week", label: t("Weekly") }, { value: "session", label: t("Session") }]} />
         </SettingsRow>
         {statusline.state?.supported && <SettingsRow icon={SquareTerminal} label={t("Read Claude's limits from its status line")}
@@ -472,7 +472,7 @@ export function AgentsSettings({ watching, onLocalLogin, onOpenPane, onOpenGuide
 
       <section className="settings-section" data-section="other-accounts" tabIndex={-1} aria-label={t("Other accounts")}>
         <SettingsGroup>
-          <SettingsRow icon={Users} label={t("Other accounts")} description={t("Accounts that belong to no agent listed above (Cursor, or an agent this PC does not have), and the accounts a hub provides.")}
+          <SettingsRow icon={Users} label={t("Other accounts")} description={t("Accounts of providers that none of the agents listed above signs in to, such as Cursor or an agent this PC does not have.")}
             condition={!settings.showUsage ? <span className="settings-condition">{t("Turn on plan limits to see accounts.")}</span> : !local ? <span className="settings-condition">{t("Accounts are read on the PC Ovis runs on.")}</span> : undefined}>
             {!watching ? <button ref={addButton} className="btn btn-ghost" type="button" onClick={() => setDialog({ kind: "add", provider: null })}><Plus aria-hidden="true" />{t("Add account")}</button> : <span />}
           </SettingsRow>

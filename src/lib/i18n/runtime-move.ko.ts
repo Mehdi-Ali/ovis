@@ -67,5 +67,5 @@ export const RUNTIME_MOVE_KO: Record<string, string> = {
   "Running on herdr-core.": "herdr-core에서 돌고 있습니다.",
   "The server was switching its runtime.": "서버가 런타임을 전환하는 중이었습니다.",
   "An agent did not reopen its conversation on herdr-core.": "에이전트가 herdr-core에서 같은 대화를 다시 열지 못했습니다.",
-  "Every workspace, tab and agent reopens on herdr-core, all at once, after a list shows what moves. Scrollback and programs running in shells do not come along.": "모든 워크스페이스, 탭, 에이전트를 한 번에 herdr-core에서 다시 엽니다. 옮길 내용을 먼저 목록으로 보여 줍니다. 이전 출력(스크롤백)과 셸에서 실행 중인 프로그램은 옮겨지지 않습니다.",
+  "Every workspace, tab and agent reopens on herdr-core, all at once, after a list shows what moves. Scrollback and programs running in shells do not come along.": "모든 워크스페이스, 탭, 에이전트를 한 번에 herdr-core에서 다시 열며, 옮길 내용을 먼저 목록으로 보여 줍니다. 이전 출력(스크롤백)과 셸에서 실행 중인 프로그램은 옮겨지지 않습니다.",
 };

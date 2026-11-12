@@ -71,5 +71,5 @@ export const SIDEBAR_ZH: Record<string, string> = {
   "Move to {group}": "移到 {group}",
   "Remove from {group}": "从 {group} 移出",
   "{count} working": "{count} 个工作中",
-  "In the Agents list, an agent's helpers fold into one line under it, with their count. A helper that needs you and the one you selected stay in sight. Only on this device.": "在 Agent 列表中，把 Agent 的助手折叠成它下方的一行，并显示数量。需要你回应的助手和当前选中的助手仍会显示。仅对此设备生效。",
+  "On this device, an agent's helpers fold into one line under it in the Agents list, with their count. A helper that needs you and the one you selected stay in sight.": "在此设备的 Agent 列表中，把 Agent 的助手折叠成它下方的一行，并显示数量。需要你回应的助手和当前选中的助手仍会显示。",
 };

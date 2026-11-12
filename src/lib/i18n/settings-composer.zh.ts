@@ -14,7 +14,7 @@ export const SETTINGS_COMPOSER_ZH: Record<string, string> = {
   "Use herdr's prefix keys": "使用 herdr 前缀键",
   "herdr prefix keys": "herdr 前缀键",
   "herdr's prefix in its config.toml cannot be used here, so no key is taken.": "config.toml 中的 herdr 前缀键无法在此使用，因此不会占用任何按键。",
-  "herdr's prefix, then a key herdr's config.toml on this PC binds, runs that action here: the ones listed below. The prefix no longer reaches the pane: press it twice to send it. Fields, dialogs and IME input keep their keys.": "按下 herdr 前缀键后，再按此 PC 的 herdr config.toml 绑定的键，即可在这里执行下方列出的操作。前缀键将不再发送到窗格：按两次即可发送。输入框、对话框和输入法输入保留其按键。",
+  "herdr's prefix, then a key that herdr's config.toml on this PC binds, runs that action here; the actions are listed below. The prefix then no longer reaches the pane (press it twice to send it), while fields, dialogs and IME input keep their keys.": "按下 herdr 前缀键后，再按此 PC 的 herdr config.toml 绑定的键，即可在这里执行下方列出的操作。前缀键将不再发送到窗格（按两次即可发送），输入框、对话框和输入法输入保留其按键。",
   "Codex panes: let Codex select and scroll": "Codex 窗格：由 Codex 选择和滚动",
   "Composer buttons": "输入框按钮",
   "Artifacts (Claude Code)": "工件 (Claude Code)",

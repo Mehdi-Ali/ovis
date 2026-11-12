@@ -67,5 +67,5 @@ export const RUNTIME_MOVE_JA: Record<string, string> = {
   "Running on herdr-core.": "herdr-coreで動いています。",
   "The server was switching its runtime.": "サーバーがランタイムを切り替え中でした。",
   "An agent did not reopen its conversation on herdr-core.": "エージェントがherdr-coreで同じ会話を再開できませんでした。",
-  "Every workspace, tab and agent reopens on herdr-core, all at once, after a list shows what moves. Scrollback and programs running in shells do not come along.": "すべてのワークスペース、タブ、エージェントを herdr-core で一度に開き直します。その前に、移るものを一覧で確認できます。過去の出力（スクロールバック）とシェルで実行中のプログラムは引き継がれません。",
+  "Every workspace, tab and agent reopens on herdr-core, all at once, after a list shows what moves. Scrollback and programs running in shells do not come along.": "すべてのワークスペース、タブ、エージェントを herdr-core で一度に開き直し、その前に、移るものを一覧で確認できます。過去の出力（スクロールバック）とシェルで実行中のプログラムは引き継がれません。",
 };

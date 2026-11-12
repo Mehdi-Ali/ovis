@@ -227,6 +227,6 @@ export const FILES_JA: Record<string, string> = {
   "Diff layout": "差分の表示形式",
   "Unified": "1列",
   "Split": "並べて表示",
-  "The text size of a file you open, in its preview and its source. It follows the chat's size until you set one here.": "開いたファイルの文字サイズです。プレビューにもソースにも適用されます。ここで決めるまではチャットの文字サイズに合わせます。",
+  "The text size of a file you open, in its preview and its source. It follows the chat font size until you set one here.": "開いたファイルの文字サイズで、プレビューにもソースにも適用されます。ここで決めるまではチャットの文字サイズに合わせます。",
   "On a wide window, Browse files opens as a panel to the right of the pane and not as a popup. With Open files on Beside the pane, a file opened from the list takes its place, and closing the file brings the list back.": "広いウィンドウでは、「ファイルを参照」がポップアップではなくペインの右側のパネルとして開きます。「ファイルを開く」が「ペインの横」のときは、一覧から開いたファイルがその場所に表示され、ファイルを閉じると一覧に戻ります。",
 };

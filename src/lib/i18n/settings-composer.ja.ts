@@ -14,7 +14,7 @@ export const SETTINGS_COMPOSER_JA: Record<string, string> = {
   "Use herdr's prefix keys": "herdrのプレフィックスキーを使う",
   "herdr prefix keys": "herdrのプレフィックスキー",
   "herdr's prefix in its config.toml cannot be used here, so no key is taken.": "config.tomlのherdrプレフィックスはここでは使えないため、キーは取得しません。",
-  "herdr's prefix, then a key herdr's config.toml on this PC binds, runs that action here: the ones listed below. The prefix no longer reaches the pane: press it twice to send it. Fields, dialogs and IME input keep their keys.": "herdrのプレフィックスに続けて、このPCのherdr config.tomlが割り当てたキーを押すと、下に挙げた操作がここで実行されます。プレフィックスはペインに届かなくなります。送るには2回押してください。入力欄、ダイアログ、IME入力はキーをそのまま受け取ります。",
+  "herdr's prefix, then a key that herdr's config.toml on this PC binds, runs that action here; the actions are listed below. The prefix then no longer reaches the pane (press it twice to send it), while fields, dialogs and IME input keep their keys.": "herdrのプレフィックスに続けて、このPCのherdr config.tomlが割り当てたキーを押すと、下に挙げた操作がここで実行されます。プレフィックスはペインに届かなくなり（送るには2回押してください）、入力欄、ダイアログ、IME入力はキーをそのまま受け取ります。",
   "Codex panes: let Codex select and scroll": "Codex ペイン：Codex で選択とスクロール",
   "Composer buttons": "入力欄のボタン",
   "Artifacts (Claude Code)": "アーティファクト (Claude Code)",

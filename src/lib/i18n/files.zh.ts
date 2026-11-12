@@ -227,6 +227,6 @@ export const FILES_ZH: Record<string, string> = {
   "Diff layout": "差异布局",
   "Unified": "单栏",
   "Split": "并排",
-  "The text size of a file you open, in its preview and its source. It follows the chat's size until you set one here.": "所打开文件的字号，预览和源码都适用。在这里设置之前，跟随聊天的字号。",
+  "The text size of a file you open, in its preview and its source. It follows the chat font size until you set one here.": "所打开文件的字号，预览和源码都适用。在这里设置之前，跟随聊天的字号。",
   "On a wide window, Browse files opens as a panel to the right of the pane and not as a popup. With Open files on Beside the pane, a file opened from the list takes its place, and closing the file brings the list back.": "在宽窗口中，“浏览文件”会作为窗格右侧的面板打开，而不是弹窗。当“打开文件”设为“在窗格旁”时，从列表打开的文件会显示在这个位置，关闭文件后列表恢复显示。",
 };

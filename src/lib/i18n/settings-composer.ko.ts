@@ -14,7 +14,7 @@ export const SETTINGS_COMPOSER_KO: Record<string, string> = {
   "Use herdr's prefix keys": "herdr 접두키 사용",
   "herdr prefix keys": "herdr 접두키",
   "herdr's prefix in its config.toml cannot be used here, so no key is taken.": "config.toml의 herdr 접두키를 여기서 쓸 수 없어 어떤 키도 가로채지 않습니다.",
-  "herdr's prefix, then a key herdr's config.toml on this PC binds, runs that action here: the ones listed below. The prefix no longer reaches the pane: press it twice to send it. Fields, dialogs and IME input keep their keys.": "herdr 접두키에 이어 이 PC의 herdr config.toml이 지정한 키를 누르면 아래 동작이 여기서 실행됩니다. 접두키는 더 이상 패널로 가지 않으니, 보내려면 두 번 누르세요. 입력칸·대화상자·IME 입력은 키를 그대로 받습니다.",
+  "herdr's prefix, then a key that herdr's config.toml on this PC binds, runs that action here; the actions are listed below. The prefix then no longer reaches the pane (press it twice to send it), while fields, dialogs and IME input keep their keys.": "herdr 접두키에 이어 이 PC의 herdr config.toml이 지정한 키를 누르면 아래 동작이 여기서 실행됩니다. 접두키는 더 이상 패널로 가지 않으며(보내려면 두 번 누르세요), 입력칸·대화상자·IME 입력은 키를 그대로 받습니다.",
   "Codex panes: let Codex select and scroll": "Codex에서 드래그로 기록 선택",
   "Composer buttons": "입력칸 버튼",
   "Artifacts (Claude Code)": "생성한 페이지 목록 (Claude Code)",

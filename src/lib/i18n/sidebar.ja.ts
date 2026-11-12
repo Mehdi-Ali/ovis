@@ -71,5 +71,5 @@ export const SIDEBAR_JA: Record<string, string> = {
   "Move to {group}": "{group} に移動",
   "Remove from {group}": "{group} から外す",
   "{count} working": "作業中 {count} 件",
-  "In the Agents list, an agent's helpers fold into one line under it, with their count. A helper that needs you and the one you selected stay in sight. Only on this device.": "エージェント一覧で、エージェントのヘルパーをその下の 1 行にたたみ、数を表示します。応答が必要なヘルパーと選択中のヘルパーは表示されたままです。このデバイスだけの設定です。",
+  "On this device, an agent's helpers fold into one line under it in the Agents list, with their count. A helper that needs you and the one you selected stay in sight.": "このデバイスのエージェント一覧で、エージェントのヘルパーをその下の 1 行にたたみ、数を表示します。応答が必要なヘルパーと選択中のヘルパーは表示されたままです。",
 };

@@ -296,7 +296,7 @@ export const PAGES: readonly { id: SettingsPage; icon: LucideIcon }[] = [
  */
 function pageNote(t: Translate, page: SettingsPage): string | null {
   switch (page) {
-    case "appearance": return t("Theme, language and sidebar rows apply on every device; fonts, sizes and density on this device.");
+    case "appearance": return t("Theme and language apply on every device; fonts, sizes and density on this device.");
     case "chat": return t("How conversations look and what the message box offers.");
     case "terminal": return t("How terminal panes look and take input.");
     case "alerts": return t("When this device alerts you, and where else alerts go.");
@@ -527,7 +527,7 @@ function AppearancePage() {
   return (
     <SettingsBare.Provider value={true}>
     <SettingsGroup>
-      <SettingsRow icon={SunMoon} label={t("Theme")} description={t("Dark and Light keep one look; System follows each device's own dark or light mode. The choice applies on every device that opens this Ovis.")} wide reset={["theme"]}>
+      <SettingsRow icon={SunMoon} label={t("Theme")} description={t("Dark and Light keep one look; System follows each device's own dark or light mode. The choice applies on every device.")} wide reset={["theme"]}>
         <Segmented label={t("Theme")} value={settings.theme} onChange={(theme) => update({ theme })} options={[{ value: "dark", label: t("Dark") }, { value: "light", label: t("Light") }, { value: "system", label: t("System") }]} />
       </SettingsRow>
       <ThemePicker />
@@ -538,13 +538,13 @@ function AppearancePage() {
         <Stepper label={t("Interface font size")} value={uiFontSize(settings)} text={`${uiFontSize(settings)}px`} min={UI_FONT_MIN} max={UI_FONT_MAX} decreaseLabel={t("Decrease interface font size")} increaseLabel={t("Increase interface font size")} onChange={(size) => update({ uiFontSize: size })} />
       </SettingsRow>
       <InterfaceFontRows />
-      <SettingsRow icon={SquareTerminal} label={t("Terminal font")} description={t("The font and text size of every terminal pane. Names are separated by commas and the first one this device has is used; pick a fixed-width font.")} keywords={`${t("Terminal font size")} ${t("Applied to every terminal pane")}`} wide reset={["terminalFontFamily", "terminalFontSize"]}>
+      <SettingsRow icon={SquareTerminal} label={t("Terminal font")} description={t("The font and text size of every terminal pane. Type fixed-width (monospace) font names separated by commas: the first one this device has is used.")} keywords={`${t("Terminal font size")} ${t("Applied to every terminal pane")}`} wide reset={["terminalFontFamily", "terminalFontSize"]}>
         <span className="settings-font-size">
           <FontFamilyInput value={settings.terminalFontFamily} label={t("Terminal font")} fixedWidthFor="terminal" onCommit={(terminalFontFamily) => update({ terminalFontFamily })} />
           <Stepper label={t("Terminal font size")} value={settings.terminalFontSize} text={`${settings.terminalFontSize}px`} min={TERMINAL_FONT_MIN} max={TERMINAL_FONT_MAX} decreaseLabel={t("Decrease terminal font size")} increaseLabel={t("Increase terminal font size")} onChange={(terminalFontSize) => update({ terminalFontSize })} unit="px" range={t("Enter {min}–{max}px", { min: TERMINAL_FONT_MIN, max: TERMINAL_FONT_MAX })} />
         </span>
       </SettingsRow>
-      <SettingsRow icon={MessageSquare} label={t("Chat font")} description={t("The font and text size of chat messages and the message box; code keeps its fixed-width font. Names are separated by commas and the first one this device has is used.")} keywords={`${t("Chat font size")} ${t("Messages, code, prompt cards and the message box in the chat view")}`} wide reset={["chatFontFamily", "chatFontSize"]}>
+      <SettingsRow icon={MessageSquare} label={t("Chat font")} description={t("The font and text size of chat messages and the message box; code keeps its monospace font. Names are separated by commas and the first one this device has is used.")} keywords={`${t("Chat font size")} ${t("Messages, code, prompt cards and the message box in the chat view")}`} wide reset={["chatFontFamily", "chatFontSize"]}>
         <span className="settings-font-size">
           <FontFamilyInput value={settings.chatFontFamily} label={t("Chat font")} onCommit={(chatFontFamily) => update({ chatFontFamily })} />
           <Stepper label={t("Chat font size")} value={chatFontSize(settings)} text={`${chatFontSize(settings)}px`} min={CHAT_FONT_MIN} max={CHAT_FONT_MAX} decreaseLabel={t("Decrease chat font size")} increaseLabel={t("Increase chat font size")} onChange={(size) => update({ chatFontSize: size })} unit="px" range={t("Enter {min}–{max}px", { min: CHAT_FONT_MIN, max: CHAT_FONT_MAX })} />
@@ -553,10 +553,10 @@ function AppearancePage() {
     </SettingsGroup>
 
     <SettingsGroup>
-      <SettingsRow icon={Rows3} label={t("Density")} description={t("Compact makes text one step smaller and rows shorter, so more fits on the screen. Comfortable is the roomier default. Only on this device.")} wide reset={["density"]}>
+      <SettingsRow icon={Rows3} label={t("Density")} description={t("On this device, Compact makes text one step smaller and rows shorter, so more fits on the screen. Comfortable is the roomier default.")} wide reset={["density"]}>
         <Segmented label={t("Density")} value={settings.density} onChange={(density) => update({ density })} options={[{ value: "comfortable", label: t("Comfortable") }, { value: "compact", label: t("Compact") }]} />
       </SettingsRow>
-      <SettingsRow icon={Languages} label={t("Language")} description={t("The language of the app. System follows each browser's language; a language chosen here applies on every device that opens this Ovis.")} htmlFor="settings-language" reset={["language"]}>
+      <SettingsRow icon={Languages} label={t("Language")} description={t("The language of the app. System follows each browser's language; a language chosen here applies on every device.")} htmlFor="settings-language" reset={["language"]}>
         <SettingsSelect id="settings-language" value={settings.language} onChange={(event) => update({ language: event.target.value as typeof settings.language })}>
           {LANGUAGE_SETTINGS.map((language) => <option key={language} value={language}>{language === "system" ? t("System") : LANGUAGE_NAMES[language]}</option>)}
         </SettingsSelect>
@@ -564,11 +564,11 @@ function AppearancePage() {
     </SettingsGroup>
 
     <SettingsGroup title={t("Sidebar")} section="sidebar">
-      <SettingsRow icon={PanelLeft} preview={<SidebarRowsPreview rows={settings.sidebarRows} />} label={t("Sidebar rows")} description={t("One line shows each workspace's name. Two lines show what its agent is doing, with the workspace's name under it. Applies on every device that opens this Ovis.")} wide reset={["sidebarRows"]}>
+      <SettingsRow icon={PanelLeft} preview={<SidebarRowsPreview rows={settings.sidebarRows} />} label={t("Sidebar rows")} description={t("One line shows each workspace's name; Two lines show what its agent is doing, with the workspace's name under it. The choice applies on every device.")} wide reset={["sidebarRows"]}>
         <Segmented label={t("Sidebar rows")} value={settings.sidebarRows} onChange={(sidebarRows) => update({ sidebarRows })} options={[{ value: "one", label: t("One line") }, { value: "two", label: t("Two lines") }]} />
       </SettingsRow>
       {/* the scope differs within the one control: said on the row, where the sentences are not (G-097) */}
-      <SettingsRow icon={ArrowDownUp} label={t("Agents order")} description={t("The order of the Agents list. Waiting first puts the agents that need you on top and folds the resting ones; Workspaces keeps the workspaces' order; Activity puts the latest change first; By state groups the agents by what they are doing.")} condition={<span className="settings-condition">{t("By state applies to this device; the other orders to every browser.")}</span>} wide reset={["agentOrder", "agentGroups"]}>
+      <SettingsRow icon={ArrowDownUp} label={t("Agents order")} description={t("The order of the Agents list. Waiting first puts the agents that need you on top and folds the resting ones; Workspaces keeps the workspaces' order; Activity puts an agent that needs you first, then the one that changed last; By state groups the agents by what they are doing.")} condition={<span className="settings-condition">{t("By state applies to this device; the other orders to every browser.")}</span>} wide reset={["agentOrder", "agentGroups"]}>
         {/* By state is this device's grouping (agentGroups); Workspaces and Activity are every browser's order (agentOrder), the grouping off */}
         <Segmented label={t("Agents order")} value={settings.agentGroups ? "state" : settings.agentOrder} onChange={(order) => update(order === "state" ? { agentGroups: true } : { agentOrder: order, agentGroups: false })} options={[{ value: "waiting", label: t("Waiting first") }, { value: "workspace", label: t("Workspaces") }, { value: "activity", label: t("Activity") }, { value: "state", label: t("By state") }] as const} />
       </SettingsRow>
@@ -579,30 +579,30 @@ function AppearancePage() {
 
     <SettingsFold kind="more" keys={["autoTabNames", "sidebarFilter", "sidebarPeek", "sidebarBackgroundWorkspaces", "sidebarContext", "sidebarAgentTree", "foldHelpers", "agentMarks", "statusIndicators", "fileFontSize"]}>
       <SettingsGroup title={t("Sidebar")} section="sidebar-more">
-        <SettingsRow icon={Tag} label={t("Name tabs from the first message")} description={t("A tab that has only a number shows the first few words of the first message sent in it. A name you gave a tab is never replaced. Applies on every device that opens this Ovis.")}
+        <SettingsRow icon={Tag} label={t("Name tabs from the first message")} description={t("On every device, a tab that has only a number shows the first few words of the first message sent in it. A name you gave a tab is never replaced.")}
           condition={<span className="settings-condition">{t("Only those words are kept, on this server, until the tab closes; turning this off deletes them.")}</span>} reset={["autoTabNames"]}>
           <Toggle label={t("Name tabs from the first message")} checked={settings.autoTabNames} onChange={(autoTabNames) => update({ autoTabNames })} />
         </SettingsRow>
-        <SettingsRow icon={Filter} label={t("Sidebar filter")} description={t("Keeps a Filter field above the sidebar's lists, to narrow the workspaces and agents by name. When off, Filter workspaces and agents in the command palette opens it for as long as you use it. Only on this device.")}>
+        <SettingsRow icon={Filter} label={t("Sidebar filter")} description={t("Keeps a Filter field above the sidebar's lists on this device, to narrow the workspaces and agents by name. When off, Filter workspaces and agents in the command palette still opens it while you use it.")}>
           <Toggle label={t("Sidebar filter")} checked={settings.sidebarFilter} onChange={(sidebarFilter) => update({ sidebarFilter })} />
         </SettingsRow>
-        <SettingsRow icon={MousePointer2} label={t("Show the sidebar on hover")} description={t("While the sidebar is hidden, resting the mouse on its button shows it over the pane until the mouse leaves; a click on the button keeps it open. Only on this device.")}>
+        <SettingsRow icon={MousePointer2} label={t("Show the sidebar on hover")} description={t("On this device, while the sidebar is hidden, resting the mouse on its button shows it over the pane until the mouse leaves. A click on the button keeps it open.")}>
           <Toggle label={t("Show the sidebar on hover")} checked={settings.sidebarPeek} onChange={(sidebarPeek) => update({ sidebarPeek })} />
         </SettingsRow>
-        <SettingsRow icon={Layers} label={t("Background workspaces apart")} description={t("Workspaces a tool marked as background (role=background in herdr) move below the others, under a folded heading. The one you have open and any whose agent is asking you something stay in sight. Only on this device.")}>
+        <SettingsRow icon={Layers} label={t("Background workspaces apart")} description={t("On this device, workspaces a tool marked as background (role=background in herdr) move below the others, under a folded heading. The one you have open and any whose agent is asking you something stay in sight.")}>
           <Toggle label={t("Background workspaces apart")} checked={settings.sidebarBackgroundWorkspaces} onChange={(sidebarBackgroundWorkspaces) => update({ sidebarBackgroundWorkspaces })} />
         </SettingsRow>
-        <SettingsRow icon={Gauge} label={t("Context left on agent rows")} description={t("Shows on each agent's row how much of its context is left, as the ring in the message box does. It turns red at 20% or less, and shows only for agents whose context size is known. Only on this device.")}>
+        <SettingsRow icon={Gauge} label={t("Context left on agent rows")} description={t("On this device, each agent's row shows how much of its context is left, as the ring in the message box does. It turns red at 20% or less, and shows only for agents whose context size is known.")}>
           <Toggle label={t("Context left on agent rows")} checked={settings.sidebarContext} onChange={(sidebarContext) => update({ sidebarContext })} />
         </SettingsRow>
-        <SettingsRow icon={ListTree} label={t("Agents under workspaces")} description={t("Lists each workspace's agents under it in the PCs list. The Agents list stays as it is. Only on this device.")}>
+        <SettingsRow icon={ListTree} label={t("Agents under workspaces")} description={t("On this device, the PCs list shows each workspace's agents under it. The Agents list stays as it is.")}>
           <Toggle label={t("Agents under workspaces")} checked={settings.sidebarAgentTree} onChange={(sidebarAgentTree) => update({ sidebarAgentTree })} />
         </SettingsRow>
         <FoldHelpersRow />
-        <SettingsRow icon={Shapes} label={t("Agent logos")} description={t("Color draws each agent's logo in its brand colors; Mono draws them without color. Applies on every device that opens this Ovis.")} wide>
+        <SettingsRow icon={Shapes} label={t("Agent logos")} description={t("Color draws each agent's logo in its brand colors; Mono draws them without color. The choice applies on every device.")} wide>
           <Segmented label={t("Agent logos")} value={settings.agentMarks} onChange={(agentMarks) => update({ agentMarks })} options={[{ value: "color", label: t("Color") }, { value: "mono", label: t("Mono") }]} />
         </SettingsRow>
-        <SettingsRow icon={CircleDot} label={t("Status indicators")} description={t("The marks for an agent's state in the sidebar. Classic marks only the states that need a look; Dots and Symbols mark every state, as herdr's own terminal app does. Only on this device.")} wide>
+        <SettingsRow icon={CircleDot} label={t("Status indicators")} description={t("How an agent's state is marked in the sidebar and on tabs, on this device. In the sidebar, Classic leaves a ready agent unmarked, while Dots and Symbols mark every state, as herdr's own terminal app does.")} wide>
           <Segmented label={t("Status indicators")} value={settings.statusIndicators} onChange={(statusIndicators) => update({ statusIndicators })} options={[{ value: "classic", label: t("Classic") }, { value: "dots", label: t("Dots") }, { value: "symbols", label: t("Symbols") }]} />
         </SettingsRow>
       </SettingsGroup>
@@ -639,19 +639,19 @@ function ChatPage() {
           }} />
         </SettingsRow>
         {/* showThinking is every browser's, whether reasoning starts open (expandThinking) this device's */}
-        <SettingsRow icon={Brain} label={t("Show thinking")} description={t("The agent's reasoning in the chat: left out, folded to one line, or open. Hidden or shown applies on every device that opens this Ovis; folded or open is this device's own.")} wide reset={["showThinking", "expandThinking"]}>
+        <SettingsRow icon={Brain} label={t("Show thinking")} description={t("The agent's reasoning in the chat: left out, folded to one line, or open. Hidden or shown applies on every device; folded or open is this device's own.")} wide reset={["showThinking", "expandThinking"]}>
           <Segmented label={t("Show thinking")} value={!settings.showThinking ? "hidden" : settings.expandThinking ? "expanded" : "folded"} onChange={(shown) => update(shown === "hidden" ? { showThinking: false } : { showThinking: true, expandThinking: shown === "expanded" })} options={[{ value: "hidden", label: t("Hidden") }, { value: "folded", label: t("Folded") }, { value: "expanded", label: t("Expanded") }] as const} />
         </SettingsRow>
         <SettingsRow icon={MoveHorizontal} label={t("Chat width")} description={t("How wide the conversation and the message box may run on a large screen. A pane narrower than that is not affected.")} wide reset={["chatWidth"]}>
           <Segmented label={t("Chat width")} value={settings.chatWidth} onChange={(chatWidth) => update({ chatWidth })} options={CHAT_WIDTHS.map((chatWidth) => ({ value: chatWidth, label: t(chatWidth === "narrow" ? "Narrow" : chatWidth === "wide" ? "Wide" : chatWidth === "full" ? "Full" : "Default") }))} />
         </SettingsRow>
-        <SettingsRow icon={ListCollapse} label={t("Collapse work")} description={t("The work an agent does in a reply (commands, file reads and edits) starts folded to one line, also while it is still running. Work that waits for your answer stays open. Only on this device.")} reset={["foldWork"]}>
+        <SettingsRow icon={ListCollapse} label={t("Collapse work")} description={t("On this device, the work an agent does in a reply (commands, file reads and edits) starts folded to one line, also while it is still running. Work that waits for your answer stays open.")} reset={["foldWork"]}>
           <Toggle label={t("Collapse work")} checked={settings.foldWork} onChange={(foldWork) => update({ foldWork })} />
         </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title={t("Composer")} section="composer">
-        <SettingsRow icon={CornerDownLeft} label={touch ? t("Return inserts a new line") : t("Enter sends")} description={touch ? t("On: Return starts a new line, and the Send button sends. Off: Return sends the message. Only on this device.") : t("On: Enter sends the message and Shift+Enter starts a new line. Off: Enter starts a new line and Ctrl+Enter (⌘+Enter on a Mac) sends. Only on this device.")} reset={["enterSends"]}>
+        <SettingsRow icon={CornerDownLeft} label={touch ? t("Return inserts a new line") : t("Enter sends")} description={touch ? t("On, Return starts a new line on this device and the Send button sends. Off, Return sends the message.") : t("On, Enter sends the message on this device and Shift+Enter starts a new line. Off, Enter starts a new line and Ctrl+Enter (⌘+Enter on a Mac) sends.")} reset={["enterSends"]}>
           <Toggle label={touch ? t("Return inserts a new line") : t("Enter sends")} checked={touch ? !enterSendsOn(settings, touch) : enterSendsOn(settings, touch)} onChange={(checked) => update({ enterSends: touch ? !checked : checked })} />
         </SettingsRow>
         {/* the message box's optional buttons and chips, each off by default; the suggestion chip is drawn on a touch screen only (Composer.tsx) */}
@@ -669,7 +669,7 @@ function ChatPage() {
 
       <SettingsGroup title={t("Quick replies")} section="quick-replies">
         {/* the row names what it shows (G-097); the palette still finds it by the old words, which the dictionary keeps for it */}
-        <SettingsRow icon={MessageSquareReply} label={t("Show above the message box|quick replies switch")} keywords={t("Show above the message box")} description={t("Shows the replies you list here as one-tap buttons above the message box. A tap sends the reply as if you typed it: it waits its turn while the agent works, and answers a question the agent is asking. Applies on every device that opens this Ovis.")} reset={["showQuickReplies"]}>
+        <SettingsRow icon={MessageSquareReply} label={t("Show above the message box|quick replies switch")} keywords={t("Show above the message box")} description={t("Shows the replies listed here as one-tap buttons above the message box, on every device. A tap sends the reply as if you typed it: it waits its turn while the agent works, and answers a question the agent is asking.")} reset={["showQuickReplies"]}>
           <Toggle label={t("Show above the message box|quick replies switch")} checked={settings.showQuickReplies} onChange={(showQuickReplies) => update({ showQuickReplies })} />
         </SettingsRow>
         {settings.showQuickReplies && <div className="settings-item">
@@ -701,10 +701,10 @@ function ChatPage() {
 
       <SettingsGroup title={t("Files")} section="file-viewer">
         {/* a narrow screen cannot open a file beside the pane: the row says so, so the choice does not look ignored (G-097) */}
-        <SettingsRow icon={PanelRight} label={t("Open files")} description={t("Where a file opens when you press its name in the chat, the terminal or Files. Beside the pane is for text and code on a wide window; pictures, PDFs and folders always open in a popup.")} condition={filePanelAvailable ? undefined : <span className="settings-condition">{t("Beside the pane needs a wide window; on this screen a file opens in a popup.")}</span>} wide reset={["fileOpen"]}>
+        <SettingsRow icon={PanelRight} label={t("Open files")} description={t("Where a file opens when you press its name in the chat, the terminal or Files; the viewer's header button then moves an open file. Beside the pane is for text and code on a wide window: pictures, PDFs and folders always open in a popup.")} condition={filePanelAvailable ? undefined : <span className="settings-condition">{t("Beside the pane needs a wide window; on this screen a file opens in a popup.")}</span>} wide reset={["fileOpen"]}>
           <Segmented label={t("Open files")} value={settings.fileOpen} onChange={(fileOpen) => update({ fileOpen })} options={FILE_OPEN_TARGETS.map((fileOpen) => ({ value: fileOpen, label: fileOpen === "panel" ? t("Beside the pane") : t("In a popup") }))} />
         </SettingsRow>
-        <SettingsRow icon={Globe} label={t("Web links")} description={t(filePanelAvailable ? "Where a web address opens when you click it. Only a page this PC serves, such as a dev server on localhost, can open beside the pane; any other site opens in a new tab. Shift-click opens it the other way." : "Where a web address opens when you press it. Only a page this PC serves, such as a dev server on localhost, can open in the app; any other site opens in a new tab. Shift-click opens it the other way.")}
+        <SettingsRow icon={Globe} label={t("Web links")} description={t(filePanelAvailable ? "Where a web address opens when you click it; Shift-click opens it the other way. Only a page this PC serves, such as a dev server on localhost, can open beside the pane: any other site opens in a new tab." : "Where a web address opens when you press it; Shift-click opens it the other way. Only a page this PC serves, such as a dev server on localhost, can open in the app: any other site opens in a new tab.")}
           condition={helpDemo() === "line" ? <span className="settings-condition">{t(filePanelAvailable ? "Only pages this PC serves can open beside the pane." : "Only pages this PC serves can open in the app.")}</span> : undefined} wide reset={["webLinks"]}>
           <Segmented label={t("Web links")} value={settings.webLinks} onChange={(webLinks) => update({ webLinks })} options={WEB_LINK_TARGETS.map((webLinks) => ({ value: webLinks, label: webLinks === "panel" ? t(filePanelAvailable ? "Beside the pane" : "In the app") : t("In a new tab") }))} />
         </SettingsRow>
@@ -714,12 +714,12 @@ function ChatPage() {
 
       <SettingsFold kind="more" keys={["autoSendQueued", "wrapCode", "editTextFiles", "reopenFileOnReturn", "filesPanel", "reuseExternalLinkTab", ...(settings.voiceInput === "off" ? [] : ["voiceLanguage", "voiceEngine", "voicePolishChat", "voicePolishTerminal"] as const)]}>
         <SettingsGroup title={t("Composer")} section="composer-more">
-          <SettingsRow icon={Send} label={t("Send queued messages automatically")} description={t("A message sent while the agent is working goes by itself when the agent finishes. When off, it waits until you press Send now. Applies on every device that opens this Ovis.")} reset={["autoSendQueued"]}>
+          <SettingsRow icon={Send} label={t("Send queued messages automatically")} description={t("On every device, a message sent while the agent is working goes by itself when the agent finishes. When off, it waits until you press Send now.")} reset={["autoSendQueued"]}>
             <Toggle label={t("Send queued messages automatically")} checked={settings.autoSendQueued} onChange={(autoSendQueued) => update({ autoSendQueued })} />
           </SettingsRow>
         </SettingsGroup>
         <SettingsGroup title={t("Files")} section="file-viewer-more">
-          <SettingsRow icon={WrapText} label={t("Wrap long lines")} description={t("In the file viewer and in diffs, a long line continues on the next line. When off, it runs past the edge and scrolls sideways. Only on this device.")} reset={["wrapCode"]} preview={<WrapPreview wrap={settings.wrapCode} />}>
+          <SettingsRow icon={WrapText} label={t("Wrap long lines")} description={t("On this device, a long line in the file viewer and in diffs continues on the next line. When off, it runs past the edge and scrolls sideways.")} reset={["wrapCode"]} preview={<WrapPreview wrap={settings.wrapCode} />}>
             <Toggle label={t("Wrap long lines")} checked={settings.wrapCode} onChange={(wrapCode) => update({ wrapCode })} />
           </SettingsRow>
           <SettingsRow icon={FilePen} label={t("Edit text files")} description={t("Adds Edit to the file viewer for a text file in the pane's folder. Saving asks first, and refuses if the file changed after you opened it.")} reset={["editTextFiles"]}>
@@ -729,7 +729,7 @@ function ChatPage() {
             <Toggle label={t("Reopen files on return")} checked={settings.reopenFileOnReturn} onChange={(reopenFileOnReturn) => update({ reopenFileOnReturn })} />
           </SettingsRow>
           <FilesPanelRow />
-          {canReuseExternalLinkTab() && <SettingsRow icon={ExternalLink} label={t("Reuse tab for external links")} description={t("Links that open outside Ovis reuse one browser tab and do not open a new one each time. Off by default.")} reset={["reuseExternalLinkTab"]}
+          {canReuseExternalLinkTab() && <SettingsRow icon={ExternalLink} label={t("Reuse tab for external links")} description={t("Links that open outside Ovis reuse one browser tab and do not open a new one each time.")} reset={["reuseExternalLinkTab"]}
             condition={<span className="settings-condition">{t("The site in that tab can see and navigate this Ovis tab.")}</span>}>
             <Toggle label={t("Reuse tab for external links")} checked={settings.reuseExternalLinkTab} onChange={(reuseExternalLinkTab) => update({ reuseExternalLinkTab })} />
           </SettingsRow>}
@@ -748,20 +748,20 @@ function TerminalPage({ keyBarButtonRef, onEditKeyBar, picturesByDefault }: { ke
   return (
     <SettingsBare.Provider value={true}>
     <SettingsGroup>
-      <SettingsRow label={t("Terminal input mode")} description={t("Direct typing sends each key straight to the terminal. Input line puts a text box under the terminal, where a line is written first and then sent. Only on this device.")} icon={TextCursorInput} htmlFor="terminal-input-mode" reset={["terminalInputMode"]}>
+      <SettingsRow label={t("Terminal input mode")} description={t("How you type into a terminal pane on this device: Direct typing sends each key straight to the terminal, and Input line puts a text box under it, where a line is written first and then sent.")} icon={TextCursorInput} htmlFor="terminal-input-mode" reset={["terminalInputMode"]}>
         {/* "auto", the stored default, types straight into the grid on every device: it reads as Direct typing */}
         <SettingsSelect id="terminal-input-mode" value={settings.terminalInputMode === "line" ? "line" : "direct"} onChange={(event) => update({ terminalInputMode: event.target.value as "line" | "direct" })}>
           <option value="direct">{t("Direct typing")}</option><option value="line">{t("Input line")}</option>
         </SettingsSelect>
       </SettingsRow>
-      <SettingsRow label={t("Wheel scroll speed")} description={t("How far one turn of the mouse wheel scrolls a terminal pane: 1× is the terminal's own step, and a higher number scrolls that many times as far. Only on this device.")} icon={Mouse} reset={["terminalWheelSpeed"]}>
+      <SettingsRow label={t("Wheel scroll speed")} description={t("How far one turn of the mouse wheel scrolls a terminal pane on this device: 1× is the terminal's own step, and a higher number scrolls that many times as far.")} icon={Mouse} reset={["terminalWheelSpeed"]}>
         <Stepper label={t("Wheel scroll speed")} value={settings.terminalWheelSpeed} text={`${settings.terminalWheelSpeed}×`} min={TERMINAL_WHEEL_SPEED_MIN} max={TERMINAL_WHEEL_SPEED_MAX} decreaseLabel={t("Slower wheel scrolling")} increaseLabel={t("Faster wheel scrolling")} onChange={(terminalWheelSpeed) => update({ terminalWheelSpeed })} />
       </SettingsRow>
       <SettingsRow label={t("Key bar")} description={t("The row of terminal keys (Esc, Tab, Ctrl, arrows) shown with a terminal pane on a touch screen or a narrow window. Edit key bar chooses its keys and their order, for this device.")} icon={Keyboard} reset={["terminalKeyboardOnRequest", "terminalFoldKeyBar", "terminalAttachButton"]}>
         <button type="button" ref={keyBarButtonRef} className="btn" onClick={onEditKeyBar}>{t("Edit key bar")}</button>
       </SettingsRow>
       {/* the three choices fold two settings: each choice's effect is said on the row (G-095) */}
-      <SettingsRow label={t("herdr window")} description={t("For when herdr's own window is open on this PC too. Separate: Ovis keeps its pane at Ovis's size. Use alongside: a tab you stop using gives the pane back after a moment, so herdr's window draws it at its own size. Follow its focus: the same, and Ovis also opens the pane you select in herdr. Only on this device.")} icon={AppWindow} wide reset={["releasePaneAway", "followHerdrFocus"]} keywords={`${t("Use alongside herdr's own window")} ${t("Follow herdr's focus")}`}
+      <SettingsRow label={t("herdr window")} description={t("For when you also use herdr's own window on this PC. Separate keeps a pane attached to Ovis, at its size here, when you leave Ovis; Use alongside gives a pane you are not using back to herdr after a short delay; Follow its focus does that and also shows in Ovis the pane you select in herdr.")} icon={AppWindow} wide reset={["releasePaneAway", "followHerdrFocus"]} keywords={`${t("Use alongside herdr's own window")} ${t("Follow herdr's focus")}`}
         condition={<span className="settings-condition">{t(HERDR_WINDOW_CHOICES[herdrWindow].descriptionKey)}</span>}>
         <Segmented<HerdrWindowChoice> label={t("herdr window")} value={herdrWindow} onChange={(choice) => {
           if (choice !== herdrWindow) {
@@ -775,10 +775,10 @@ function TerminalPage({ keyBarButtonRef, onEditKeyBar, picturesByDefault }: { ke
     {searching && <KeyBarToggles />}
     <SettingsFold kind="more" keys={["paneClipboard", "terminalImages"]}>
       <SettingsGroup section="terminal-more">
-        <SettingsRow label={t("Clipboard from a pane")} description={t("Lets a program in a pane put text on this device's clipboard, which is how vim, tmux and Claude Code copy. When off, such a copy does not reach this device. Any program in a pane can use it, so turn it off when you run something you do not trust. Only on this device.")} icon={ClipboardCopy} reset={["paneClipboard"]}>
+        <SettingsRow label={t("Clipboard from a pane")} description={t("Lets a program in a pane put text on this device's clipboard, which is how vim, tmux and Claude Code copy; when off, such a copy does not arrive. Any program in a pane can use it, so turn it off before running something you do not trust.")} icon={ClipboardCopy} reset={["paneClipboard"]}>
           <Toggle label={t("Clipboard from a pane")} checked={settings.paneClipboard} onChange={(paneClipboard) => update({ paneClipboard })} />
         </SettingsRow>
-        <SettingsRow label={t("Show pictures in the terminal")} description={t("Draws the pictures a program prints in a terminal pane (sixel and iTerm2 images, as imgcat or yazi print them). Pictures arrive only where this PC's terminals come from the Herdr app; herdr TUI does not pass them on. Only on this device.")} icon={ImageIcon} reset={["terminalImages"]}>
+        <SettingsRow label={t("Show pictures in the terminal")} description={t("Draws the pictures a program prints in a terminal pane on this device, as imgcat or yazi do. They only arrive where this PC's terminals come from herdr-core, the Herdr app's core: herdr's TUI does not pass them on.")} icon={ImageIcon} reset={["terminalImages"]}>
           <Toggle label={t("Show pictures in the terminal")} checked={settings.terminalImages ?? picturesByDefault} onChange={(terminalImages) => update({ terminalImages })} />
         </SettingsRow>
       </SettingsGroup>
@@ -817,7 +817,7 @@ function AlertsPage({ onEnableNotifications, machines }: { onEnableNotifications
         ]} />
       </SettingsRow>
       {/* a sighted reader sees where the chime plays, which the hidden sentence alone did not say (G-097) */}
-      <SettingsRow label={t("Play sounds")} description={t("A chime for the alerts chosen above, played by an open tab of the app; turning it on plays it once. Only on this device.")} icon={Volume2} condition={<span className="settings-condition">{t("While a tab of the app is open, it chimes for these alerts, also when a Focus or Do Not Disturb silences notifications.")}</span>} reset={["alertSound"]}>
+      <SettingsRow label={t("Play sounds")} description={t("On this device, an open tab of the app chimes for the alerts chosen above. Turning this on plays the chime once.")} icon={Volume2} condition={<span className="settings-condition">{t("While a tab of the app is open, it chimes for these alerts, also when a Focus or Do Not Disturb silences notifications.")}</span>} reset={["alertSound"]}>
         <Toggle label={t("Play sounds")} checked={settings.alertSound} onChange={(alertSound) => {
           update({ alertSound });
           alertSoundWanted.current = alertSound;
@@ -842,26 +842,26 @@ function ExperimentalPage() {
     <SettingsBare.Provider value={true}>
     {/* each row names what the reader gets, and one line says what changes: the long sentences stay for search (G-098) */}
     <SettingsGroup>
-      <SettingsRow label={t("Named agent groups")} icon={Tags} description={t("Splits the Agents list into groups you name, such as Agents, Replies or Tasks. New workspace and New tab let you pick a group, and an agent's menu moves it to another. Applies on every device that opens this Ovis.")} condition={<span className="settings-condition">{t("Groups you name in the Agents list, in every browser.")}</span>} reset={["agentNamedGroups"]}>
+      <SettingsRow label={t("Named agent groups")} icon={Tags} description={t("Splits the Agents list into groups you name, such as Agents, Replies or Tasks, on every device. New workspace and New tab let you pick a group, and an agent's menu moves it to another.")} condition={<span className="settings-condition">{t("Groups you name in the Agents list, in every browser.")}</span>} reset={["agentNamedGroups"]}>
         <Toggle label={t("Named agent groups")} checked={settings.agentNamedGroups} onChange={(agentNamedGroups) => update({ agentNamedGroups })} />
       </SettingsRow>
       {settings.agentNamedGroups && <AgentGroupNames />}
       <SettingsRow label={t("Lock pinned agents")} icon={Lock} description={t("Adds Lock agent to a pinned agent's menu. Ovis then offers no way to close a locked agent's pane, tab or workspace, on any device; herdr itself or a script can still close it.")} condition={<span className="settings-condition">{t("Each lock is turned on from the pinned agent's own menu.")}</span>} reset={["agentLocks"]}>
         <Toggle label={t("Lock pinned agents")} checked={settings.agentLocks} onChange={(agentLocks) => update({ agentLocks })} />
       </SettingsRow>
-        <SettingsRow label={t("Codex panes: let Codex select and scroll")} icon={MousePointer2} reset={["codexDrag"]} description={t("A drag in a Codex pane goes to Codex, which selects through its whole history and scrolls while the drag is held past the edge. On herdr TUI, Codex's own copy does not reach this device's clipboard; Shift+drag (Option+drag on a Mac) still selects and copies in Ovis. Only on this device.")} condition={<span className="settings-condition">{t("A drag in a Codex pane selects through its whole history; Shift+drag still copies in Ovis.")}</span>}>
+        <SettingsRow label={t("Codex panes: let Codex select and scroll")} icon={MousePointer2} reset={["codexDrag"]} description={t("On this device, a drag in a Codex pane goes to Codex, which selects through its whole history and scrolls while the drag is held past the edge. On herdr's TUI, Codex's own copy does not reach this device's clipboard; Shift+drag (Option+drag on a Mac) still selects and copies in Ovis.")} condition={<span className="settings-condition">{t("A drag in a Codex pane selects through its whole history; Shift+drag still copies in Ovis.")}</span>}>
           <Toggle label={t("Codex panes: let Codex select and scroll")} checked={settings.codexDrag} onChange={(codexDrag) => update({ codexDrag })} />
         </SettingsRow>
     </SettingsGroup>
     {/* one agent's own experiments, moved here from its row on Agents */}
     <SettingsGroup title={t("Agents")} section="experimental-agents" heading>
-      <SettingsRow label={t("OMP: side conversations chip")} icon={MessagesSquare} description={t("Adds a chip to an OMP pane's message box that lists the side conversations its session saved with /btw. Only on this device.")} condition={<span className="settings-condition">{t("Opens the side conversations an OMP session saved with /btw.")}</span>} reset={["composerBtw"]}>
+      <SettingsRow label={t("OMP: side conversations chip")} icon={MessagesSquare} description={t("On this device, adds a chip to an OMP pane's message box that lists the side conversations its session saved with /btw.")} condition={<span className="settings-condition">{t("Opens the side conversations an OMP session saved with /btw.")}</span>} reset={["composerBtw"]}>
         <Toggle label={t("OMP: side conversations chip")} checked={settings.composerBtw} onChange={(composerBtw) => update({ composerBtw })} />
       </SettingsRow>
-      <SettingsRow label={t("OpenCode: subagent ends from their session")} icon={Bot} description={t("An OpenCode subagent counts as running until the session that started it is told it has ended, not from the moment it goes idle. When off, the subagent's own state decides. Applies on every device that opens this Ovis.")} condition={<span className="settings-condition">{t("A subagent counts as running until the session that started it is told it ended.")}</span>} reset={["opencodeParentEnds"]}>
+      <SettingsRow label={t("OpenCode: subagent ends from their session")} icon={Bot} description={t("On every device, an OpenCode subagent counts as running until the session that started it is told it has ended, not just until it goes idle. When off, the subagent's own state decides.")} condition={<span className="settings-condition">{t("A subagent counts as running until the session that started it is told it ended.")}</span>} reset={["opencodeParentEnds"]}>
         <Toggle label={t("OpenCode: subagent ends from their session")} checked={settings.opencodeParentEnds} onChange={(opencodeParentEnds) => update({ opencodeParentEnds })} />
       </SettingsRow>
-      <SettingsRow label={t("OMP on macOS herdr-core: chat from the session it holds open")} icon={MessageSquare} description={t("On a Mac whose terminals come from the Herdr app, an OMP pane's chat is read from the session file its omp has open, so omp -c and resumed sessions show their chat. When off, such a pane shows the terminal instead.")} reset={["ompHeldFiles"]}>
+      <SettingsRow label={t("OMP on macOS herdr-core: chat from the session it holds open")} icon={MessageSquare} description={t("On a Mac running herdr-core, the Herdr app's core, an OMP pane's chat is read from the session file its omp has open, so omp -c and resumed sessions show their chat. When off, such a pane shows the terminal instead.")} reset={["ompHeldFiles"]}>
         <Toggle label={t("OMP on macOS herdr-core: chat from the session it holds open")} checked={settings.ompHeldFiles} onChange={(ompHeldFiles) => update({ ompHeldFiles })} />
       </SettingsRow>
     </SettingsGroup>
@@ -940,7 +940,7 @@ function VoiceMain() {
   return (
     <SettingsGroup title={t("Voice input")} section="voice">
       {/* Auto's reach is said on the row, where the sentences are not (G-097) */}
-      <SettingsRow icon={Mic} label={t("Microphone button")} description={t("The button for dictating a message. Auto shows it in the chat on a desktop, where dictation can work; On also shows it on a phone and in the terminal's input line. Nothing is recorded until you press it.")} condition={micProblem !== null ? <span className="voice-error">{micProblem}</span> : <span className="settings-condition">{t("Auto: on a desktop's chat only, where dictation can work.")}</span>} wide>
+      <SettingsRow icon={Mic} label={t("Microphone button")} description={t("The button for dictating a message. Auto shows it in the chat on a desktop, where dictation can work; On also shows it on a phone and in the terminal's input line.")} condition={micProblem !== null ? <span className="voice-error">{micProblem}</span> : <span className="settings-condition">{t("Auto: on a desktop's chat only, where dictation can work.")}</span>} wide>
         <Segmented label={t("Microphone button")} value={settings.voiceInput} onChange={(voiceInput) => void chooseVoiceInput(voiceInput)} options={VOICE_BUTTONS.map((voiceInput) => ({ value: voiceInput, label: t(voiceInput === "auto" ? "Auto" : voiceInput === "on" ? "On" : "Off") }))} />
       </SettingsRow>
     </SettingsGroup>
@@ -990,7 +990,7 @@ function VoiceMore() {
         </SettingsGroup>
         {settings.voiceEngine !== "browser" && (
           <SettingsGroup section="tidy-dictation">
-            <SettingsRow icon={WandSparkles} label={t("Tidy dictated text")} description={t("Drops filler words and fixes spacing in what you dictated; code and paths stay as spoken. Choose where it applies: the chat, the terminal's input line, or both. Where it is off, the text stays exactly as transcribed.")} wide>
+            <SettingsRow icon={WandSparkles} label={t("Tidy dictated text")} description={t("Drops filler words and fixes spacing in what you dictated, in the chat, the terminal's input line or both; code and paths stay as spoken. Where it is off, the text stays exactly as transcribed.")} wide>
               <Segmented label={t("Tidy dictated text")} value={settings.voicePolishChat ? (settings.voicePolishTerminal ? "both" : "chat") : settings.voicePolishTerminal ? "terminal" : "off"} onChange={(where) => update({ voicePolishChat: where === "chat" || where === "both", voicePolishTerminal: where === "terminal" || where === "both" })} options={[{ value: "off", label: t("Off") }, { value: "chat", label: t("Chat") }, { value: "terminal", label: t("Terminal") }, { value: "both", label: t("Both") }] as const} />
             </SettingsRow>
           </SettingsGroup>
@@ -1211,7 +1211,7 @@ function HerdrPrefixKeys() {
     : null;
   return (
     <SettingsGroup title={t("herdr prefix keys")} section="herdr-keys">
-      <SettingsRow label={t("Use herdr's prefix keys")} icon={Command} description={t("herdr's prefix, then a key herdr's config.toml on this PC binds, runs that action here: the ones listed below. The prefix no longer reaches the pane: press it twice to send it. Fields, dialogs and IME input keep their keys.")}>
+      <SettingsRow label={t("Use herdr's prefix keys")} icon={Command} description={t("herdr's prefix, then a key that herdr's config.toml on this PC binds, runs that action here; the actions are listed below. The prefix then no longer reaches the pane (press it twice to send it), while fields, dialogs and IME input keep their keys.")}>
         <Toggle label={t("Use herdr's prefix keys")} checked={on} onChange={(herdrPrefixKeys) => update({ herdrPrefixKeys })} />
       </SettingsRow>
       {status !== null && <p className="settings-item settings-description" role="status">{status}</p>}
@@ -1506,7 +1506,7 @@ function RelayControls({ relay, closesGate, onReset }: { relay: RelayState; clos
       {error !== null && <p className="settings-item settings-hint relay-error" role="alert">{error}</p>}
       {/* a serve-only install refuses the reset too; an unreadable identity is what the reset mends */}
       {status.blocked !== "serve_only" && (
-        <SettingsRow label={t("Reset relay identity")}>
+        <SettingsRow label={t("Reset relay identity")} description={t("Gives this PC a new identity on the relay. Phones paired through the relay will then need to scan a new code.")}>
           <button ref={resetButton} type="button" className="btn" title={t("Reset relay identity")} disabled={pending} onClick={() => setConfirmingReset(true)}>{t("Reset")}</button>
         </SettingsRow>
       )}
@@ -1755,7 +1755,7 @@ function RuntimeFacts({ version, runtime, core, facts: healthFacts, bootId, onSe
   const others = (["herdr", "herdr-core"] as const).filter((runtime) => runtime !== served && runtime !== target && (runtime === "herdr-core" ? coreInstalled : tuiInstalled));
   return (
     <SettingsGroup title={t("Terminals")} section="runtime">
-      <SettingsRow label={t("In use")} description={t("Where this PC's terminals come from: herdr TUI or the Herdr app. Where both are installed, switching restarts Ovis and shows the other's terminals; the panes keep running.")} icon={SquareTerminal} wide={target !== null}
+      <SettingsRow label={t("In use")} description={t("Where this PC's terminals come from: herdr's TUI, or herdr-core, the Herdr app's core. With both installed, choosing the other restarts Ovis and shows its terminals; the panes of both keep running.")} icon={SquareTerminal} wide={target !== null}
         condition={!onCore && facts?.tui.running === false ? <span className="settings-hint">{t("herdr's TUI server is not running.")}</span> : undefined}>
         {target !== null
           ? <Segmented label={t("In use")} value={served} onChange={(runtime) => { if (runtime === target) setConfirming(true); }}
