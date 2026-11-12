@@ -4,13 +4,15 @@
  * then the drawer; the New workspace dialog opened from the drawer, the agent list and the folder
  * browser inside it, then the dialog; the header's More sheet; the terminal's find bar, which goes
  * and leaves the terminal shown; the drawer with another pane opened before it, which stays the
- * pane shown. On its side (844x390) a menu is a popover, and Back closes
- * it the same. Back on the first screen, with nothing open, leaves the app.
+ * pane shown; Add PC opened from Settings' Add a connection, which stays up as Settings closes
+ * under it, then closes by Back with nothing of Settings left. On its side (844x390) a menu is a
+ * popover, and Back closes it the same. Back on the first screen, with nothing open, leaves the app.
  *
- * Chromium's own Back skips every entry of a page that added one with no tap since its last Back or
- * Forward, which leaves the app with the surface still up, and a script cannot press that button.
- * So each entry the app adds is counted with the taps since the page last moved in its history:
- * none may be added with no tap behind it.
+ * Chromium's own Back skips every entry of a page that added one with no tap since the user's last
+ * Back or Forward, which leaves the app with the surface still up, and a script cannot press that
+ * button. So each entry the app adds is counted with the taps since the user last moved in the
+ * history (a step the page takes by itself ends nothing: Chromium counts a tap through it): none
+ * may be added with no tap behind it.
  * On demo fixtures; UI_EVIDENCE_DIR=<dir> keeps the screenshots.
  */
 import assert from "node:assert/strict";
@@ -21,6 +23,7 @@ import { chromium, type Browser, type Page } from "playwright-core";
 import panes from "../site/demo/fixtures/panes.json";
 import { buildDemoApp } from "./demo-build.ts";
 import { chromePath } from "./chrome-path.ts";
+import { openSettingsPage } from "./settings-page.ts";
 
 type Screen = { label: string; width: number; height: number };
 type Entry = { taps: number; keys: string };
@@ -48,7 +51,18 @@ async function open(browser: Browser, origin: string, screen: Screen, run: (page
         if (location.protocol !== "about:") void (window as unknown as { entryAdded: (entry: Entry) => Promise<void> }).entryAdded({ taps, keys: state !== null && typeof state === "object" ? Object.keys(state).join(",") : String(state) });
         return push(...args);
       };
-      addEventListener("popstate", () => { taps = 0; }, true);
+      // a step the page takes by itself lands as a popstate too, and is none of the user's
+      let own = false;
+      for (const name of ["back", "forward", "go"] as const) {
+        const step = (history[name] as (by?: number) => void).bind(history);
+        (history as unknown as Record<string, (by?: number) => void>)[name] = (by) => { own = true; step(by); };
+      }
+      const navigation = (window as unknown as { navigation?: { traverseTo: (key: string) => unknown } }).navigation;
+      if (navigation) {
+        const traverse = navigation.traverseTo.bind(navigation);
+        navigation.traverseTo = (key) => { own = true; return traverse(key); };
+      }
+      addEventListener("popstate", () => { if (own) own = false; else taps = 0; }, true);
       for (const type of ["pointerup", "touchend", "keydown"]) addEventListener(type, (event) => { if (event.isTrusted) taps += 1; }, true);
     });
     const page = await context.newPage();
@@ -208,6 +222,35 @@ try {
       await stillHere(page, origin, moved, "the drawer over a pane opened after another");
     });
 
+    // Add PC opens as Settings closes (Add, in Add a connection's SSH tab): Settings steps back by
+    // itself, which is no Back for Add PC, and Add PC's entry lies over the one Settings opened over
+    await open(browser, origin, UPRIGHT, async (page) => {
+      const shown = await paneShown(page);
+      await page.locator(".drawer-toggle").tap();
+      await drawerOpen(page);
+      await page.locator(".sidebar-footer-settings").tap();
+      const settings = page.locator(".settings-dialog");
+      await openSettingsPage(page, "Devices and PCs");
+      await settings.getByRole("button", { name: "Add a connection", exact: true }).tap();
+      const connect = page.getByRole("dialog", { name: "Add a connection", exact: true });
+      await connect.locator('.connect-tabs [data-tab="ssh"]').tap();
+      await connect.getByLabel("Or type an SSH address", { exact: true }).fill("qa@pc.invalid");
+      await connect.locator(".connect-ssh-form").getByRole("button", { name: "Add", exact: true }).tap();
+      const addPc = page.locator("dialog.machine-dialog");
+      await addPc.waitFor();
+      await settings.waitFor({ state: "detached" });
+      await entryHeld(page);
+      assert.equal(new URL(page.url()).searchParams.has("settings"), false, "Add PC opened from Settings: the address is the pane's, not a Settings page's");
+      await keep(page, "add-pc-from-settings");
+      await back(page);
+      await addPc.waitFor({ state: "detached" });
+      await stillHere(page, origin, shown, "Add PC opened from Settings");
+      assert.equal(await settings.count(), 0, "Add PC opened from Settings: Back closes Add PC and does not bring Settings back");
+      // nothing of Settings is left under it: from here Back leaves the app
+      await back(page);
+      await page.waitForURL("about:blank");
+    });
+
     await open(browser, origin, ON_ITS_SIDE, async (page) => {
       const shown = await paneShown(page);
       await page.locator(".header-more-button").tap();
@@ -223,7 +266,7 @@ try {
     await browser.close();
     await server.stop(true);
   }
-  console.log("PASS a phone's Back closes the drawer, a menu over it, New workspace and its lists one at a time, upright and on its side, and adds no entry with no tap behind it");
+  console.log("PASS a phone's Back closes the drawer, a menu over it, New workspace and its lists one at a time, and Add PC opened as Settings closed, upright and on its side, and adds no entry with no tap behind it");
 } finally {
   rmSync(app, { recursive: true, force: true });
 }

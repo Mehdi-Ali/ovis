@@ -416,6 +416,65 @@ describe("a phone's sheet in the history", () => {
     stopListening();
   });
 
+  it("keeps a sheet that opens as Settings closes, over the sheet that closed inside it: its entry is made where Settings lands", async () => {
+    const settingsPath = "./settingsHistory.ts?with-sheets";
+    const settings: typeof import("./settingsHistory.ts") = await import(settingsPath);
+    settings.recordSettings(settings.settingsLevels(true, "devices", false));
+    await settled();
+    const base = fake.at() - 2;
+    const leaveConnect = hooks.enter(() => {});
+    const reopened: boolean[] = [];
+    const stopListening = settings.onSettingsHistory((entry, own) => { if (entry !== null && !own) reopened.push(true); });
+    // Add in Add a connection's SSH tab: the sheet closes, Add PC opens (a child's effect runs before
+    // the app's, so it takes the closed sheet's entry first), and Settings closes by itself
+    let closed = 0;
+    leaveConnect();
+    const leaveAddPc = hooks.enter(() => { closed += 1; });
+    settings.recordSettings([]);
+    await settled();
+    await settled();
+    expect(closed).toBe(0);
+    expect(reopened).toEqual([]);
+    expect(settings.settingsEntry(h.state)).toBeNull();
+    // Add PC's entry lies over the one Settings opened over, and nothing of Settings is left under it
+    expect(fake.at()).toBe(base + 1); expect(fake.marks()[base + 1]).toBe(true);
+    expect(fake.entries.length).toBe(base + 2);
+    h.back(); await settled();
+    expect(closed).toBe(1); expect(fake.at()).toBe(base);
+    expect(reopened).toEqual([]);
+    leaveAddPc(); await settled();
+    stopListening();
+  });
+
+  it("keeps a sheet that opens while Settings' own step back is on its way, and makes no entry before it lands", async () => {
+    const settingsPath = "./settingsHistory.ts?with-sheets";
+    const settings: typeof import("./settingsHistory.ts") = await import(settingsPath);
+    settings.recordSettings(settings.settingsLevels(true, "devices", false));
+    await settled();
+    const base = fake.at() - 2;
+    const reopened: boolean[] = [];
+    const stopListening = settings.onSettingsHistory((entry, own) => { if (entry !== null && !own) reopened.push(true); });
+    fake.defer(true);
+    settings.recordSettings([]);
+    expect(fake.pending()).toBe(true);
+    let closed = 0;
+    const leaveSheet = hooks.enter(() => { closed += 1; });
+    // an entry made now would lie over Settings' own, which the step is leaving
+    expect(fake.entries.length).toBe(base + 3);
+    await settled();
+    fake.defer(false);
+    expect(fake.pending()).toBe(false);
+    expect(closed).toBe(0);
+    expect(reopened).toEqual([]);
+    expect(settings.settingsEntry(h.state)).toBeNull();
+    expect(fake.at()).toBe(base + 1); expect(fake.marks()[base + 1]).toBe(true);
+    expect(fake.entries.length).toBe(base + 2);
+    h.back(); await settled();
+    expect(closed).toBe(1); expect(fake.at()).toBe(base);
+    leaveSheet(); await settled();
+    stopListening();
+  });
+
   it("closes Settings too when the closed sheet's entry had its address changed before its step back", async () => {
     const settingsPath = "./settingsHistory.ts?with-sheets";
     const settings: typeof import("./settingsHistory.ts") = await import(settingsPath);

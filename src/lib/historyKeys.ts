@@ -65,8 +65,12 @@ export function withoutWebPanel(state: Record<string, unknown>): Record<string, 
 export const sheetStep: {
   lands: (event: Event) => boolean;
   /**
-   * Takes over the step back of a closed sheet whose entry `state` is, when that step has not run
-   * yet: whoever goes back from there steps over the sheet's entry too. sheetHistory answers it.
+   * Tells the sheets that the caller is about to go back by itself from the entry `state` is
+   * (Settings closing by its own controls): no Back of the user's, so it closes no sheet. True
+   * when that entry is a sheet's own, made over the caller's, and the caller steps over it too: a
+   * closed sheet's, whose own step back has not run yet and is dropped, or the entry of a sheet
+   * that is up (Add PC, opened as Settings closed, over the sheet that closed with it), made again
+   * where the caller lands. sheetHistory answers it.
    */
-  takeLeaving: (state: unknown) => boolean;
-} = { lands: () => false, takeLeaving: () => false };
+  goingBack: (state: unknown) => boolean;
+} = { lands: () => false, goingBack: () => false };

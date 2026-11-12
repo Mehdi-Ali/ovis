@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, jest } from "bun:test";
+import { sheetStep } from "./historyKeys.ts";
 
 /**
  * The module on a browser whose Back skips the entries of a page that added one with no tap since
@@ -167,5 +168,40 @@ describe("a phone's sheet where Back skips an entry made with no tap", () => {
     expect(drawerClosed).toBe(1); expect(fake.at()).toBe(start);
     leaveDrawer(); await settled();
     expect(fake.at()).toBe(start);
+  });
+
+  it("makes the entry of a sheet that opens with no new tap after a closed sheet's own step: the tap before it still counts", async () => {
+    const start = fake.at();
+    fake.tap();
+    const leaveFirst = enter(() => {});
+    expect(fake.at()).toBe(start + 1);
+    // closed by its own control: the page steps back by itself, no Back of the user's
+    leaveFirst(); await settled();
+    expect(fake.at()).toBe(start);
+    let closed = 0;
+    const leaveSecond = enter(() => { closed += 1; });
+    expect(fake.at()).toBe(start + 1);
+    h.back(); await settled();
+    expect(closed).toBe(1); expect(fake.at()).toBe(start);
+    leaveSecond(); await settled();
+  });
+
+  it("makes the entry of a sheet left up by a step the app took by itself at once, where the step landed", async () => {
+    const start = fake.at();
+    fake.tap();
+    // a dialog with an entry of its own (Settings), and a sheet that opens as the dialog closes by itself
+    h.pushState({ dialog: true }, "");
+    let closed = 0;
+    const leave = enter(() => { closed += 1; });
+    expect(fake.at()).toBe(start + 2);
+    // the dialog steps back past its own entry and the sheet's over it
+    expect(sheetStep.goingBack(h.state)).toBe(true);
+    h.go(-2); await settled();
+    expect(closed).toBe(0);
+    expect(fake.at()).toBe(start + 1); expect(fake.entries.length).toBe(start + 2);
+    expect((h.state as Record<string, unknown>)["dialog"]).toBeUndefined();
+    h.back(); await settled();
+    expect(closed).toBe(1); expect(fake.at()).toBe(start);
+    leave(); await settled();
   });
 });

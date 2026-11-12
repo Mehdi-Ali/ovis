@@ -12,14 +12,16 @@
  * are a stack, Back closes the one on top, and that one's own close comes back to the one under
  * it. So does a sheet made to stay up under a navigation opened over it (a terminal peek under
  * Settings), whose entry the navigation took: the Back that leaves it does not close the sheet.
+ * Nor does a step back that another part of the app takes by itself (Settings closing by its own
+ * controls) close a sheet: one that opened as it closed (Add PC) gets its entry where the step lands.
  *
  * No entry is made where Back would not keep it. Chromium's Back skips every entry of a page that
- * added one with no tap since it loaded or since the last Back or Forward (its history
- * manipulation intervention), and on a phone that leaves the app with the sheet still up. So a
- * sheet that closes itself over one that stays hands its entry back to it with no step; there, a
- * Back that leaves a sheet up (it refused, or what covered it went) goes again onto the entry it
- * left, which is still in the history, instead of making one; and a sheet that opens with no tap
- * behind it waits for the next one to make its entry.
+ * added one with no tap since it loaded or since the user's last Back or Forward (its history
+ * manipulation intervention; a step the page takes by itself ends nothing), and on a phone that
+ * leaves the app with the sheet still up. So a sheet that closes itself over one that stays hands
+ * its entry back to it with no step; there, a Back that leaves a sheet up (it refused, or what
+ * covered it went) goes again onto the entry it left, which is still in the history, instead of
+ * making one; and a sheet that opens with no tap behind it waits for the next one to make its entry.
  */
 import { useEffect, useRef } from "react";
 import { SHEET_HISTORY_KEY, SHEET_UNDER_KEY, overCopiedEntry, sheetStep } from "./historyKeys.ts";
@@ -55,7 +57,7 @@ const heirs = new Map<string, string>();
  * tells of activations. Elsewhere every moment counts as a tap, and entries are made as they come.
  */
 const SKIPS = typeof navigator !== "undefined" && "userActivation" in navigator && /Chrome\/|Chromium\//.test(navigator.userAgent);
-/** whether a tap came since the page loaded or last moved in its history: an entry made now is one Back keeps */
+/** whether a tap came since the page loaded or since the user's last Back or Forward: an entry made now is one Back keeps */
 let tapped = !SKIPS;
 /** the sheets that are up with no entry yet: theirs is made at the next tap */
 const waiting = new Set<string>();
@@ -92,6 +94,12 @@ let pushing = false;
 let stepping: Set<string> | null = null;
 /** whether the popstate being dispatched is such a step: this module listens first, so the app's Back reads it for the same event */
 let steppedOff = false;
+/**
+ * while a step back that another part of the app asked for is on its way (sheetStep.goingBack):
+ * no Back of the user's, so its popstate closes no sheet. A sheet that opens meanwhile makes no
+ * entry yet (it would lie over the entries that step is leaving): its entry is made where it lands.
+ */
+let asked = false;
 
 /**
  * Whether the popstate the app is handling is a closed sheet stepping off its own entry, or a Back
@@ -148,8 +156,9 @@ export function enterSheet(onBack: () => boolean | void, reuse: string | null, s
   open.set(id, onBack);
   if (stays) staying.add(id);
   stepping?.add(id);
-  // an entry taken over from the sheet it opened from is no new one; a new one waits for a tap
-  if (tapped || owned(window.history.state)) write(id);
+  // an entry taken over from the sheet it opened from is no new one; a new one waits for a tap,
+  // and for a step back the app asked for to land
+  if (!asked && (tapped || owned(window.history.state))) write(id);
   else waiting.add(id);
   return id;
 }
@@ -191,6 +200,7 @@ function write(id: string): void {
 function remake(id: string, onBack: () => boolean | void): void {
   open.set(id, onBack);
   if (!tapped) { waiting.add(id); return; }
+  waiting.delete(id);
   const base = window.history.state;
   pushing = true;
   try { window.history.pushState({ ...(base !== null && typeof base === "object" ? base : {}), [KEY]: id }, ""); }
@@ -256,12 +266,16 @@ if (typeof window !== "undefined") {
   /** the popstate this module last handled: one asked about before it is handled is answered by the step on its way */
   let heard: Event | null = null;
   sheetStep.lands = (event) => event === heard ? steppedOff : stepping !== null;
-  sheetStep.takeLeaving = (state) => {
+  sheetStep.goingBack = (state) => {
+    asked = true;
     const id = sheetOf(state);
-    const timer = id === null ? undefined : leaving.get(id);
-    // whoever takes it over goes back past every entry down to where it opened, an address the sheet's
-    // item wrote on its entry included (leaveSheet would keep that entry as the item's own)
-    if (id === null || timer === undefined) return false;
+    if (id === null) return false;
+    const timer = leaving.get(id);
+    // a sheet that is up on that entry took it from the sheet that closed as the caller did: the
+    // caller's step leaves it, and its popstate makes the sheet's entry again
+    if (timer === undefined) return open.has(id);
+    // a closed sheet's own step is the caller's now: it goes back past every entry down to where the sheet
+    // opened, an address the sheet's item wrote on its entry included (leaveSheet would keep that entry as the item's own)
     clearTimeout(timer);
     leaving.delete(id);
     addresses.delete(id);
@@ -269,8 +283,12 @@ if (typeof window !== "undefined") {
   };
   window.addEventListener("popstate", (event) => {
     heard = event;
-    // what the last tap allowed ends with a traversal
-    tapped = !SKIPS;
+    // a step back another part of the app took by itself
+    const own = asked;
+    asked = false;
+    // what the last tap allowed ends with the user's own Back or Forward: Chromium counts a tap until
+    // then, through any step the page takes by itself (that one, or a closed sheet's off its entry)
+    if (!own && stepping === null) tapped = !SKIPS;
     const from = seen;
     seen = sheetOf(event.state);
     if (returning !== null) {
@@ -304,22 +322,24 @@ if (typeof window !== "undefined") {
       if (id === landed) continue;
       open.delete(id);
       if (covered.delete(id)) again.push({ id, onBack, under: true, refused: false });
-      else if (step?.has(id)) again.push({ id, onBack, under: false, refused: false });
+      else if (own || step?.has(id)) again.push({ id, onBack, under: false, refused: false });
       else if (onBack() === false) again.push({ id, onBack, under: false, refused: true });
       else { heirs.delete(id); waiting.delete(id); entryKeys.delete(id); }
     }
     // a Back off a sheet's entry that leaves a sheet up was the sheets' own (one refused it, or the one
     // on top closed over one still up): the app under them stays where it is, as for a step. The entry
     // it landed on is the one they opened over, whose address may say less than is shown (a dialog
-    // the address names, still up under the list that closed)
-    if (from !== null && again.length > 0) steppedOff = true;
+    // the address names, still up under the list that closed). A step the app asked for is answered
+    // for by the one that asked (settingsSteppedOff)
+    if (from !== null && again.length > 0 && !own) steppedOff = true;
     // the entry of a sheet that Back closed lies ahead of the app: Forward lands on it and goes on,
     // and the entry is an ordinary one from here
     const retired = landed !== null && !open.has(landed) && !leaving.has(landed);
     if (retired) { window.history.replaceState(ordinary(event.state, false), ""); seen = null; }
     // the entry just left is still in the history, and is theirs: the entry of the sheet that refused,
     // or of the sheet that closed over one still up under it
-    const owner = left === undefined || from === null ? undefined
+    // (never after a step the app asked for: the entry it left is one of those it meant to leave)
+    const owner = own || left === undefined || from === null ? undefined
       : (again.find((kept) => kept.refused && kept.id === from) ?? again.find((kept) => kept.under && kept.id === heir))?.id;
     if (owner !== undefined && left !== undefined && from !== null) {
       // going onto it again makes no entry
