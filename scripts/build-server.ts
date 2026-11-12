@@ -61,7 +61,7 @@ async function main(args: string[]): Promise<void> {
     console.log(JSON.stringify(writeManifest(out, { version, sources: sources as { server: string; shared: string } }), null, 2));
   } else if (verb === "sign" && rest.length === 0) {
     const key = process.env[SIGNING_KEY_VARIABLE]?.trim();
-    if (!key) fail(`${SIGNING_KEY_VARIABLE} is not set, so ovis-server.json cannot be signed and the release must not be published. The owner adds the repository secret ${SIGNING_KEY_VARIABLE} (docs/development.md, "The server binary's signing key").`);
+    if (!key) fail(`${SIGNING_KEY_VARIABLE} is not set, so ovis-server.json cannot be signed and the release must not be published. The owner adds the secret ${SIGNING_KEY_VARIABLE} to the environment release-signing (docs/development.md, "The server binary's signing key").`);
     let publicKey = "";
     try {
       publicKey = signManifest(out, `${key}\n`);
@@ -86,6 +86,9 @@ async function main(args: string[]): Promise<void> {
     if (!result.ok) fail(result.problems.join("\n"));
     console.log(`ovis-server.json${version === undefined ? "" : ` for ${version}`} is signed by ${publicKey}, and every binary matches it`);
   } else if (verb === "keygen" && rest.length === 0) {
+    // the file's mode keeps the key to its owner on Linux and macOS; on Windows a mode sets no access rule, and the key
+    // would be as readable as the folder it lands in
+    if (process.platform === "win32") fail("keygen does not run on Windows, where it cannot make the key file readable by you alone: run it on Linux or macOS");
     const { privateKeyPem, publicKey } = generateKeyPair();
     mkdirSync(out, { recursive: true });
     try {
@@ -94,7 +97,7 @@ async function main(args: string[]): Promise<void> {
       fail(`${join(out, KEY_FILE)} was not written (${error instanceof Error ? error.message : String(error)}); an existing key is never replaced`);
     }
     console.log(publicKey);
-    console.error(`private key: ${join(out, KEY_FILE)} (readable by you alone). Put its contents in the repository secret ${SIGNING_KEY_VARIABLE}, keep a copy offline, then delete this file.`);
+    console.error(`private key: ${join(out, KEY_FILE)} (readable by you alone). Put it in the secret ${SIGNING_KEY_VARIABLE} of the environment release-signing, never a repository secret: gh secret set ${SIGNING_KEY_VARIABLE} --env release-signing --repo devswha/ovis < <that file>. Keep a copy offline, then delete this file.`);
   } else {
     fail(USAGE, 2);
   }

@@ -61,25 +61,25 @@ test("the signing key reaches one step, on GitHub's runner, with no package inst
 const SERVER_FILES = [...SERVER_PLATFORMS.map(releaseFile), "ovis-server.json", "ovis-server.json.sig", "ovis-server.SHA256SUMS"];
 
 /** a signed release folder for version 1.2.3 under `temp`/server-binary, and its public key */
-function signedFolder(temp: string): string {
+function signedFolder(temp: string): { publicKey: string; privateKeyPem: string } {
   const dir = join(temp, "server-binary");
   mkdirSync(dir, { recursive: true });
   for (const platform of SERVER_PLATFORMS) writeFileSync(join(dir, releaseFile(platform)), `binary for ${platform}\n`);
   writeManifest(dir, { version: "1.2.3", sources: { server: "a".repeat(40), shared: "b".repeat(40) } });
   const { privateKeyPem, publicKey } = generateKeyPair();
   signManifest(dir, privateKeyPem);
-  return publicKey;
+  return { publicKey, privateKeyPem };
 }
 
 /**
  * publish's own lines from the server files to `gh release create`, run with a `gh` that records its arguments: what
  * the release would get, or the refusal.
  */
-function runAttach(prepare: (dir: string) => void): { code: number; attached: string[] } {
+function runAttach(prepare: (dir: string, privateKeyPem: string) => void): { code: number; attached: string[]; err: string } {
   const temp = mkdtempSync(join(tmpdir(), "ovis-attach-step-"));
   try {
-    const publicKey = signedFolder(temp);
-    prepare(join(temp, "server-binary"));
+    const { publicKey, privateKeyPem } = signedFolder(temp);
+    prepare(join(temp, "server-binary"), privateKeyPem);
     mkdirSync(join(temp, "pty-sidecar"));
     writeFileSync(join(temp, "pty-sidecar", "ovis-pty-sidecar.json"), "{}");
     mkdirSync(join(temp, "stub"));
@@ -93,7 +93,7 @@ function runAttach(prepare: (dir: string) => void): { code: number; attached: st
       cwd: root, env: { ...process.env, PATH: `${join(temp, "stub")}:${process.env["PATH"]}`, RUNNER_TEMP: temp, RELEASE_VERSION: "1.2.3", GITHUB_SHA: "c".repeat(40), SERVER_PUBLIC_KEY: publicKey }, stdout: "pipe", stderr: "pipe",
     });
     const args = existsSync(join(temp, "gh-args")) ? readFileSync(join(temp, "gh-args"), "utf8").trim().split("\n") : [];
-    return { code: result.exitCode, attached: args.filter((arg) => arg.includes("/server-binary/")).map((arg) => arg.split("/server-binary/")[1]!) };
+    return { code: result.exitCode, err: result.stderr.toString(), attached: args.filter((arg) => arg.includes("/server-binary/")).map((arg) => arg.split("/server-binary/")[1]!) };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -122,10 +122,14 @@ test("publish attaches nothing else that lands in the server folder, such as a k
 });
 
 test("publish refuses server files signed for another version than the one it releases", () => {
-  expect(runAttach((dir) => {
-    const text = readFileSync(join(dir, "ovis-server.json"), "utf8");
-    writeFileSync(join(dir, "ovis-server.json"), text.replace('"1.2.3"', '"1.2.2"'));
-  }).code).not.toBe(0);
+  // signed again by the same key: the signature holds, only the version check can refuse it
+  const { code, err, attached } = runAttach((dir, privateKeyPem) => {
+    writeManifest(dir, { version: "1.2.2", sources: { server: "a".repeat(40), shared: "b".repeat(40) } });
+    signManifest(dir, privateKeyPem);
+  });
+  expect(code).not.toBe(0);
+  expect(err).toContain("is for version 1.2.2, not the expected 1.2.3");
+  expect(attached).toEqual([]);
 });
 
 /** the sign step's own script, run as the job runs it, in a folder of stand-in binaries */

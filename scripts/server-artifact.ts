@@ -33,11 +33,13 @@ const PTY_PACKAGE: Record<ServerPlatform, string> = {
   "windows-x64": "node-pty-win32-x64",
 };
 // sha256 of the registry tarballs for the @lydell/node-pty version package.json pins; a bump must update these
-const PTY_PINS: Partial<Record<ServerPlatform, string>> = {
+// (windows-x64: the tarball whose sha512 bun.lock records)
+export const PTY_PINS: Record<ServerPlatform, string> = {
   "linux-x64": "8d2e043026672f11aafd5f1a831f794a90d8fdd9d5e3255e8bc121df64b9d8e4",
   "linux-arm64": "c4ace306e4099a7919c7852fe29a6a9052f9d9b9eaf36617bf7c6cb72cd16118",
   "darwin-x64": "2a45297cec01dffa282f39cc1f87d1f2fa42e5c186e261ff88bfcfbce0186c00",
   "darwin-arm64": "937a533814ddeb3eb1d6d7a84f5aa2302d73ffe69332a34a94ae05e9e203eab3",
+  "windows-x64": "f418f20ec3141320b78548330bd177ebfbe0c0ee7830309a5ba5392a205cea5f",
 };
 
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
@@ -61,22 +63,30 @@ export async function buildBinary(platform: ServerPlatform, outfile: string, ent
   if (code !== 0) throw new Error(`bun build --compile for ${platform} exited with ${code}`);
 }
 
-/** node-pty's prebuilt package for `platform`: this checkout's when it is the one installed, else the pinned tarball. */
-async function ptyPackage(platform: ServerPlatform, into: string, downloads: string): Promise<void> {
-  const name = PTY_PACKAGE[platform];
-  const installed = join(root, "node_modules", "@lydell", name);
-  if (existsSync(join(installed, "pty.node"))) {
-    cpSync(installed, into, { recursive: true });
-    return;
-  }
-  const pin = PTY_PINS[platform];
-  if (!pin) throw new Error(`${name} is not installed here, and no pinned tarball is known for it`);
-  const version = packageJson().dependencies["@lydell/node-pty"]!;
-  const url = `https://registry.npmjs.org/@lydell/${name}/-/${name}-${version}.tgz`;
+/** The registry tarball at `url`, as bytes. */
+async function download(url: string): Promise<Uint8Array> {
   const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
   if (!response.ok) throw new Error(`Download failed (${response.status}): ${url}`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (sha256(bytes) !== pin) throw new Error(`Checksum mismatch: ${url}`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/**
+ * node-pty's prebuilt package for `platform`: the one installed in `modules` when it is the version package.json pins
+ * (whatever native files it holds: pty.node on Linux and macOS, conpty.node on Windows), else the pinned tarball.
+ */
+async function ptyPackage(platform: ServerPlatform, into: string, downloads: string, modules: string, fetchTarball: (url: string) => Promise<Uint8Array>, pins: Record<ServerPlatform, string>): Promise<void> {
+  const name = PTY_PACKAGE[platform];
+  const version = packageJson().dependencies["@lydell/node-pty"]!;
+  const installed = join(modules, "@lydell", name);
+  try {
+    if ((JSON.parse(readFileSync(join(installed, "package.json"), "utf8")) as { version?: unknown }).version === version) {
+      cpSync(installed, into, { recursive: true });
+      return;
+    }
+  } catch { /* not installed here: the pinned tarball */ }
+  const url = `https://registry.npmjs.org/@lydell/${name}/-/${name}-${version}.tgz`;
+  const bytes = await fetchTarball(url);
+  if (sha256(bytes) !== pins[platform]) throw new Error(`Checksum mismatch: ${url}`);
   mkdirSync(downloads, { recursive: true });
   const archive = join(downloads, `${name}.tgz`);
   writeFileSync(archive, bytes);
@@ -99,7 +109,11 @@ async function integrations(dir: string): Promise<void> {
 export interface ArtifactOptions {
   platform: ServerPlatform;
   dir: string;
-  /** node-pty and the Node sidecar beside the binary; a Windows remote bundle has no Node to run them */
+  /**
+   * node-pty and the Node sidecar beside the binary, as main shipped them: in every desktop app (the build host's own
+   * package; on Windows the server's sign-in terminals run on it where the PC has Node) and in every remote bundle but
+   * Windows', which carries no Node to run them
+   */
   nodePty: boolean;
   /** the Rust PTY host for `platform`, and the record it came with (scripts/pty-sidecar.ts install) when there is one */
   ptySidecar?: { binary: string; record?: string };
@@ -107,6 +121,10 @@ export interface ArtifactOptions {
   downloads?: string;
   /** builds the binary; tests stand in for the compile */
   build?: (platform: ServerPlatform, outfile: string) => Promise<void>;
+  /** where installed packages are looked for (this checkout's node_modules), how a tarball is fetched and checked: tests */
+  nodeModules?: string;
+  fetchTarball?: (url: string) => Promise<Uint8Array>;
+  pins?: Record<ServerPlatform, string>;
   /** the built client; this checkout's dist/ unless a test gives another */
   dist?: string;
 }
@@ -126,8 +144,9 @@ export async function stageServerArtifact(options: ArtifactOptions): Promise<voi
     copyFileSync(join(root, "server", "pty", "smoke.mjs"), join(dir, "pty-smoke.mjs"));
     const modules = join(dir, "node_modules", "@lydell");
     // its type declarations are for a compiler, and nothing beside the binary compiles
-    cpSync(join(root, "node_modules", "@lydell", "node-pty"), join(modules, "node-pty"), { recursive: true, filter: (path) => !path.endsWith(".d.ts") });
-    await ptyPackage(platform, join(modules, PTY_PACKAGE[platform]), options.downloads ?? join(dir, "..", `downloads-${platform}`));
+    const installed = options.nodeModules ?? join(root, "node_modules");
+    cpSync(join(installed, "@lydell", "node-pty"), join(modules, "node-pty"), { recursive: true, filter: (path) => !path.endsWith(".d.ts") });
+    await ptyPackage(platform, join(modules, PTY_PACKAGE[platform]), options.downloads ?? join(dir, "..", `downloads-${platform}`), installed, options.fetchTarball ?? download, options.pins ?? PTY_PINS);
     if (platform.startsWith("darwin-")) chmodSync(join(modules, PTY_PACKAGE[platform], "spawn-helper"), 0o755);
   }
   await integrations(dir);

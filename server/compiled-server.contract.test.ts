@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { version } from "../package.json";
@@ -16,7 +16,9 @@ import { REMOTE_BUNDLE_VERSION } from "../shared/machines.ts";
 const platform = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}` as ServerPlatform;
 const posix = process.platform !== "win32";
 // the suite's temp root; short names, so the herdr socket under it stays within the 108-byte limit of a socket path
-const root = mkdtempSync(join(tmpdir(), "ovc-"));
+// canonical, as the bridge resolves its socket (server/bridge.ts socketPath): a temp root behind a symlink (macOS) would
+// otherwise name another descriptor than the one the bridge writes
+const root = realpathSync(mkdtempSync(join(tmpdir(), "ovc-")));
 const binary = join(root, "bin", binaryName(platform));
 const probe = join(root, "probe", binaryName(platform));
 const children: ReturnType<typeof Bun.spawn>[] = [];

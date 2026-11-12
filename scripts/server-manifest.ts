@@ -3,7 +3,8 @@
  * and shared/ they were built from, and the SHA-256 of each platform's file), `ovis-server.SHA256SUMS`, and
  * `ovis-server.json.sig`, an Ed25519 signature over the manifest's exact bytes, base64 on one line.
  *
- * The private key lives only in the repository secret OVIS_SERVER_SIGNING_KEY (a PKCS#8 PEM) and with the owner
+ * The private key lives only in the secret OVIS_SERVER_SIGNING_KEY (a PKCS#8 PEM) of the environment release-signing, which
+ * only main may use, never in a repository secret, and with the owner
  * offline; the public key is 32 raw bytes in base64. This file imports Node's built-ins alone, so the release job
  * that signs runs it without installing a single package next to the key.
  */
@@ -17,7 +18,7 @@ export const MANIFEST = "ovis-server.json";
 export const SIGNATURE = `${MANIFEST}.sig`;
 /** not plain SHA256SUMS: the release also carries the Rust PTY host's, under that name */
 export const SUMS = "ovis-server.SHA256SUMS";
-/** the repository secret, and the variable the sign step reads it from */
+/** the environment release-signing's secret, and the variable the sign step reads it from */
 export const SIGNING_KEY_VARIABLE = "OVIS_SERVER_SIGNING_KEY";
 export const PUBLIC_KEY_VARIABLE = "OVIS_SERVER_PUBLIC_KEY";
 export const KEY_FILE = "ovis-server-signing-key.pem";

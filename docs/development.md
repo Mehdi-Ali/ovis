@@ -919,7 +919,8 @@ environment) never holds it. Without the environment or its secret, `server-bina
 the secret, and `publish`, which needs it, does not run: no tag and no release are made, and nothing is published
 unsigned. In a fork the job is skipped, and so is `publish`.
 
-The owner sets it up once, before the first release that signs, on a PC they trust:
+The owner sets it up once, before the first release that signs, on a Linux or macOS PC they trust (`keygen` refuses
+to run on Windows, where a file mode does not keep the key to its owner):
 1. `bun scripts/build-server.ts keygen <folder>` writes `<folder>/ovis-server-signing-key.pem` (readable by them
    alone) and prints only the public key.
 2. Create the environment `release-signing` with deployment branches limited to `main` (Settings → Environments →
