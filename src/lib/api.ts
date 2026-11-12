@@ -1188,6 +1188,14 @@ export async function runAdbBlock(paneId: string, command: string, machineId = "
 export type AdbRunStatus = { state: "running" | "ok" | "failed" | "unknown"; lines: string[] };
 export type AdbRunStatusReader = () => Promise<AdbRunStatus>;
 
+/** POST /api/pane/tts (local patch): one sentence spoken by the server's Kokoro worker, as a WAV. */
+export async function fetchSpeech(text: string, machineId = "local", signal?: AbortSignal): Promise<Blob> {
+  const url = machinePath(machineId, "pane/tts");
+  const response = await apiFetch(url, { method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify({ text }), signal });
+  if (!response.ok) throw await errorFrom(url, response);
+  return response.blob();
+}
+
 /** POST /api/pane/clear: clears the pane's terminal screen in herdr. */
 export async function clearPane(paneId: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/clear"), "POST", { pane_id: paneId });

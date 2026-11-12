@@ -8,6 +8,7 @@ import type { AgentRenameRequest, PaneDirection, PaneMoved, PaneResized, PaneSpl
 import { mergeCatalogSources } from "./catalog-sources.ts";
 import { rememberPaneCommands, scanPaneCommands } from "./commands.ts";
 import { paneDocuments, paneFiles } from "./files.ts";
+import { speak, TTS_MAX_CHARS } from "./tts.ts";
 import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse, readJsonObject, requestIdContext, setRequestRoute } from "./http.ts";
 import { conversationImage, ConversationReadPending, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneProcessRoots, paneTranscript, toolOutput, type ConversationPage } from "./conversation.ts";
 import { copilotRecoverable } from "./conversation-shared.ts";
@@ -458,6 +459,22 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
       try { result = JSON.parse(last) as typeof result; } catch { result = { ok: false, error: (err || out).trim() || "adb-run gave no answer" }; }
       if (result.ok !== true) return badRequest("adb_run_failed", result.error ?? "adb-run failed");
       return jsonResponse({ ok: true, pane_id: result.pane_id ?? null, run_id: result.run_id ?? null });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+
+  // local patch: read-aloud. One sentence of text in, one WAV out, from the persistent Kokoro worker
+  // in server/tts.ts
+  if (pathname === "/api/pane/tts") {
+    setRequestRoute(pathname);
+    if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+    const payload = await readJsonObject<{ text?: unknown }>(request);
+    if (payload instanceof Response) return payload;
+    if (typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > TTS_MAX_CHARS) return badRequest("invalid_text", `text must be a non-empty string under ${TTS_MAX_CHARS} characters`);
+    try {
+      const wav = await speak(payload.text);
+      return new Response(wav, { headers: { "content-type": "audio/wav", "cache-control": "no-store" } });
     } catch (error) {
       return errorResponse(error);
     }
