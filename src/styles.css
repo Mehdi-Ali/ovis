@@ -4154,3 +4154,33 @@ button, a, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [r
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
+
+/* Local: the markdown file preview's structure colours (gruvbox), used by FileViewer.css. Colour
+   literals live here only (the component CSS test). */
+.file-viewer-markdown {
+  --md-h1: #fabd2f;
+  --md-h2: #83a598;
+  --md-h3: #8ec07c;
+  --md-h4: #d3869b;
+  --md-strong: #fe8019;
+  --md-em: #b8bb26;
+  --md-code: #b8bb26;
+  --md-link: #83a598;
+  --md-quote: #a89984;
+  --md-rail: #fabd2f;
+  --md-marker: #fe8019;
+}
+
+[data-theme="light"] .file-viewer-markdown {
+  --md-h1: #b57614;
+  --md-h2: #076678;
+  --md-h3: #427b58;
+  --md-h4: #8f3f71;
+  --md-strong: #af3a03;
+  --md-em: #79740e;
+  --md-code: #79740e;
+  --md-link: #076678;
+  --md-quote: #7c6f64;
+  --md-rail: #b57614;
+  --md-marker: #af3a03;
+}
