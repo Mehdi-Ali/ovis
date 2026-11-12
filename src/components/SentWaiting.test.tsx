@@ -112,17 +112,24 @@ describe("mounted", () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  test("says a send unanswered a minute on while the agent rests, never while it works, and lets it go on Dismiss", () => {
+  test("says a send unanswered a minute on, once read at rest, never while it works, and lets it go on Dismiss", async () => {
     const key = waitingKey("local", "unanswered-mounted");
     function Chat({ resting }: { resting: boolean }) {
       return createElement(SentWaitingList, { sends: useWaitingSends("local", "unanswered-mounted", true), paneKey: key, resting, agent: "letta" });
     }
     try {
+      settleWaitingSends(key, [], at - 1, true);
       rememberWaitingSend(key, "the turn letta failed", at);
       const renderer = mount(createElement(Chat, { resting: false }));
       act(() => { jest.advanceTimersByTime(WAITING_SEND_MS); });
+      settleWaitingSends(key, [], Date.now(), true);
       expect(currentWaitingSends(key).map((item) => item.unanswered)).toEqual([undefined]);
       act(() => { renderer.update(createElement(SettingsProvider, { children: createElement(Chat, { resting: true }) })); });
+      // at rest, but nothing read since: still on its way
+      expect(currentWaitingSends(key).map((item) => item.unanswered)).toEqual([undefined]);
+      // the chat's next read, at rest: the turn never came
+      act(() => { jest.advanceTimersByTime(1); settleWaitingSends(key, [], Date.now(), true); });
+      await act(async () => { await Promise.resolve(); });
       expect(currentWaitingSends(key).map((item) => item.unanswered)).toEqual([true]);
       expect(renderer.root.findAll((node) => node.props.className === "chat-unanswered-note")).toHaveLength(1);
       act(() => { renderer.root.findByProps({ "aria-label": "Dismiss" }).props.onClick(); });

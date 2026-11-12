@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { clearMachineWaitingSends, currentWaitingSends, dismissWaitingSend, forgetMachineWaitingSends, forgetWaitingBaseline, forgetWaitingSends, markUnanswered, observeWaitingClock, pruneWaitingSends, rememberWaitingSend, settleWaitingSends, stampedBaseline, WAITING_SEND_MS, waitingBaseline, waitingKey } from "./sentWaiting.ts";
+import { clearMachineWaitingSends, currentWaitingSends, dismissWaitingSend, forgetMachineWaitingSends, forgetWaitingBaseline, forgetWaitingSends, expireWaitingSends, markUnanswered, observeWaitingClock, pruneWaitingSends, rememberWaitingSend, restingSince, settleWaitingSends, stampedBaseline, WAITING_SEND_MS, WAITING_STUCK_MS, waitingBaseline, waitingKey } from "./sentWaiting.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import type { Machine } from "../../shared/machines.ts";
 import { paneLifetimes } from "./paneLifetime.ts";
@@ -327,31 +327,80 @@ describe("waitingText", () => {
     } finally { forgetWaitingSends(key); }
   });
 
-  it("says a send whose turn has not come for a minute while the agent rests is unanswered, and keeps it", () => {
+  it("says a send unanswered a minute on, the agent at rest and the chat read since, and keeps it", () => {
     const key = waitingKey("local", "unanswered");
+    const earlier = user("earlier", 500);
     try {
+      settleWaitingSends(key, [earlier], 900, true);
       rememberWaitingSend(key, "the turn the agent failed before writing it", 1_000);
-      markUnanswered(key, true, 1_000 + WAITING_SEND_MS - 1);
-      expect(currentWaitingSends(key).map((send) => send.unanswered)).toEqual([undefined]);
       // still working: on its way, however long the turn takes
-      markUnanswered(key, false, 1_000 + WAITING_SEND_MS);
+      markUnanswered(key, 1_000 + WAITING_SEND_MS);
       expect(currentWaitingSends(key).map((send) => send.unanswered)).toEqual([undefined]);
-      markUnanswered(key, true, 1_000 + WAITING_SEND_MS);
+      // at rest, but no read since it came to rest: what the chat holds may be older than the rest
+      restingSince(key, 1_000 + WAITING_SEND_MS);
+      markUnanswered(key, 1_000 + WAITING_SEND_MS + 1);
+      expect(currentWaitingSends(key).map((send) => send.unanswered)).toEqual([undefined]);
+      settleWaitingSends(key, [earlier], 1_000 + WAITING_SEND_MS + 2, true);
+      markUnanswered(key, 1_000 + WAITING_SEND_MS + 3);
       expect(currentWaitingSends(key).map((send) => [send.text, send.unanswered])).toEqual([["the turn the agent failed before writing it", true]]);
       // its turn coming after all settles it, as any send
-      settleWaitingSends(key, [user("the turn the agent failed before writing it", 1_000 + WAITING_SEND_MS + 5)], 1_000 + WAITING_SEND_MS + 10);
+      settleWaitingSends(key, [earlier, user("the turn the agent failed before writing it", 1_000 + WAITING_SEND_MS + 5)], 1_000 + WAITING_SEND_MS + 10, true);
       expect(currentWaitingSends(key)).toEqual([]);
     } finally { forgetWaitingSends(key); }
   });
 
-  it("keeps an unanswered send through a lost connection, and lets it go once the user dismisses it", () => {
+  it("counts an unchanged read (a 304) as a read since the agent came to rest", async () => {
+    const key = waitingKey("local", "unchanged-read");
+    try {
+      settleWaitingSends(key, [user("earlier", 500)], 900, true);
+      rememberWaitingSend(key, "never recorded", 1_000);
+      restingSince(key, 1_000 + WAITING_SEND_MS);
+      observeWaitingClock(key, new Date(1_000 + WAITING_SEND_MS + 5).toISOString(), 0, Date.now());
+      await Promise.resolve();
+      expect(currentWaitingSends(key).map((send) => send.unanswered)).toEqual([true]);
+    } finally { forgetWaitingSends(key); }
+  });
+
+  it("lets a send go, not unanswered, when the agent wrote a turn for it the chat does not match", () => {
+    for (const written of [user("the turn, as the agent rewrote it", 2_000), { ...user("the turn"), ts: null }]) {
+      const key = waitingKey("local", "rewritten");
+      try {
+        settleWaitingSends(key, [user("earlier", 500)], 900, true);
+        rememberWaitingSend(key, "the turn", 1_000);
+        restingSince(key, 1_500);
+        settleWaitingSends(key, [user("earlier", 500), written], 1_000 + WAITING_SEND_MS, true);
+        markUnanswered(key, 1_000 + WAITING_SEND_MS + 1);
+        expect(currentWaitingSends(key)).toEqual([]);
+      } finally { forgetWaitingSends(key); }
+    }
+  });
+
+  it("lets a send still on its way go after a long while, the agent never at rest", () => {
+    const key = waitingKey("local", "stuck");
+    try {
+      rememberWaitingSend(key, "sent while it works", 1_000);
+      expireWaitingSends(key, 1_000 + WAITING_STUCK_MS - 1);
+      expect(currentWaitingSends(key)).toHaveLength(1);
+      expireWaitingSends(key, 1_000 + WAITING_STUCK_MS);
+      expect(currentWaitingSends(key)).toEqual([]);
+    } finally { forgetWaitingSends(key); }
+  });
+
+  /** a send said unanswered under the PC's herdr `lifetime`, its chat read at rest */
+  const unanswered = (api: typeof import("./sentWaiting.ts"), machine: string, key: string, text: string, at: number) => {
+    paneLifetimes.observe([{ id: machine, snapshot: { panes: [], herdr_lifetime: `${machine}-herdr` } } as unknown as Machine], (item) => item.pane_id);
+    api.settleWaitingSends(key, [], at - 1, true);
+    api.rememberWaitingSend(key, text, at);
+    api.restingSince(key, at + 1);
+    api.settleWaitingSends(key, [], at + WAITING_SEND_MS, true);
+    api.markUnanswered(key, at + WAITING_SEND_MS + 1);
+  };
+
+  it("keeps an unanswered send through a lost connection, and lets it go once the user dismisses it", async () => {
     const machine = "unanswered-pc";
     const key = waitingKey(machine, "kept");
     try {
-      // a PC whose snapshots name their herdr keeps its chats' state through a lost connection
-      paneLifetimes.observe([{ id: machine, snapshot: { panes: [], herdr_lifetime: "unanswered-herdr" } } as unknown as Machine], (item) => item.pane_id);
-      rememberWaitingSend(key, "first", 1_000);
-      markUnanswered(key, true, 1_000 + WAITING_SEND_MS);
+      unanswered(await import("./sentWaiting.ts"), machine, key, "first", 1_000);
       rememberWaitingSend(key, "second", 1_000 + WAITING_SEND_MS);
       clearMachineWaitingSends(machine);
       // the one still on its way goes with the connection, as before; the unanswered one stays
@@ -361,7 +410,7 @@ describe("waitingText", () => {
     } finally { forgetWaitingSends(key); }
   });
 
-  it("reads this tab's unanswered sends back after a reload", async () => {
+  it("reads this tab's unanswered sends back after a reload, under the herdr they were kept under only", async () => {
     const items = new Map<string, string>();
     const store = { getItem: (name: string) => items.get(name) ?? null, setItem: (name: string, value: string) => { items.set(name, value); }, removeItem: (name: string) => { items.delete(name); } };
     Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: store });
@@ -369,14 +418,18 @@ describe("waitingText", () => {
     const load = (page: string): Promise<typeof import("./sentWaiting.ts")> => import(`./sentWaiting.ts?${page}`);
     try {
       const before = await load("before-reload");
-      const key = before.waitingKey("local", "reloaded");
       const now = Date.now();
-      before.rememberWaitingSend(key, "lost on reload before", now - WAITING_SEND_MS);
-      before.rememberWaitingSend(key, "still on its way", now);
-      before.markUnanswered(key, true, now);
+      const same = before.waitingKey("reload-same", "w1:p1");
+      const replaced = before.waitingKey("reload-replaced", "w1:p1");
+      unanswered(before, "reload-same", same, "lost on reload before", now - WAITING_SEND_MS);
+      unanswered(before, "reload-replaced", replaced, "said to another herdr's pane", now - WAITING_SEND_MS);
+      before.rememberWaitingSend(same, "still on its way", now);
+      // the page after the reload: one PC's herdr the same, the other's replaced (its pane ids given to other panes)
+      paneLifetimes.observe([{ id: "reload-replaced", snapshot: { panes: [], herdr_lifetime: "a-new-herdr" } } as unknown as Machine], (item) => item.pane_id);
       const after = await load("after-reload");
-      expect(after.currentWaitingSends(key).map((send) => [send.text, send.unanswered])).toEqual([["lost on reload before", true]]);
-      after.dismissWaitingSend(key, after.currentWaitingSends(key)[0]!.id);
+      expect(after.currentWaitingSends(same).map((send) => [send.text, send.unanswered])).toEqual([["lost on reload before", true]]);
+      expect(after.currentWaitingSends(replaced)).toEqual([]);
+      after.dismissWaitingSend(same, after.currentWaitingSends(same)[0]!.id);
       expect(items.size).toBe(0);
     } finally { Reflect.deleteProperty(globalThis, "sessionStorage"); }
   });

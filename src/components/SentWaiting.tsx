@@ -5,7 +5,7 @@ import { agentDisplayLabel } from "../lib/compose.ts";
 import { useT } from "../lib/i18n.ts";
 import { agentName } from "../lib/runtimeMove.ts";
 import { shouldFoldUserMessage } from "../lib/userMessageFold.ts";
-import { clearMachineWaitingSends, currentWaitingSends, dismissWaitingSend, markUnanswered, subscribeWaitingSends, WAITING_HINT_MS, WAITING_SEND_MS, waitingKey, type WaitingSend } from "../lib/sentWaiting.ts";
+import { clearMachineWaitingSends, currentWaitingSends, dismissWaitingSend, markUnanswered, restingSince, subscribeWaitingSends, WAITING_HINT_MS, WAITING_SEND_MS, waitingKey, type WaitingSend } from "../lib/sentWaiting.ts";
 
 /**
  * The sends this browser made to a pane that its transcript does not hold yet. A lost connection
@@ -41,8 +41,12 @@ export function SentWaitingList({ sends, paneKey, resting = false, agent = null,
     return due > now && due < soonest ? due : soonest;
   }, Number.POSITIVE_INFINITY);
   // the clock as it is now: an agent that comes to rest long after the minute makes the send unanswered at once
+  // since when the agent rests, as this chat saw it: a send is said unanswered only after a read that came since then
   useEffect(() => {
-    if (paneKey !== undefined) markUnanswered(paneKey, resting);
+    if (paneKey !== undefined) restingSince(paneKey, resting ? Date.now() : null);
+  }, [paneKey, resting]);
+  useEffect(() => {
+    if (paneKey !== undefined) markUnanswered(paneKey);
   }, [paneKey, resting, now]);
   useEffect(() => {
     if (nextHint === Number.POSITIVE_INFINITY) return;
