@@ -5,6 +5,7 @@ import { quoteFits, quoteIntoComposer } from "../lib/chatQuote.ts";
 import { composerDraftKey, composerDrafts } from "../lib/composerDraft.ts";
 import { chatSelectionClipboardPayload } from "../lib/markdownClipboard.ts";
 import { replyComments, type ReplyComment } from "../lib/replyComments.ts";
+import { usePhoneSheetBack } from "../lib/sheetHistory.ts";
 import "./ReplyComments.css";
 
 /**
@@ -306,6 +307,8 @@ export function ReplyCommentsChip({ comments, storageKey, waiting }: { comments:
   const t = useT();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  // Back closes the list, as Escape does; the comments wait as they were
+  usePhoneSheetBack(() => setOpen(false), open);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => { if (!(event.target instanceof Node && root.current?.contains(event.target))) setOpen(false); };

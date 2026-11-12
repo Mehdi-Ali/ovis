@@ -6,6 +6,7 @@ import "./UsageMeters.css";
 import type { ProviderUsage, UsageCredits, UsageWindow } from "../../shared/protocol.ts";
 import { useT, type Translate } from "../lib/i18n.ts";
 import { useSettings, type UsageCount, type UsageGlance } from "../lib/settings.ts";
+import { usePhoneSheetBack } from "../lib/sheetHistory.ts";
 import { canSignInAgain, creditsText, formatPercent, formatResetIn, glanceWindow, HIGH_PERCENT, meterPercent, meterText, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useStatuslineSwitch, useUsage, windowLabel } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { UsageSignInAgain } from "./UsageLocalLogin.tsx";
@@ -134,6 +135,8 @@ export function UsageMeters({ onLocalLogin, watching = false }: { /** opens a si
   const { settings } = useSettings();
   const { report, loading, refresh } = useUsage(settings.showUsage);
   const [open, setOpen] = useState(false);
+  // Back closes the popover, as Escape does, and leaves the drawer it is in
+  usePhoneSheetBack(() => setOpen(false), open);
   // Sign in again from the popover, followed in a dialog of its own: the popover closes as it opens
   const [following, setFollowing] = useState<Extract<UsageLoginRequest, { provider: "claude" | "codex" }> | null>(null);
   const [now, setNow] = useState(() => Date.now());
