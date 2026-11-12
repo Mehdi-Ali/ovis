@@ -43,7 +43,7 @@ export { removedInvisible } from "./dialogs/claude.ts";
 export { INVISIBLE_CHAR_RE } from "./dialogs/claude.ts";
 export type { OmoAsk } from "./dialogs/shared.ts";
 export { parseFallbackPrompt } from "./dialogs/fallback.ts";
-export { CLAUDE_CLEAR_INPUT_KEYS, INPUT_BOX_SHOWN_CHARS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxContent, claudeInputBoxText, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, historyEndShowsLive, isClaudeHeld, parseClaudeSuggestion, shownInputBox, viewportShowsLive } from "./claude-input.ts";
+export { CLAUDE_CLEAR_INPUT_KEYS, INPUT_BOX_SHOWN_CHARS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxContent, claudeSendAnywayBox, claudeInputBoxText, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, historyEndShowsLive, isClaudeHeld, parseClaudeSuggestion, shownInputBox, viewportShowsLive } from "./claude-input.ts";
 export { hermesInputDraft } from "./hermes-input.ts";
 export { OpenCodePromptState } from "./opencode-prompt.ts";
 export { openOmoAsks, pendingOmoAsk } from "./omo-questions.ts";
@@ -1564,7 +1564,16 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         const read = await Promise.race([reading, Bun.sleep(Math.max(0, readUntil - Date.now())).then(() => null)]);
         const shown = read?.prompt ? parsedByPublicPrompt.get(read.prompt) ?? null : null;
         const settled = read?.settled ? parsedByPublicPrompt.get(read.settled) ?? null : null;
-        if (!read || read.inputUnverified || Date.now() > readUntil || !same(shown, read.screen ?? "", settled)) throw new KeyRefused();
+        // an agent no reader knows (Grok, Copilot, Antigravity, Devin...) gets no screen from readKnownPrompt: a card
+        // checked on the screen alone reads it here, as fallbackCard drew it, or it would be compared with nothing
+        // a stale read (an OpenCode lookup overtaken) has no screen either, and authorizes nothing
+        const readsLive = read?.screen === undefined && read?.stale !== true && screenOnly && parsedPrompt?.responder.startsWith("fallback") === true;
+        const screen = read?.screen ?? (read && readsLive
+          ? await Promise.race([liveScreen(body.pane_id).catch(() => null), Bun.sleep(Math.max(0, readUntil - Date.now())).then(() => null)])
+          : null);
+        // that read awaited too: a request given up meanwhile sends nothing (the asking itself is checked by `same`)
+        if (readsLive && request.signal.aborted) throw new KeyRefused();
+        if (!read || read.inputUnverified || Date.now() > readUntil || !same(shown, screen ?? "", settled)) throw new KeyRefused();
         // pi's select and confirm compare by the dialog drawn, which pi leaves on the screen when it ends, and a
         // dialog moved off its first row has no card to compare: pi must still hold the pane after this read too
         if ((parsedPrompt?.responder === "pi-question" || parsedPrompt?.responder === "pi-confirm") && !(await piOwnsInput(body.pane_id))) throw new KeyRefused();
@@ -2025,6 +2034,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           // a fallback card is the screen's own (readPrompt draws it when no reader knows the screen): the same card by
           // what it asks and offers, whatever else ticked on the screen since (a spinner, a timer, a token count)
           if (responder.startsWith("fallback")) {
+            if (!asks()) return false;
             const card = parsedByPublicPrompt.get(parseFallbackPrompt(agent, screen));
             return card?.id === parsed.id && (!onCursor || card.selectedIndex === cursor);
           }
