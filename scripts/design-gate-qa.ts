@@ -454,6 +454,10 @@ const SURFACES: Surface[] = [
   },
   { id: "drawer-open", only: "phone", pane: panes.api, run: openDrawer },
   {
+    id: "phone-inbox", only: "phone", plain: true, settings: { phoneInbox: true },
+    run: async (page) => { await page.locator(".agent-inbox").waitFor(); await settle(page); },
+  },
+  {
     id: "held-messages", pane: panes.web,
     storage: {
       // kept under the demo's herdr: with no record they would be an earlier release's and go to Recover unsent text
