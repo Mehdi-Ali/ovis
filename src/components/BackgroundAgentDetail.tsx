@@ -98,7 +98,7 @@ export function BackgroundAgentDetail({ paneId, task, onClose }: { paneId: strin
     error: [t("Couldn't read the agent's details"), t("Try Refresh. If it keeps failing, restart Ovis on the PC.")],
   };
   const note = (lines: string[], className = "bg-agent-note", role?: "status") => <p className={className} role={role}>{lines.map((line) => <span key={line} className="bg-agent-note-line">{line}</span>)}</p>;
-  const meta = [detail?.agent ?? task.category, task.model].filter((part) => part !== null).join(" · ");
+  const meta = [detail?.agent ?? task.category, task.model !== null && task.effort ? `${task.model} (${task.effort})` : task.model].filter((part) => part !== null).join(" · ");
   const empty = detail !== null && detail.prompt === null && detail.events.length === 0;
   return createPortal(
     <div className="modal-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>

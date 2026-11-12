@@ -187,7 +187,7 @@ export function BackgroundTasks({ paneId, count, omo, subagents = false, plan = 
     const Icon = ICONS[task.status];
     const elapsed = taskElapsedMs(task, now + offset);
     const meta = [
-      task.category, task.model, elapsed === null ? null : formatElapsed(elapsed),
+      task.category, task.model !== null && task.effort ? `${task.model} (${task.effort})` : task.model, elapsed === null ? null : formatElapsed(elapsed),
       task.turns === null ? null : t(task.turns === 1 ? "{n} turn" : "{n} turns", { n: task.turns }),
       task.tool_calls === null ? null : t(task.tool_calls === 1 ? "{n} tool call" : "{n} tool calls", { n: task.tool_calls }),
       task.tokens === null ? null : t("{n} tokens", { n: formatTokens(task.tokens) }),
