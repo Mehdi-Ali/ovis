@@ -178,6 +178,8 @@ export interface Settings {
   followHerdrFocus: boolean;
   /** a mouse resting on the collapsed sidebar's toggle shows the sidebar over the pane for a moment (lib/sidebarPeek.ts, #2588) */
   sidebarPeek: boolean;
+  /** a phone-width window opens on the agent inbox instead of the last pane (lib/useInbox.ts); off until chosen */
+  phoneInbox: boolean;
   /** workspaces a launcher tagged `role=background` stand after the others under a folded heading (components/Sidebar.tsx); off until chosen */
   sidebarBackgroundWorkspaces: boolean;
   /** chat text size in px (its body text; the rest scales with it); null follows the interface size */
@@ -296,14 +298,14 @@ export type DiffStyle = (typeof DIFF_STYLES)[number];
 
 /** Raw custom text, key combinations and account keys are never copied. Requiring every other
  * Settings field in the projection makes a new field require an explicit collection decision.
- * keyBarExpanded, herdrPrefixKeys, agentLocks, lockedAgents, opencodeParentEnds, ompHeldFiles, restoreReplacedServer, the named agent groups, fileOpen, reopenFileOnReturn, webLinks, reuseExternalLinkTab, the launch modes, followHerdrFocus, sidebarPeek, sidebarBackgroundWorkspaces, codexDrag, autoTabNames, composerArtifacts, composerPasteSend, composerBtw, terminalMirrorWrap, terminalImages, terminalAttachButton, terminalKeyboardOnRequest, terminalFoldKeyBar, sidebarFilter, sidebarContext, sidebarAgentTree, foldHelpers, pcLoad, voiceEngine, the agent groups, the
+ * keyBarExpanded, herdrPrefixKeys, agentLocks, lockedAgents, opencodeParentEnds, ompHeldFiles, restoreReplacedServer, the named agent groups, fileOpen, reopenFileOnReturn, webLinks, reuseExternalLinkTab, the launch modes, followHerdrFocus, sidebarPeek, phoneInbox, sidebarBackgroundWorkspaces, codexDrag, autoTabNames, composerArtifacts, composerPasteSend, composerBtw, terminalMirrorWrap, terminalImages, terminalAttachButton, terminalKeyboardOnRequest, terminalFoldKeyBar, sidebarFilter, sidebarContext, sidebarAgentTree, foldHelpers, pcLoad, voiceEngine, the agent groups, the
  * interface font, the file text size and the folds its blocks start in are not collected: the telemetry schema
  * (shared/telemetry.ts) does not carry them. */
 type TelemetrySourceSettings = Omit<Settings,
   "keyBarExtras" | "keyBarItems" | "keyBarExpanded" | "shortcutOverrides" | "herdrPrefixKeys" | "terminalFontFamily" | "chatFontFamily" | "uiFontFamily"
   | "quickReplies" | "agentLocks" | "lockedAgents" | "opencodeParentEnds" | "ompHeldFiles" | "restoreReplacedServer" | "agentNamedGroups" | "agentGroupNames" | "agentGroupOf" | "usageOrder" | "usageHidden" | "fileOpen" | "filesPanel" | "webLinks" | "reuseExternalLinkTab" | "claudeLaunchMode" | "codexLaunchMode"
   | "claudeLaunchModel" | "claudeLaunchEffort" | "codexLaunchModel" | "codexLaunchEffort"
-  | "followHerdrFocus" | "sidebarPeek" | "sidebarBackgroundWorkspaces" | "codexDrag" | "composerArtifacts" | "composerPasteSend" | "composerBtw" | "terminalMirrorWrap" | "sidebarFilter" | "sidebarContext" | "sidebarAgentTree" | "foldHelpers" | "pcLoad"
+  | "followHerdrFocus" | "sidebarPeek" | "phoneInbox" | "sidebarBackgroundWorkspaces" | "codexDrag" | "composerArtifacts" | "composerPasteSend" | "composerBtw" | "terminalMirrorWrap" | "sidebarFilter" | "sidebarContext" | "sidebarAgentTree" | "foldHelpers" | "pcLoad"
   | "expandThinking" | "foldWork" | "customThemes" | "autoTabNames" | "voiceEngine" | "agentGroups" | "agentGroupSort" | "terminalImages" | "terminalAttachButton"
   | "terminalKeyboardOnRequest" | "terminalFoldKeyBar" | "fileFontSize" | "fileFontBase" | "editTextFiles" | "reopenFileOnReturn">;
 
@@ -402,6 +404,8 @@ export const SETTING_SCOPE = {
   codexDrag: "device",
   // a desk's mouse, which a phone has not
   sidebarPeek: "device",
+  // a phone's first screen, which a desk has not
+  phoneInbox: "device",
   // a phone's short list may set the workers apart while a desk keeps herdr's order, as with the filter
   sidebarBackgroundWorkspaces: "device",
   chatFontSize: "device", chatFontFamily: "device", fileFontSize: "device", fileFontBase: "device", uiFontSize: "device", uiFontFamily: "device", chatWidth: "device", enterSends: "device",
@@ -490,6 +494,7 @@ export const DEFAULT_SETTINGS: Settings = {
   followHerdrFocus: false,
   codexDrag: false,
   sidebarPeek: false,
+  phoneInbox: false,
   sidebarBackgroundWorkspaces: false,
   chatFontSize: null,
   fileFontSize: null,
@@ -729,6 +734,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     followHerdrFocus: typeof record["followHerdrFocus"] === "boolean" ? record["followHerdrFocus"] : DEFAULT_SETTINGS.followHerdrFocus,
     codexDrag: record["codexDrag"] === true,
     sidebarPeek: record["sidebarPeek"] === true,
+    phoneInbox: record["phoneInbox"] === true,
     sidebarBackgroundWorkspaces: record["sidebarBackgroundWorkspaces"] === true,
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,

@@ -518,6 +518,15 @@ it("keeps the sidebar's hover peek off until this device turns it on, and keeps 
   expect(SHARED_SETTING_KEYS as readonly string[]).not.toContain("sidebarPeek");
 });
 
+it("keeps the phone's agent inbox off until this device turns it on, and keeps that choice its own", () => {
+  expect(DEFAULT_SETTINGS.phoneInbox).toBe(false);
+  expect(sanitizeSettings({}).phoneInbox).toBe(false);
+  expect(sanitizeSettings({ phoneInbox: true }).phoneInbox).toBe(true);
+  expect(sanitizeSettings({ phoneInbox: "true" }).phoneInbox).toBe(false);
+  expect(SETTING_SCOPE.phoneInbox).toBe("device");
+  expect(SHARED_SETTING_KEYS as readonly string[]).not.toContain("phoneInbox");
+});
+
 it("keeps herdr's prefix keys off until this device turns them on, and keeps that choice its own", () => {
   expect(sanitizeSettings({}).herdrPrefixKeys).toBe(false);
   expect(sanitizeSettings({ herdrPrefixKeys: true }).herdrPrefixKeys).toBe(true);
