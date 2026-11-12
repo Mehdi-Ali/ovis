@@ -101,28 +101,54 @@
   color: var(--md-quote, var(--text-dim));
 }
 
-.file-live-editor .cm-atomic-bullet,
-.file-live-editor .cm-atomic-list-marker { color: var(--md-marker, var(--text-dim)); font-weight: normal; }
+/* list markers: the Preview's ::marker colour (bullets and numbers), at the text's own weight */
+.file-live-editor .cm-atomic-list-marker,
+.file-live-editor .cm-atomic-list-marker * { color: var(--md-marker, var(--text-dim)); font-weight: normal; }
+/* a done task reads as the Preview draws it: ticked, not struck through or dimmed */
+.file-live-editor .cm-line.cm-atomic-task-done { color: inherit; text-decoration: none; }
+
+/* a blank line is the Preview's gap between blocks, not a whole empty line (lib/markdownLook.ts) */
+.file-live-editor .cm-line.cm-ovis-blank { line-height: var(--space-3); }
 
 .file-live-editor .cm-atomic-task-checkbox { border: var(--hairline) solid var(--text-dim); border-radius: calc(var(--radius-sm) / 2); }
 .file-live-editor .cm-atomic-task-checkbox:checked { background: var(--accent); border-color: var(--accent); }
 .file-live-editor .cm-atomic-task-checkbox::after { border-color: var(--bg); }
 
-/* a fenced block: the Preview's code panel, one line at a time */
+/* a fenced block: the Preview's code panel (ChatView.css .markdown-code), one line at a time: rounded
+   at its first and last lines, the first a header naming the language while the caret is outside */
 .file-live-editor .cm-line.cm-atomic-fenced-code {
   background: var(--bg-panel);
-  box-shadow: inset var(--hairline) 0 0 var(--border), inset calc(-1 * var(--hairline)) 0 0 var(--border);
+  box-shadow: none;
+  border-inline: var(--hairline) solid var(--border);
   padding-inline: var(--space-3);
+  font-family: var(--font-mono);
   font-size: 0.87em;
   color: var(--text);
 }
+.file-live-editor .cm-line.cm-ovis-fence-first {
+  border-top: var(--hairline) solid var(--border);
+  border-start-start-radius: var(--radius-lg);
+  border-start-end-radius: var(--radius-lg);
+}
+.file-live-editor .cm-line.cm-ovis-fence-last {
+  border-bottom: var(--hairline) solid var(--border);
+  border-end-start-radius: var(--radius-lg);
+  border-end-end-radius: var(--radius-lg);
+}
+.file-live-editor .cm-line.cm-ovis-fence-label {
+  border-bottom: var(--hairline) solid var(--border);
+  color: var(--text-dim);
+  font-size: var(--fs-meta);
+  line-height: var(--control-h);
+}
+.file-live-editor .cm-line.cm-ovis-fence-label::before { content: attr(data-lang); }
 
 /* a rule: the Preview's hairline */
 .file-live-editor .cm-atomic-hr { border-top-color: var(--border); }
 
 /* a drawn table (lib/markdownTables.ts) carries `.markdown`, so the Preview's table rules apply; the
    wrap only keeps its scroll and gives up the chat's bottom margin */
-.file-live-editor .cm-ovis-table { width: 100%; padding-block: var(--space-2); cursor: text; font-family: var(--font-ui); }
+.file-live-editor .cm-ovis-table { width: 100%; padding-block: var(--space-1); cursor: text; font-family: var(--font-ui); }
 .file-live-editor .cm-ovis-table .markdown-table-wrap { margin-bottom: 0; }
 .file-live-editor .cm-ovis-table td,
 .file-live-editor .cm-ovis-table th { overflow-wrap: normal; }
@@ -151,3 +177,6 @@
 @media (pointer: coarse) {
   .file-live-editor > .atomic-cm-editor { --atomic-editor-body-size: max(var(--fs-input), var(--chat-fs-body, var(--fs-sm))); }
 }
+
+/* bullets sit where the Preview's do: indented, with room before the text */
+.file-live-editor .cm-atomic-list-marker:not(.cm-atomic-task-checkbox) { width: 1.4em; margin-right: 0.45em; }

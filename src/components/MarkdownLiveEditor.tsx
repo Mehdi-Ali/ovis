@@ -1,7 +1,7 @@
 import "@atomic-editor/editor/styles.css";
 import "./MarkdownLiveEditor.css";
 
-import { atomicEditorTheme, atomicMarkdownSyntax, autoCloseCodeFence, extendEmphasisPair, highlightMarkdown, inlinePreview, readOnlyExtension, startAsteriskList } from "@atomic-editor/editor";
+import { atomicEditorTheme, autoCloseCodeFence, extendEmphasisPair, highlightMarkdown, inlinePreview, readOnlyExtension, startAsteriskList } from "@atomic-editor/editor";
 import { ATOMIC_CODE_LANGUAGES } from "@atomic-editor/editor/code-languages";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
@@ -13,6 +13,7 @@ import { drawSelection, dropCursor, EditorView, highlightSpecialChars, keymap } 
 import { useEffect, useRef } from "react";
 
 import { frontmatterLook, frontmatterSyntax } from "../lib/markdownFrontmatter.ts";
+import { ovisMarkdownSyntax, previewLook } from "../lib/markdownLook.ts";
 import type { OutlineEntry } from "../lib/markdownOutline.ts";
 import type { OutlineLocator } from "./MarkdownOutline.tsx";
 import { markdownTables } from "../lib/markdownTables.ts";
@@ -133,12 +134,13 @@ export default function MarkdownLiveEditor({ documentId, text, onChange, readOnl
           search({ top: true }),
           markdown({ base: markdownLanguage, codeLanguages: CODE_LANGUAGES, extensions: [highlightMarkdown, frontmatterSyntax] }),
           markdownLanguage.data.of({ closeBrackets: { brackets: ["(", "[", "{", "'", "\"", "*", "_", "`"] } }),
-          atomicMarkdownSyntax,
+          ovisMarkdownSyntax,
           atomicEditorTheme,
           keymap.of([...closeBracketsKeymap, ...historyKeymap, ...searchKeymap, ...markdownKeymap, indentWithTab, ...defaultKeymap]),
           markdownTables(link),
           inlinePreview({ onLinkClick: link }),
           frontmatterLook,
+          previewLook,
           readOnlyPart.current.of(readOnlyExtension(latest.current.readOnly)),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) latest.current.onChange(update.state.doc.toString());
