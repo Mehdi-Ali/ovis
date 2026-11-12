@@ -4,22 +4,24 @@ import { backUnderCurrentEntry } from "./historyNavigation.ts";
 
 let originalWindow: PropertyDescriptor | undefined;
 const answering = sheetStep.goingBack;
+const dropping = sheetStep.dropped;
 
 beforeEach(() => { originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window"); });
 afterEach(() => {
   sheetStep.goingBack = answering;
+  sheetStep.dropped = dropping;
   if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow); else Reflect.deleteProperty(globalThis, "window");
 });
 
 /** A window with a history of `entries`, on its last one, with the Navigation API when `listed`. */
-function browser(entries: string[], listed: boolean) {
+function browser(entries: string[], listed: boolean, refused = false) {
   const went: Array<number | string> = [];
   const window = {
     history: { state: { entry: entries.at(-1) }, go: (by: number) => { went.push(by); } },
     ...(listed ? { navigation: {
       currentEntry: { index: entries.length - 1 },
       entries: () => entries.map((key) => ({ key })),
-      traverseTo: (key: string) => { went.push(key); return { committed: Promise.resolve() }; },
+      traverseTo: (key: string) => { went.push(key); return { committed: refused ? Promise.reject(new Error("refused")) : Promise.resolve() }; },
     } } : {}),
   };
   Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: window });
@@ -47,5 +49,16 @@ describe("an overlay's own step back", () => {
     over = true;
     await backUnderCurrentEntry();
     expect(went).toEqual(["file", "pane"]);
+  });
+
+  it("tells the sheets when the browser refuses the traversal, and still fails for its caller", async () => {
+    let dropped = 0;
+    sheetStep.goingBack = () => false;
+    sheetStep.dropped = () => { dropped += 1; };
+    browser(["pane", "file"], true, true);
+    let failed = false;
+    await backUnderCurrentEntry()?.catch(() => { failed = true; });
+    expect(failed).toBe(true);
+    expect(dropped).toBe(1);
   });
 });

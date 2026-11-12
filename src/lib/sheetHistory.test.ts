@@ -491,6 +491,18 @@ describe("a phone's sheet in the history", () => {
     leave(); await settled();
   });
 
+  it("ends the wait at once when the step is said to be dropped", async () => {
+    const start = fake.at();
+    expect(sheetStep.goingBack(h.state)).toBe(false);
+    sheetStep.dropped();
+    let closed = 0;
+    const leave = hooks.enter(() => { closed += 1; });
+    expect(fake.at()).toBe(start + 1);
+    h.back(); await settled();
+    expect(closed).toBe(1); expect(fake.at()).toBe(start);
+    leave(); await settled();
+  });
+
   it("closes Settings too when the closed sheet's entry had its address changed before its step back", async () => {
     const settingsPath = "./settingsHistory.ts?with-sheets";
     const settings: typeof import("./settingsHistory.ts") = await import(settingsPath);

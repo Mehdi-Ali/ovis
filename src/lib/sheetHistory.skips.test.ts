@@ -177,6 +177,26 @@ describe("a phone's sheet where Back skips an entry made with no tap", () => {
     expect(fake.at()).toBe(start);
   });
 
+  it("steps off the entry again when the sheet it came back for closed before the way back landed", async () => {
+    const start = fake.at();
+    let drawerClosed = 0;
+    fake.tap();
+    const leaveDrawer = enter(() => { drawerClosed += 1; });
+    fake.tap();
+    const leaveMenu = enter(() => {});
+    // the drawer closes by itself while the history is on its way back onto the entry for it: an
+    // app's listener, after the module's, closes it as the Back that closed the menu is heard, and
+    // its own leave runs before that way back lands (a browser lands a traversal later than a timer)
+    let closing = true;
+    fake.window.addEventListener("popstate", () => { if (closing) { closing = false; leaveDrawer(); jest.advanceTimersByTime(1); } });
+    h.back(); await settled(); await settled();
+    leaveMenu(); await settled();
+    // no entry is left marked for a drawer that is gone: the next Back would have closed nothing
+    expect(fake.at()).toBe(start);
+    expect(drawerClosed).toBe(0);
+    expect(sheetHistory.sheetSteppedOff()).toBe(true);
+  });
+
   it("makes the entry of a sheet that opens with no new tap after a closed sheet's own step: the tap before it still counts", async () => {
     const start = fake.at();
     fake.tap();

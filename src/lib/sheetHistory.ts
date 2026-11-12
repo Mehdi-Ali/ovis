@@ -324,6 +324,12 @@ if (typeof window !== "undefined") {
   let heard: Event | null = null;
   sheetStep.lands = (event) => event === heard ? steppedOff : stepping !== null;
   sheetStep.taking = (event) => event === heard ? took : climbing !== null && where()?.key === climbing.key;
+  sheetStep.dropped = () => {
+    if (asked === null) return;
+    clearTimeout(asked);
+    asked = null;
+    if (tapped) makeWaiting();
+  };
   sheetStep.goingBack = (state) => {
     if (asked !== null) clearTimeout(asked);
     asked = setTimeout(() => {
@@ -384,7 +390,11 @@ if (typeof window !== "undefined") {
       if (seen === entry) {
         // back on the entry the Back left, for the sheets it did not close: no Back of the user's
         steppedOff = true;
-        if (owner !== entry) {
+        if (!open.has(owner)) {
+          // the sheet it came back for closed meanwhile: off the entry again, as a closed sheet steps off its own
+          stepping = new Set();
+          window.history.back();
+        } else if (owner !== entry) {
           // what covered the sheet that stays is gone: the entry is that sheet's own again, at the address shown under it
           window.history.replaceState({ ...(event.state as Record<string, unknown>), [KEY]: owner }, "", href);
           addresses.set(owner, href);

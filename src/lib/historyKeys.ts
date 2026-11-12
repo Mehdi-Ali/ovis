@@ -74,6 +74,8 @@ export const sheetStep: {
    * sheetHistory answers it.
    */
   goingBack: (state: unknown) => boolean;
+  /** Tells the sheets that the step announced with goingBack did not happen (the browser dropped the traversal): the next Back is the user's. */
+  dropped: () => void;
   /**
    * Whether a popstate lands on the entry the user's Back left a moment ago, which a sheet that
    * came back in front is taking for its own (the file list, once Back closed the file opened from
@@ -82,4 +84,4 @@ export const sheetStep: {
    * hears the event first.
    */
   taking: (event: Event) => boolean;
-} = { lands: () => false, goingBack: () => false, taking: () => false };
+} = { lands: () => false, goingBack: () => false, dropped: () => {}, taking: () => false };

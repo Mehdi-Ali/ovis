@@ -22,5 +22,8 @@ export function backUnderCurrentEntry(steps = 1): Promise<unknown> | undefined {
   const index = navigation?.currentEntry?.index ?? 0;
   const below = navigation?.entries()[index - by];
   if (navigation === undefined || below === undefined) { window.history.go(-by); return undefined; }
-  return navigation.traverseTo(below.key).committed;
+  const landed = navigation.traverseTo(below.key).committed;
+  // a traversal the browser refuses lands nowhere: the sheets stop waiting for it
+  landed.catch(() => sheetStep.dropped());
+  return landed;
 }
