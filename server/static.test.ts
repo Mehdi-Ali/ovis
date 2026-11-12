@@ -90,12 +90,12 @@ describe("OVIS_APP_NAME", () => {
 describe("the hosted shell's policy", () => {
   const directives = (policy: string) => new Map(policy.split("; ").map((directive) => [directive.slice(0, directive.indexOf(" ")), directive]));
 
-  it("differs from the app's only in connect-src, media-src and frame-src", () => {
+  it("differs from the app's only in connect-src and frame-src (media-src blob: is in both, local patch)", () => {
     const app = directives(CONTENT_SECURITY_POLICY);
     const hosted = directives(shellContentSecurityPolicy());
     expect([...hosted.keys()]).toEqual([...app.keys()]);
     const changed = [...app.keys()].filter((name) => app.get(name) !== hosted.get(name));
-    expect(changed).toEqual(["connect-src", "media-src", "frame-src"]);
+    expect(changed).toEqual(["connect-src", "frame-src"]);
     expect(hosted.get("connect-src")).toBe("connect-src 'self' wss: https://account.ovis.sh");
     expect(hosted.get("media-src")).toBe("media-src 'self' blob:");
     expect(hosted.get("frame-src")).toBe("frame-src 'self' blob:");

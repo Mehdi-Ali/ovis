@@ -87,7 +87,7 @@ function cacheControlFor(pathname: string): string {
  *   window.location.host over ws:/wss: (which 'self' matches — confirmed in Chromium:
  *   an explicit `new WebSocket("ws://<same host>/ws")` and the machines event stream both
  *   connect under the enforcing header).
- * - `media-src 'self'`: the file viewer's <video>/<audio>, same-origin.
+ * - `media-src 'self' blob:`: the file viewer's <video>/<audio>, same-origin; blob: for read-aloud speech (local patch).
  * - `frame-src 'self'`: the PDF viewer frames /api/fs/file, same-origin. With the request's
  *   origin known, also any port of the host the browser used for the app: the web panel
  *   (src/lib/webPanel.ts) frames a page served by this PC, a dev server's localhost:5173 named
@@ -107,7 +107,7 @@ const CSP_DIRECTIVES = [
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   "connect-src 'self'",
-  "media-src 'self'",
+  "media-src 'self' blob:", // local patch: read-aloud plays fetched speech from blob: URLs
   "frame-src 'self'",
   "worker-src 'self'",
   "object-src 'none'",
