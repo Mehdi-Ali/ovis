@@ -1031,7 +1031,7 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--ring-inset-offset` | `-2px` | Inset outline offset inside scroll-clipped strips |
 | `--z-header` | `4` | A phone's glass header, over the transcript that scrolls under it |
 | `--z-banner` | `5` | Terminal banners |
-| `--z-popover` | `10` | Composer completions |
+| `--z-popover` | `10` | Composer completions; a Settings row's sentence, inside its dialog's scrim |
 | `--z-scrim` | `15` | Mobile drawer scrim |
 | `--z-drawer` | `20` | Mobile drawer |
 | `--z-modal` | `30` | Dialog scrims |
@@ -4029,6 +4029,33 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   a `details` whose `summary` is the sentence); the conditions and exceptions open under it. On
   coarse pointers an invisible expander gives that line the touch target without changing its
   height.
+- On a page drawn without sentences, a row's sentence shows on demand (#3275; `useRowSentence` and
+  `RowSentence` in `components/SettingsControls.tsx`). A mouse resting `450ms` on the row, or the
+  keyboard's focus on its control, draws it over the page (`.settings-help`): the relay map's tooltip
+  surface (`--bg-elevated`, hairline `--border-strong`, `--radius-sm`, `--shadow-menu`, `--fs-xs`,
+  no wider than `22rem`), fixed in the dialog's scrim so the scrolling page does not cut it. It goes
+  above the row with its left edge on the name's, so it covers neither the row's own control nor
+  the row below, which the pointer goes to next; under the row only where the screen ends above it.
+  Over another row's control it narrows to the room beside that control, down to `224px`. It never
+  moves: it is there or it is not, and a row entered within `400ms` of another's closing shows its
+  own at once. The pointer on it keeps it, it takes no focus, and Escape closes it alone and leaves
+  Settings open; in a text field that Escape is the field's too, and the first text typed closes
+  it. A finger has no hover: a tap on the row, anywhere but its control, opens the sentence in the
+  row, under the name and the control at the row's width (`.settings-row-sentence`), and a second
+  tap closes it, so nothing is drawn over a phone's page. The row's switch, select, stepper or
+  group of choices is described by the same sentence (`aria-describedby`), as
+  [Zed's settings](https://github.com/zed-industries/zed/blob/main/crates/settings_ui/src/settings_ui.rs)
+  give each control its row's description, so a screen reader reads it with the control. The
+  pattern is WAI-ARIA's [tooltip](https://www.w3.org/WAI/ARIA/apg/patterns/tooltip/) (hover and
+  focus, Escape, no focus of its own) under WCAG 2.2
+  [1.4.13](https://www.w3.org/WAI/WCAG22/Understanding/content-on-hover-or-focus.html)
+  (dismissible, hoverable, persistent).
+- A row's sentence is one or two sentences: what the setting changes, what each choice means, and
+  whether it is this device's or every device's, in the words its label already uses. A row whose
+  name alone misleads also keeps one short line in sight (`condition`), as
+  [herdr-app's](https://github.com/herdrdev/herdr-app/blob/master/defaults/frame/settings/main.js)
+  rows carry a line only where there is something to say; every other row stays a name and its
+  control.
 - Settings selects use `SettingsSelect` in `components/SettingsControls.tsx`: an inset Lucide
   chevron with space reserved beside the text. This follows the padded indicator in
   [T3 Code](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/components/ui/select.tsx),
