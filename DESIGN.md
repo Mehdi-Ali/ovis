@@ -1248,9 +1248,13 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   press asked for: Android draws that way out itself (predictive back), and a press held back
   would break it. A desktop's Back stays the panes'. This is Android's own rule for a bottom
   sheet, a menu and a navigation drawer (Material 3: Back dismisses the sheet, then the screen
-  under it navigates), not a design taken from the coding-agent apps, which were not compared for
-  it. No entry is added with no tap behind it: Chromium's Back skips a page's entries then, and
-  would leave the app with the surface still up. A component that draws such a surface and does
+  under it navigates), and what the Android apps of Paseo and T3 Code do with the system's Back
+  (React Native's BackHandler): the surface opened last answers it, a stacked sheet before the
+  one below, and holds it only while it is on screen. Ovis is a page everywhere, in its app too,
+  where the system's Back is a step in the history, so each surface holds a history entry
+  instead. The Claude and Codex apps were not looked at for this. No entry is added with no tap
+  behind it: Chromium's Back skips a page's entries then, and would leave the app with the
+  surface still up. A component that draws such a surface and does
   not take part fails `src/conventions.test.ts`.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
   Cancel has the focus, Tab stays between the two buttons, the danger action sits at the right,
