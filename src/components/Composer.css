@@ -1611,3 +1611,23 @@
     cursor: pointer;
   }
 }
+
+/* The message box as live preview markdown (ComposerLiveEditor.tsx): in the text box's place and
+   size, growing to 10 lines and then scrolling, without the file viewer's lane or its bottom room. */
+.composer-live {
+  grid-area: text;
+  min-width: 0;
+  min-height: calc(1lh + var(--space-5));
+  max-height: 10lh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: var(--space-4) var(--space-4) var(--space-1);
+}
+.file-live-editor.composer-live { display: block; flex: none; }
+.file-live-editor.composer-live > .atomic-cm-editor { --atomic-editor-measure: none; height: auto; }
+.file-live-editor.composer-live .cm-editor { height: auto; }
+/* one scrollbar, the box's own: the editor grows with its text */
+.composer-live .cm-scroller { overflow: visible; }
+.file-live-editor.composer-live .cm-content { padding: 0; }
+.composer-live .cm-editor.cm-focused { outline: 0; }
+.composer-live .cm-placeholder { color: var(--text-dim); }

@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -72,6 +74,10 @@ import { useT } from "../lib/i18n.ts";
 import { offersRetry, userFailure, type UserFailure } from "../lib/userError.ts";
 import { AttachmentTooLargeError } from "../lib/api.ts";
 import { modalOpen } from "../lib/focus.ts";
+import type { ComposerKey } from "./ComposerLiveEditor.tsx";
+
+/** The message box as live preview markdown (Settings > Live edit message box): CodeMirror loads only when it is on. */
+const ComposerLiveEditor = lazy(() => import("./ComposerLiveEditor.tsx"));
 
 export interface ComposerProps {
   connected: boolean;
@@ -256,6 +262,8 @@ export function Composer({
   const { settings, resolvedLanguage } = useSettings();
   const mobile = useMediaQuery("(max-width: 640px), (pointer: coarse)");
   const viewOnly = role === "observe";
+  // the message box as live preview markdown; a view-only pane keeps the plain, disabled box
+  const liveBox = settings.composerLiveEdit && !viewOnly;
   // a touch screen's Return breaks the line until this device chooses otherwise; Send (or Mod+Enter) sends
   const enterSends = enterSendsOn(settings, useMediaQuery("(pointer: coarse)"));
   const usageEnabled = settings.showUsage && !mobile && machineId === "local" && planForPane(agent, metadata?.provider) !== null;
@@ -1463,7 +1471,18 @@ export function Composer({
           </div>
         )}
 
-        <textarea
+        {liveBox ? <Suspense fallback={null}>
+          <ComposerLiveEditor text={text} caret={caretRef.current} placeholder={placeholder} label={t("Message")} autoFocus={autoFocus === true && !modalOpen()}
+            onText={(value, at) => {
+              setText(value);
+              setCaret(at);
+              setMenuDismissed(false);
+              setNote((current) => typeof current === "object" && current !== null && "failure" in current ? current : pasteCutNote.current);
+            }}
+            onCaret={setCaret}
+            onKey={(key: ComposerKey) => onKeyDown(key as unknown as KeyboardEvent<HTMLTextAreaElement>)}
+            onLink={(href) => { if (/^(?:https?|mailto):/i.test(href)) window.open(href, "_blank", "noopener,noreferrer"); }} />
+        </Suspense> : <textarea
           ref={textareaRef}
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => {
@@ -1510,9 +1529,9 @@ export function Composer({
             setMenuDismissed(false);
             setNote((current) => typeof current === "object" && current !== null && "failure" in current ? current : pasteCutNote.current);
           }}
-        />
+        />}
         {/* tapping the grey words takes the suggestion only when Settings asks for it: by default a tap there just focuses the box */}
-        {settings.suggestionChip && offered !== null && text === "" && (
+        {!liveBox && settings.suggestionChip && offered !== null && text === "" && (
           <div className="composer-inline-suggestion">
             <span role="button" tabIndex={-1} aria-label={t("Use the suggestion")}
               onClick={acceptSuggestion} onKeyDown={(event) => {

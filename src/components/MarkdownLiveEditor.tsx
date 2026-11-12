@@ -8,7 +8,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-markdown";
 import { ensureSyntaxTree, indentOnInput, LanguageDescription, LanguageSupport, StreamLanguage, syntaxTree } from "@codemirror/language";
 import { search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { drawSelection, dropCursor, EditorView, highlightSpecialChars, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 
@@ -26,6 +26,35 @@ const CSHARP = LanguageDescription.of({
   load: async () => new LanguageSupport(StreamLanguage.define((await import("@codemirror/legacy-modes/mode/clike")).csharp)),
 });
 const CODE_LANGUAGES = [...ATOMIC_CODE_LANGUAGES, CSHARP];
+
+/**
+ * The live preview's editing and drawing, shared by the file viewer's editor and the chat composer's
+ * (ComposerLiveEditor.tsx): markdown with its look, tables revealed whole, links handed to `link`.
+ */
+export function liveMarkdownExtensions(link: (href: string) => void): Extension[] {
+  return [
+    highlightSpecialChars(),
+    history(),
+    drawSelection(),
+    dropCursor(),
+    indentOnInput(),
+    closeBrackets(),
+    startAsteriskList,
+    extendEmphasisPair,
+    autoCloseCodeFence,
+    EditorView.lineWrapping,
+    search({ top: true }),
+    markdown({ base: markdownLanguage, codeLanguages: CODE_LANGUAGES, extensions: [highlightMarkdown, frontmatterSyntax] }),
+    markdownLanguage.data.of({ closeBrackets: { brackets: ["(", "[", "{", "'", "\"", "*", "_", "`"] } }),
+    ovisMarkdownSyntax,
+    atomicEditorTheme,
+    keymap.of([...closeBracketsKeymap, ...historyKeymap, ...searchKeymap, ...markdownKeymap, indentWithTab, ...defaultKeymap]),
+    markdownTables(link),
+    inlinePreview({ onLinkClick: link }),
+    frontmatterLook,
+    previewLook,
+  ];
+}
 
 /** The live editor's headings for the viewer's outline (MarkdownOutline), and how to find them in the editor. */
 export interface LiveOutline {
@@ -120,27 +149,8 @@ export default function MarkdownLiveEditor({ documentId, text, onChange, readOnl
       state: EditorState.create({
         doc: text,
         extensions: [
-          highlightSpecialChars(),
-          history(),
-          drawSelection(),
-          dropCursor(),
-          indentOnInput(),
-          closeBrackets(),
-          startAsteriskList,
-          extendEmphasisPair,
-          autoCloseCodeFence,
-          EditorView.lineWrapping,
+          ...liveMarkdownExtensions(link),
           EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
-          search({ top: true }),
-          markdown({ base: markdownLanguage, codeLanguages: CODE_LANGUAGES, extensions: [highlightMarkdown, frontmatterSyntax] }),
-          markdownLanguage.data.of({ closeBrackets: { brackets: ["(", "[", "{", "'", "\"", "*", "_", "`"] } }),
-          ovisMarkdownSyntax,
-          atomicEditorTheme,
-          keymap.of([...closeBracketsKeymap, ...historyKeymap, ...searchKeymap, ...markdownKeymap, indentWithTab, ...defaultKeymap]),
-          markdownTables(link),
-          inlinePreview({ onLinkClick: link }),
-          frontmatterLook,
-          previewLook,
           readOnlyPart.current.of(readOnlyExtension(latest.current.readOnly)),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) latest.current.onChange(update.state.doc.toString());
