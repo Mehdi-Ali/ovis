@@ -50,7 +50,7 @@ export const DEVICES_JA: Record<string, string> = {
   "Revoke every device": "すべてのデバイスを取り消す",
   "Revoke all": "すべて取り消す",
   "Every paired device, this one included, loses its pairing access at once. The access token, this PC and its Tailscale login are not affected.": "このデバイスを含むすべてのペアリング済みデバイスのペアリングによるアクセスが一度に終わります。アクセストークン、この PC 本体、この PC の Tailscale ログインには影響しません。",
-  "Every paired device, this one included, would lose its pairing access at once. A device that only watches cannot do it: use the PC or a device that can drive.": "このデバイスを含むすべてのペアリング済みデバイスのペアリングによるアクセスが一度に終わる操作です。閲覧のみのデバイスでは実行できません。PC か操作できるデバイスから行ってください。",
+  "Every paired device, this one included, would lose its pairing access at once. A device that only watches cannot do it: use the PC or a device that can drive.": "このデバイスを含むすべてのペアリング済みデバイスのペアリングによるアクセスが一度に終わる操作です。閲覧のみのデバイスでは実行できないため、PC か操作できるデバイスから行ってください。",
   "Revoke every paired device?": "すべてのペアリング済みデバイスを取り消しますか?",
   "Nothing was revoked: the PC could not save the change. Try again; if it keeps failing, look up {reference} in the server's log on the PC.": "何も取り消されていません。PC が変更を保存できませんでした。もう一度試し、失敗が続く場合は PC のサーバーログで {reference} を探してください。",
   "Nothing was revoked ({reason}). Try again.": "何も取り消されていません（{reason}）。もう一度試してください。",
