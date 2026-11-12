@@ -4,7 +4,7 @@
  * (lib/agentRoster.ts, lib/sidebarActivity.tsx), so the two never disagree.
  */
 import type { Machine } from "../../shared/machines.ts";
-import type { AgentStatus, ConversationTurn, PlanSummary } from "../../shared/protocol.ts";
+import type { AgentStatus, PlanSummary } from "../../shared/protocol.ts";
 import { agentGroup, agentRoster, groupAgentRows, type AgentGroup, type AgentRow } from "./agentRoster.ts";
 import { fileFromLink, type AppLink } from "./deepLink.ts";
 import type { Translate } from "./i18n.ts";
@@ -74,20 +74,4 @@ export function inboxWords(input: { group: AgentGroup; blocked: string | null; q
 /** Whether a phone opens on the list: the address names no pane, workspace or file. */
 export function inboxStartsOpen(enabled: boolean, link: AppLink | null): boolean {
   return enabled && !(link !== null && Boolean(link.pane || link.workspace || fileFromLink(link)));
-}
-
-// The look preview's reader (components/AgentInbox.tsx); removed when the screen todo stops using it.
-/**
- * The newest turn's words and when it ended: the agent's final answer, else its last text, or the
- * user's own message while nothing answered it yet. Null when no turn holds text.
- */
-export function lastWords(turns: readonly ConversationTurn[]): { role: "assistant" | "user"; text: string; at: string | null } | null {
-  for (let index = turns.length - 1; index >= 0; index--) {
-    const turn = turns[index]!;
-    const texts = turn.parts.flatMap((part) => part.kind === "text" && part.text.trim() !== "" ? [part] : []);
-    if (texts.length === 0) continue;
-    const picked = turn.role === "assistant" ? [...texts].reverse().find((part) => part.phase === "final_answer") ?? texts.at(-1)! : texts[0]!;
-    return { role: turn.role, text: capped(picked.text.replace(/\s+/g, " ").trim(), 280), at: turn.end_ts ?? turn.ts };
-  }
-  return null;
 }
