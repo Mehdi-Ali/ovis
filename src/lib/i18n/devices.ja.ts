@@ -121,7 +121,7 @@ export const DEVICES_JA: Record<string, string> = {
   "Visitors can watch your terminals, but cannot type or change anything. Your app token or paired device keeps its existing access.": "訪問者はターミナルを閲覧できますが、入力や変更はできません。アプリのトークンやペアリング済みデバイスの既存の権限は維持されます。",
   "With no names, every unexpired link you issue opens it. Add names to accept only links issued to them.": "名前がなければ、発行した有効期限内のリンクはすべて開けます。名前を追加すると、その宛先に発行したリンクだけを受け付けます。",
   "Test notification": "テスト通知",
-  "Check whether this device can receive push alerts": "このデバイスでプッシュ通知を受け取れるか確認します",
+  "Sends one alert to this device now, so you can check that push alerts arrive here. If it cannot be sent, the line under the name says so.": "このデバイスに今すぐ通知を 1 件送り、プッシュ通知がここに届くか確認できます。送れないときは、名前の下の行でお知らせします。",
   "Send test": "テスト送信",
   "Push alerts need HTTPS or localhost, and on iPhone the home-screen app.": "プッシュ通知には HTTPS または localhost が必要です。iPhone ではホーム画面に追加したアプリを使ってください。",
   "Allow notifications in your browser settings, then try again.": "ブラウザーの設定で通知を許可してから、もう一度お試しください。",
