@@ -38,7 +38,7 @@ const roster = (): Snapshot => ({
 }) as unknown as Snapshot;
 
 /** what the app shows: the hook's inputs that the tests move */
-let place: { paneId: string; newSessionOpen: boolean; newFields: Omit<CreateDraft, "kind"> | null; sidebarCollapsed: boolean; snapshot: Snapshot; viewing: Preview | null; linkLanded: boolean; inbox: { open: boolean; enabled: boolean } };
+let place: { machineId: string; paneId: string | null; newSessionOpen: boolean; newFields: Omit<CreateDraft, "kind"> | null; sidebarCollapsed: boolean; snapshot: Snapshot; viewing: Preview | null; linkLanded: boolean; inbox: { open: boolean; enabled: boolean } };
 /** what the handler asked of a phone's agent list */
 let inboxCalls: string[];
 /** Reopen files on return: whether a file left behind is kept on its entry */
@@ -66,12 +66,12 @@ const refs = {
 };
 
 function Probe() {
-  const { paneId, newSessionOpen, newFields, sidebarCollapsed, snapshot, viewing, linkLanded, inbox } = place;
-  const machine = { id: "local", name: "workstation", kind: "local", enabled: true, state: "connected", error: null, snapshot } as Machine;
+  const { machineId, paneId, newSessionOpen, newFields, sidebarCollapsed, snapshot, viewing, linkLanded, inbox } = place;
+  const machine = { id: machineId, name: "workstation", kind: "local", enabled: true, state: "connected", error: null, snapshot } as Machine;
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId) as HerdrPane;
   refs.machines.current = [machine];
   // the app marks its selection at commit (lib/useSelection.ts)
-  useLayoutEffect(() => { refs.selection.current = { machineId: "local", paneId, generation: 0 }; }, [paneId]);
+  useLayoutEffect(() => { refs.selection.current = { machineId, paneId, generation: 0 }; }, [machineId, paneId]);
   useAddressBar({
     // the list stands in the pane's place while open on a phone (lib/useInbox.ts)
     inbox: {
@@ -82,7 +82,7 @@ function Probe() {
     newSessionOpen, newFields, sidebarCollapsed, snapshot, selectedPaneId: paneId, selectedPane: pane,
     // a pane its roster does not list yet (one New workspace just made) has no workspace
     selectedWorkspace: snapshot.workspaces.find((workspace) => workspace.workspace_id === pane?.workspace_id) as HerdrWorkspace,
-    selectedMachineId: "local", selectedMachine: machine, machines: refs.machines.current, machinesRef: refs.machines,
+    selectedMachineId: machineId, selectedMachine: machine, machines: refs.machines.current, machinesRef: refs.machines,
     // Reopen files on return: a file left behind is hidden and its entry keeps it (lib/useFilePanels.ts)
     viewing, leaveFile: () => { place.viewing = null; draw(); return reopenFiles; },
     restoreFile: () => {}, fileFromPop: () => 0, forgetLeftFiles: () => {}, openFile: () => {},
@@ -103,7 +103,7 @@ const drawNow = (): void => { (renderer as unknown as { unstable_flushSync(run: 
 beforeEach(() => {
   for (const key of ["window", "IS_REACT_ACT_ENVIRONMENT"]) descriptors.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
-  place = { paneId: "p2", newSessionOpen: false, newFields: null, sidebarCollapsed: false, snapshot: roster(), viewing: null, linkLanded: true, inbox: { open: false, enabled: false } };
+  place = { machineId: "local", paneId: "p2", newSessionOpen: false, newFields: null, sidebarCollapsed: false, snapshot: roster(), viewing: null, linkLanded: true, inbox: { open: false, enabled: false } };
   inboxCalls = [];
   reopenFiles = true;
   sheetStep = false;
@@ -463,4 +463,22 @@ it("takes the New workspace dialog off its entry once it closes, before the pane
 
   // Then p3's entry is pushed over the list's, and Back from it finds no dialog.
   expect(addresses()).toEqual(["", "?ws=w1-api&pane=p3&view=chat"]);
+});
+
+it("with the list off, leaves the New workspace dialog's entry as it was once it closes before the pane it made is listed", async () => {
+  // Given a wide window with the list off, another PC selected with no pane, and the dialog open over it.
+  place = { ...place, machineId: "remote", paneId: null, newSessionOpen: true, newFields: { cwd: null, name: "New", agent: null } };
+  await mount([""]);
+  await act(async () => { draw(); });
+  const dialog = addresses()[0]!;
+  expect(dialog).toContain("machine=remote");
+  expect(dialog).toContain("new=workspace");
+  writes = [];
+
+  // When it closes on a new pane p3 that no roster lists yet.
+  await act(async () => { place.newSessionOpen = false; place.newFields = null; place.paneId = "p3"; draw(); });
+
+  // Then the entry keeps the dialog's address and PC.
+  expect(writes).toEqual([]);
+  expect(addresses()).toEqual([dialog]);
 });

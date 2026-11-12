@@ -138,11 +138,11 @@ export function useAddressBar({ inbox, newSessionOpen, selectedPane, selectedPan
   useEffect(() => {
     if (locked !== false || machines.length === 0 || snapshot === null || !linkLanded) return;
     if (linkWorkspaceId === undefined) {
-      // the pane New workspace made is not listed yet and the dialog has closed: the entry it was open on
-      // stops saying it is, so Back from the new pane does not open it again
+      // the pane New workspace made from the list is not listed yet and the dialog has closed: the list's
+      // entry it was open on says the list's place again, so Back from the new pane does not open it again
       const written = writtenLink.current;
-      if (!newSessionOpen && written?.create && !popUnread(window.event, readPop.current)) {
-        const link: AppLink = { ...written, create: null, ...(written.pane === null && written.workspace === null ? { machine: LOCAL_MACHINE } : {}) };
+      if (listWritten.current && !newSessionOpen && written?.create && !popUnread(window.event, readPop.current)) {
+        const link: AppLink = { ...written, create: null, machine: LOCAL_MACHINE };
         writtenLink.current = link;
         const search = linkSearch(link, pageSearch());
         if (search !== pageSearch()) window.history.replaceState(window.history.state, "", pageAddress(window.location.pathname, search, window.location.hash));
