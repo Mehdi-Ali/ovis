@@ -587,7 +587,7 @@ function AppearancePage() {
         <SettingsRow icon={MousePointer2} label={t("Show the sidebar on hover")} description={t("On this device, while the sidebar is hidden, resting the mouse on its button shows it over the pane until the mouse leaves. Click the button to keep it open.")}>
           <Toggle label={t("Show the sidebar on hover")} checked={settings.sidebarPeek} onChange={(sidebarPeek) => update({ sidebarPeek })} />
         </SettingsRow>
-        <SettingsRow icon={Inbox} label={t("Agent inbox on a phone")} description={t("On this device, a phone-width window opens on the list of agents, the ones that need you first. A tap opens the agent's chat, and Back returns to the list. Wider windows are unchanged.")} keywords="inbox phone mobile first screen agents list">
+        <SettingsRow icon={Inbox} label={t("Agent inbox on a phone")} description={t("On this device, a phone-width window that opens with no pane in its address shows the list of agents, the ones that need you first; from a pane, the header's Back opens it. A tap opens the agent's chat, and Back returns to the list. Wider windows are unchanged.")} keywords="inbox phone mobile first screen agents list">
           <Toggle label={t("Agent inbox on a phone")} checked={settings.phoneInbox} onChange={(phoneInbox) => update({ phoneInbox })} />
         </SettingsRow>
         <SettingsRow icon={Layers} label={t("Background workspaces apart")} description={t("On this device, workspaces a tool tagged role=background (herdr workspace report-metadata --token role=background) stand after the others under a folded Background workspaces heading. The open one, and one whose agent asks a question, stay in sight.")}>

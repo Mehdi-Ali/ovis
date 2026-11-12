@@ -1967,12 +1967,13 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - A phone's first screen can be the list of agents (AgentInbox.tsx, lib/agentInbox.ts, lib/useInbox.ts).
   It shows when Settings → Appearance → More settings → Sidebar → **Agent inbox on a phone** is on
   (this device's choice, off by default), the window is at most 640px wide (`SHEET_QUERY`), the
-  address names no pane, and the setup guide is not shown. It stands in the pane's place inside
+  address the window opens with names no pane, and the setup guide is not shown; turned on while a
+  pane shows, it opens from the header's **Back to agents** (below). It stands in the pane's place inside
   `.pane-split`, under the app's own header (drawer toggle, brand, More), on `--bg`. While it shows,
   the header has no lens toggle and no connection chip, and More offers only the next waiting agent,
   the command palette and alerts. A wider window, and a phone with the setting off, are unchanged.
 - Anatomy, top to bottom, in one scroller that ends with room for the floating button:
-  - The title **Agents** (`.inbox-title`): `calc(var(--fs-display) * 1.45)`, `--fw-bold`,
+  - The title **Agents** (`.inbox-title`): `calc(var(--fs-display) * 1.45)`, `--fw-semibold`,
     `--tracking-display`, `--lh-tight`, `--text-strong`. It is the screen's heading.
   - The search field (`.inbox-search`, `role="search"`): one `.input` `--touch-target` tall with
     `--radius-lg`, a `--text-dim` glass at `--icon-size` in its leading cell, and its clear button,
@@ -2009,8 +2010,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
     short name) and the tab, joined with ` · `, leaving out what repeats the name.
   - A hairline `--border` under the words, starting at the text past the mark, as a messenger's
     list draws it.
-  A PC that is away draws its rows disabled at the opacity an offline Agents row has, the place
-  ending in **Offline**.
+  A PC that is away draws its rows disabled and faded to 0.55 (an offline Agents row fades to
+  0.5), the place ending in **Offline**.
 - Order: every agent pane of every PC the device shows, needs input first, then running, done and
   ready, the most recently changed first inside a state, by the same displayed state the Agents
   list draws (a finish that was read is ready). While a finger went down in the list in the last
@@ -2026,7 +2027,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   in the drawer toggle's place while the drawer is closed and the guide is not shown), and the
   system Back returns to the list. The list's address names no pane, so a reload keeps it; leaving
   it for a pane pushes one history entry. A link or an alert that names a pane opens that pane
-  directly, and Back from there leads to the list.
+  directly; from there the header's Back opens the list in its place, and the system Back leaves
+  as it would without the list.
 - **New workspace** opens the existing New workspace dialog on the PC chosen: with one connected PC
   directly, with several a sheet of the PCs first (`RowMenu`). A watching device, or one with no
   connected PC, is not offered the button. The system Back closes that dialog over the list.

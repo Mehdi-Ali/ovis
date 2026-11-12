@@ -14,7 +14,8 @@ export const INBOX_FROM_KEY = "ovis:from-inbox";
 export function useInbox({ setting, initialLink, drawerOpenRef }: { setting: boolean; initialLink: AppLink | null; drawerOpenRef: RefObject<boolean> }) {
   const phone = useMediaQuery(SHEET_QUERY);
   const enabled = setting && phone;
-  // open until a pane is picked: a window that narrows again, or a setting turned on, shows the list
+  // open from a start whose address names no pane until a pane is picked (a window widened and narrowed
+  // again before then shows it again); a setting turned on later opens it from the header's Back (back)
   const [open, setOpen] = useState(() => inboxStartsOpen(setting && typeof window !== "undefined" && window.matchMedia?.(SHEET_QUERY).matches === true, initialLink));
   const shown = open && enabled;
   const shownRef = useRef(shown);
