@@ -4157,7 +4157,7 @@ button, a, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [r
 
 /* Local: the markdown file preview's structure colours (gruvbox), used by FileViewer.css. Colour
    literals live here only (the component CSS test). */
-.file-viewer-markdown {
+.file-viewer-markdown, .file-live-editor {
   --md-h1: #fabd2f;
   --md-h2: #83a598;
   --md-h3: #8ec07c;
@@ -4171,7 +4171,7 @@ button, a, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [r
   --md-marker: #fe8019;
 }
 
-[data-theme="light"] .file-viewer-markdown {
+[data-theme="light"] .file-viewer-markdown, [data-theme="light"] .file-live-editor {
   --md-h1: #b57614;
   --md-h2: #076678;
   --md-h3: #427b58;

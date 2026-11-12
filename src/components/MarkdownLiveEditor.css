@@ -1,20 +1,18 @@
-/* Live preview (Atomic Editor) in the file editor: it fills the editor's column, and takes every colour
-   from the app's theme, so it follows dark, light and custom themes instead of Atomic's own palette.
-   The --md-* roles are the Preview's (gruvbox colouring); without them the text colours stand in. */
+/* Live edit (MarkdownLiveEditor.tsx) drawn like the Preview: the same lane, text size, heading steps,
+   gruvbox colour roles (--md-*, styles.css), inline code, links, quotes, rules and tables as
+   `.markdown.file-viewer-markdown` (ChatView.css, FileViewer.css). Atomic Editor's own palette is
+   replaced through its --atomic-editor-* variables; its sizes and weights are overridden below. */
 .file-live-editor {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border: var(--hairline) solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
 }
 
-.file-live-editor > * { flex: 1 1 auto; min-height: 0; }
-
-.file-editor .file-live-editor .atomic-cm-editor {
-  --atomic-editor-bg: var(--bg-input);
+.file-live-editor > .atomic-cm-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  --atomic-editor-bg: transparent;
   --atomic-editor-bg-panel: var(--bg-panel);
   --atomic-editor-bg-surface: var(--bg-elevated);
   --atomic-editor-fg: var(--text);
@@ -29,12 +27,13 @@
   --atomic-editor-selection-bg: var(--selection-bg);
   --atomic-editor-search-bg: var(--accent-tint);
   --atomic-editor-search-bg-active: color-mix(in srgb, var(--accent) 40%, transparent);
-  --atomic-editor-code-bg: var(--bg-elevated);
-  --atomic-editor-code-rail: var(--md-rail, var(--border-strong));
+  --atomic-editor-code-bg: var(--bg-panel);
+  --atomic-editor-code-rail: var(--border);
   --atomic-editor-font: var(--font-ui);
   --atomic-editor-font-mono: var(--font-mono);
-  --atomic-editor-body-size: calc(var(--fs-sm) * var(--file-source-scale, 1));
-  --atomic-editor-measure: 100%;
+  --atomic-editor-body-size: var(--chat-fs-body, var(--fs-sm));
+  --atomic-editor-body-leading: var(--lh-prose);
+  --atomic-editor-measure: var(--chat-w, 72ch);
   --atomic-editor-hl-comment: var(--syntax-comment);
   --atomic-editor-hl-keyword: var(--syntax-keyword);
   --atomic-editor-hl-string: var(--syntax-string);
@@ -48,35 +47,107 @@
   --atomic-editor-hl-regexp: var(--syntax-string);
   --atomic-editor-hl-escape: var(--syntax-meta);
   --atomic-editor-hl-invalid: var(--syntax-deleted);
-  height: 100%;
 }
 
-.file-editor .file-live-editor .cm-content { padding: var(--space-3); }
+.file-live-editor .cm-editor { height: 100%; }
+.file-live-editor .cm-content {
+  padding: var(--space-2) var(--space-2) 40vh;
+  overflow-wrap: anywhere;
+  caret-color: var(--accent);
+}
+.file-live-editor .cm-cursor { border-left-color: var(--accent); }
 
-/* the Preview's colour roles, so a heading reads the same in both */
-.file-editor .file-live-editor .cm-line.cm-atomic-h1 { color: var(--md-h1, var(--text-strong)); }
-.file-editor .file-live-editor .cm-line.cm-atomic-h2 { color: var(--md-h2, var(--text-strong)); }
-.file-editor .file-live-editor .cm-line.cm-atomic-h3 { color: var(--md-h3, var(--text-strong)); }
-.file-editor .file-live-editor .cm-line.cm-atomic-h4,
-.file-editor .file-live-editor .cm-line.cm-atomic-h5,
-.file-editor .file-live-editor .cm-line.cm-atomic-h6 { color: var(--md-h4, var(--text-strong)); }
-.file-editor .file-live-editor .cm-atomic-strong { color: var(--md-strong, inherit); }
-.file-editor .file-live-editor .cm-atomic-em { color: var(--md-em, inherit); }
-.file-editor .file-live-editor .cm-atomic-inline-code { color: var(--md-code, inherit); }
-.file-editor .file-live-editor .cm-line.cm-atomic-blockquote { color: var(--md-quote, var(--text-dim)); }
-.file-editor .file-live-editor .cm-atomic-list-marker,
-.file-editor .file-live-editor .cm-atomic-bullet { color: var(--md-marker, var(--text-dim)); }
+/* headings: the Preview's steps (--fs-h1/h2/h3, then body size), semibold, gruvbox colours, a rule under h1 and h2 */
+.file-live-editor .cm-line[class*="cm-atomic-h"] {
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-heading);
+  letter-spacing: normal;
+  text-transform: none;
+  padding-top: var(--space-4);
+  padding-bottom: var(--space-1);
+}
+.file-live-editor .cm-line.cm-atomic-h1 { font-size: var(--fs-h1); color: var(--md-h1, var(--text-strong)); }
+.file-live-editor .cm-line.cm-atomic-h2 { font-size: var(--fs-h2); color: var(--md-h2, var(--text-strong)); }
+.file-live-editor .cm-line.cm-atomic-h3 { font-size: var(--fs-h3); color: var(--md-h3, var(--text-strong)); }
+.file-live-editor .cm-line.cm-atomic-h4,
+.file-live-editor .cm-line.cm-atomic-h5 { font-size: 1em; color: var(--md-h4, var(--text-strong)); }
+.file-live-editor .cm-line.cm-atomic-h6 { font-size: 1em; color: var(--text-dim); }
+.file-live-editor .cm-line.cm-atomic-h1,
+.file-live-editor .cm-line.cm-atomic-h2 { border-bottom: var(--hairline) solid var(--border); margin-bottom: var(--space-2); }
 
-/* YAML frontmatter (lib/markdownFrontmatter.ts): a quiet monospace block, like a fence */
-.file-editor .file-live-editor .cm-line.cm-ovis-frontmatter {
+.file-live-editor .cm-atomic-strong { color: var(--md-strong, var(--text-strong)); font-weight: var(--fw-semibold); }
+.file-live-editor .cm-atomic-em { color: var(--md-em, inherit); }
+
+.file-live-editor .cm-atomic-inline-code {
+  padding: var(--hairline) var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--md-code, var(--text-strong));
+  font-family: var(--font-mono);
+  font-size: 0.87em;
+}
+
+.file-live-editor .cm-atomic-link {
+  color: var(--md-link, var(--accent));
+  text-decoration: underline;
+  text-decoration-color: var(--text-dim);
+  text-underline-offset: var(--space-1);
+}
+.file-live-editor .cm-atomic-link-icon { background-color: var(--text-dim); }
+
+.file-live-editor .cm-line.cm-atomic-blockquote {
+  padding-left: var(--space-3);
+  border-left: var(--rail-w) solid var(--md-rail, var(--border-strong));
+  color: var(--md-quote, var(--text-dim));
+}
+
+.file-live-editor .cm-atomic-bullet,
+.file-live-editor .cm-atomic-list-marker { color: var(--md-marker, var(--text-dim)); font-weight: normal; }
+
+.file-live-editor .cm-atomic-task-checkbox { border: var(--hairline) solid var(--text-dim); border-radius: calc(var(--radius-sm) / 2); }
+.file-live-editor .cm-atomic-task-checkbox:checked { background: var(--accent); border-color: var(--accent); }
+.file-live-editor .cm-atomic-task-checkbox::after { border-color: var(--bg); }
+
+/* a fenced block: the Preview's code panel, one line at a time */
+.file-live-editor .cm-line.cm-atomic-fenced-code {
+  background: var(--bg-panel);
+  box-shadow: inset var(--hairline) 0 0 var(--border), inset calc(-1 * var(--hairline)) 0 0 var(--border);
+  padding-inline: var(--space-3);
+  font-size: 0.87em;
+  color: var(--text);
+}
+
+/* a rule: the Preview's hairline */
+.file-live-editor .cm-atomic-hr { border-top-color: var(--border); }
+
+/* a drawn table (lib/markdownTables.ts) carries `.markdown`, so the Preview's table rules apply; the
+   wrap only keeps its scroll and gives up the chat's bottom margin */
+.file-live-editor .cm-ovis-table { width: 100%; padding-block: var(--space-2); cursor: text; font-family: var(--font-ui); }
+.file-live-editor .cm-ovis-table .markdown-table-wrap { margin-bottom: 0; }
+.file-live-editor .cm-ovis-table td,
+.file-live-editor .cm-ovis-table th { overflow-wrap: normal; }
+.file-live-editor .cm-ovis-table code {
+  padding: var(--hairline) var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--md-code, var(--text-strong));
+  font-family: var(--font-mono);
+  font-size: 0.87em;
+}
+.file-live-editor .cm-ovis-table strong { color: var(--md-strong, var(--text-strong)); }
+.file-live-editor .cm-ovis-table a { color: var(--md-link, var(--accent)); cursor: pointer; }
+
+/* YAML frontmatter (lib/markdownFrontmatter.ts): a quiet monospace block */
+.file-live-editor .cm-line.cm-ovis-frontmatter {
   font-family: var(--font-mono);
   font-size: 0.85em;
   color: var(--text-dim);
-  background: var(--bg-elevated);
+  background: var(--bg-panel);
+  padding-inline: var(--space-3);
 }
-.file-editor .file-live-editor .cm-line.cm-ovis-frontmatter-fence { color: color-mix(in srgb, var(--text-dim) 60%, transparent); }
+.file-live-editor .cm-line.cm-ovis-frontmatter-fence { color: color-mix(in srgb, var(--text-dim) 60%, transparent); }
 
 /* a phone keeps the size iOS does not zoom the page in for */
 @media (pointer: coarse) {
-  .file-editor .file-live-editor .atomic-cm-editor { --atomic-editor-body-size: max(var(--fs-input), calc(var(--fs-sm) * var(--file-source-scale, 1))); }
+  .file-live-editor > .atomic-cm-editor { --atomic-editor-body-size: max(var(--fs-input), var(--chat-fs-body, var(--fs-sm))); }
 }
