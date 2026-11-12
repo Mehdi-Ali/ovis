@@ -5,7 +5,7 @@ import { agentDisplayLabel } from "../lib/compose.ts";
 import { useT } from "../lib/i18n.ts";
 import { agentName } from "../lib/runtimeMove.ts";
 import { shouldFoldUserMessage } from "../lib/userMessageFold.ts";
-import { clearMachineWaitingSends, currentWaitingSends, dismissWaitingSend, markUnanswered, restingSince, subscribeWaitingSends, WAITING_HINT_MS, WAITING_SEND_MS, waitingKey, type WaitingSend } from "../lib/sentWaiting.ts";
+import { clearMachineWaitingSends, currentWaitingSends, dismissWaitingSend, expireWaitingSends, markUnanswered, restingSince, subscribeWaitingSends, WAITING_HINT_MS, WAITING_SEND_MS, WAITING_STUCK_MS, waitingKey, type WaitingSend } from "../lib/sentWaiting.ts";
 
 /**
  * The sends this browser made to a pane that its transcript does not hold yet. A lost connection
@@ -37,7 +37,8 @@ export function SentWaitingList({ sends, paneKey, resting = false, agent = null,
   const watching = paneKey !== undefined && resting;
   const nextHint = sends.reduce((soonest, send) => {
     const hint = send.at + WAITING_HINT_MS;
-    const due = hint > now || !watching || send.unanswered === true ? hint : send.at + WAITING_SEND_MS;
+    const due = send.unanswered === true || paneKey === undefined || hint > now ? hint
+      : watching && send.at + WAITING_SEND_MS > now ? send.at + WAITING_SEND_MS : send.at + WAITING_STUCK_MS;
     return due > now && due < soonest ? due : soonest;
   }, Number.POSITIVE_INFINITY);
   // the clock as it is now: an agent that comes to rest long after the minute makes the send unanswered at once
@@ -46,7 +47,9 @@ export function SentWaitingList({ sends, paneKey, resting = false, agent = null,
     if (paneKey !== undefined) restingSince(paneKey, resting ? Date.now() : null);
   }, [paneKey, resting]);
   useEffect(() => {
-    if (paneKey !== undefined) markUnanswered(paneKey);
+    if (paneKey === undefined) return;
+    markUnanswered(paneKey);
+    expireWaitingSends(paneKey);
   }, [paneKey, resting, now]);
   useEffect(() => {
     if (nextHint === Number.POSITIVE_INFINITY) return;
@@ -64,9 +67,10 @@ export function SentWaitingList({ sends, paneKey, resting = false, agent = null,
       // capped at the lines its turn's card shows (UserMessage, ChatView.tsx), so the turn takes its
       // place at about its height; the card's fade and Show full message come with the turn
       const capped = shouldFoldUserMessage(send.text);
+      // whole: its turn is not coming to take its place with the card's Show full message
       if (send.unanswered === true) return <div key={send.id} className="chat-turn chat-turn-user chat-turn-unanswered" data-unanswered-send={send.id}>
         <div className="chat-user-row">
-          <div className={capped ? "chat-bubble is-capped" : "chat-bubble"}><div className="chat-bubble-body">{send.text}</div></div>
+          <div className="chat-bubble"><div className="chat-bubble-body">{send.text}</div></div>
         </div>
         <p className="chat-unanswered-note"><span className="chat-unanswered-words"><CircleAlert aria-hidden="true" />{unanswered}</span>
           {onOpenTerminal && <button type="button" className="chat-outcome-action" onClick={onOpenTerminal}>{t("Open Terminal")}</button>}

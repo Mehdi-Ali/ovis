@@ -327,11 +327,17 @@ describe("waitingText", () => {
     } finally { forgetWaitingSends(key); }
   });
 
+  /** a read of the pane, answered at `at` and its body settled by the chat, as ChatView does it */
+  const readAt = (key: string, turns: ConversationTurn[], at: number) => {
+    observeWaitingClock(key, new Date(at).toISOString(), 0, at);
+    settleWaitingSends(key, turns, at, true);
+  };
+
   it("says a send unanswered a minute on, the agent at rest and the chat read since, and keeps it", () => {
     const key = waitingKey("local", "unanswered");
     const earlier = user("earlier", 500);
     try {
-      settleWaitingSends(key, [earlier], 900, true);
+      readAt(key, [earlier], 900);
       rememberWaitingSend(key, "the turn the agent failed before writing it", 1_000);
       // still working: on its way, however long the turn takes
       markUnanswered(key, 1_000 + WAITING_SEND_MS);
@@ -340,11 +346,11 @@ describe("waitingText", () => {
       restingSince(key, 1_000 + WAITING_SEND_MS);
       markUnanswered(key, 1_000 + WAITING_SEND_MS + 1);
       expect(currentWaitingSends(key).map((send) => send.unanswered)).toEqual([undefined]);
-      settleWaitingSends(key, [earlier], 1_000 + WAITING_SEND_MS + 2, true);
+      readAt(key, [earlier], 1_000 + WAITING_SEND_MS + 2);
       markUnanswered(key, 1_000 + WAITING_SEND_MS + 3);
       expect(currentWaitingSends(key).map((send) => [send.text, send.unanswered])).toEqual([["the turn the agent failed before writing it", true]]);
       // its turn coming after all settles it, as any send
-      settleWaitingSends(key, [earlier, user("the turn the agent failed before writing it", 1_000 + WAITING_SEND_MS + 5)], 1_000 + WAITING_SEND_MS + 10, true);
+      readAt(key, [earlier, user("the turn the agent failed before writing it", 1_000 + WAITING_SEND_MS + 5)], 1_000 + WAITING_SEND_MS + 10);
       expect(currentWaitingSends(key)).toEqual([]);
     } finally { forgetWaitingSends(key); }
   });
@@ -352,12 +358,49 @@ describe("waitingText", () => {
   it("counts an unchanged read (a 304) as a read since the agent came to rest", async () => {
     const key = waitingKey("local", "unchanged-read");
     try {
-      settleWaitingSends(key, [user("earlier", 500)], 900, true);
+      readAt(key, [user("earlier", 500)], 900);
       rememberWaitingSend(key, "never recorded", 1_000);
       restingSince(key, 1_000 + WAITING_SEND_MS);
-      observeWaitingClock(key, new Date(1_000 + WAITING_SEND_MS + 5).toISOString(), 0, Date.now());
+      observeWaitingClock(key, new Date(1_000 + WAITING_SEND_MS + 5).toISOString(), 0, Date.now(), true);
       await Promise.resolve();
       expect(currentWaitingSends(key).map((send) => send.unanswered)).toEqual([true]);
+    } finally { forgetWaitingSends(key); }
+  });
+
+  it("judges a send by the turns of the read that came at rest, once the chat holds them, not by the read before", async () => {
+    const key = waitingKey("local", "production-order");
+    try {
+      readAt(key, [user("earlier", 500)], 900);
+      rememberWaitingSend(key, "the turn", 1_000);
+      restingSince(key, 1_500);
+      // the read's answer arrives: its body is not settled yet, and the turns the chat holds are the read before
+      observeWaitingClock(key, new Date(1_000 + WAITING_SEND_MS).toISOString(), 0, 1_000 + WAITING_SEND_MS);
+      await Promise.resolve();
+      expect(currentWaitingSends(key).map((send) => send.unanswered)).toEqual([undefined]);
+      // then the chat settles it: the agent wrote the send in other words
+      settleWaitingSends(key, [user("earlier", 500), user("the turn, reworded", 2_000)], 1_000 + WAITING_SEND_MS, true);
+      await Promise.resolve();
+      expect(currentWaitingSends(key)).toEqual([]);
+      // the agent works, then rests again: a settle again with nothing read is no read since that rest
+      rememberWaitingSend(key, "another", 1_000 + WAITING_SEND_MS + 1);
+      restingSince(key, null);
+      restingSince(key, 1_000 + 2 * WAITING_SEND_MS);
+      settleWaitingSends(key, [user("earlier", 500), user("the turn, reworded", 2_000)], 1_000 + 3 * WAITING_SEND_MS, true);
+      markUnanswered(key, 1_000 + 3 * WAITING_SEND_MS);
+      expect(currentWaitingSends(key).map((send) => send.unanswered)).toEqual([undefined]);
+    } finally { forgetWaitingSends(key); }
+  });
+
+  it("takes no other send's own turn for the one an earlier send never got", () => {
+    const key = waitingKey("local", "claimed");
+    try {
+      readAt(key, [user("earlier", 500)], 900);
+      rememberWaitingSend(key, "failed first", 1_000);
+      rememberWaitingSend(key, "answered second", 1_100);
+      restingSince(key, 1_500);
+      readAt(key, [user("earlier", 500), user("answered second", 1_200)], 1_000 + WAITING_SEND_MS);
+      markUnanswered(key, 1_000 + WAITING_SEND_MS + 1);
+      expect(currentWaitingSends(key).map((send) => [send.text, send.unanswered])).toEqual([["failed first", true]]);
     } finally { forgetWaitingSends(key); }
   });
 
@@ -365,10 +408,10 @@ describe("waitingText", () => {
     for (const written of [user("the turn, as the agent rewrote it", 2_000), { ...user("the turn"), ts: null }]) {
       const key = waitingKey("local", "rewritten");
       try {
-        settleWaitingSends(key, [user("earlier", 500)], 900, true);
+        readAt(key, [user("earlier", 500)], 900);
         rememberWaitingSend(key, "the turn", 1_000);
         restingSince(key, 1_500);
-        settleWaitingSends(key, [user("earlier", 500), written], 1_000 + WAITING_SEND_MS, true);
+        readAt(key, [user("earlier", 500), written], 1_000 + WAITING_SEND_MS);
         markUnanswered(key, 1_000 + WAITING_SEND_MS + 1);
         expect(currentWaitingSends(key)).toEqual([]);
       } finally { forgetWaitingSends(key); }
@@ -392,6 +435,7 @@ describe("waitingText", () => {
     api.settleWaitingSends(key, [], at - 1, true);
     api.rememberWaitingSend(key, text, at);
     api.restingSince(key, at + 1);
+    api.observeWaitingClock(key, new Date(at + WAITING_SEND_MS).toISOString(), 0, at + WAITING_SEND_MS);
     api.settleWaitingSends(key, [], at + WAITING_SEND_MS, true);
     api.markUnanswered(key, at + WAITING_SEND_MS + 1);
   };

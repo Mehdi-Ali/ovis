@@ -6,7 +6,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import type { Machine } from "../../shared/machines.ts";
 import { paneLifetimes } from "../lib/paneLifetime.ts";
 import { SettingsProvider } from "../lib/settings.ts";
-import { currentWaitingSends, forgetWaitingSends, rememberWaitingSend, settleWaitingSends, WAITING_HINT_MS, WAITING_SEND_MS, waitingBaseline, waitingKey, type WaitingSend } from "../lib/sentWaiting.ts";
+import { currentWaitingSends, forgetWaitingSends, observeWaitingClock, rememberWaitingSend, settleWaitingSends, WAITING_HINT_MS, WAITING_SEND_MS, waitingBaseline, waitingKey, type WaitingSend } from "../lib/sentWaiting.ts";
 import { SentWaitingList, useWaitingSends } from "./SentWaiting.tsx";
 
 const at = Date.parse("2026-10-29T03:00:00Z");
@@ -122,13 +122,14 @@ describe("mounted", () => {
       rememberWaitingSend(key, "the turn letta failed", at);
       const renderer = mount(createElement(Chat, { resting: false }));
       act(() => { jest.advanceTimersByTime(WAITING_SEND_MS); });
+      observeWaitingClock(key, new Date().toISOString(), 0, Date.now());
       settleWaitingSends(key, [], Date.now(), true);
       expect(currentWaitingSends(key).map((item) => item.unanswered)).toEqual([undefined]);
       act(() => { renderer.update(createElement(SettingsProvider, { children: createElement(Chat, { resting: true }) })); });
       // at rest, but nothing read since: still on its way
       expect(currentWaitingSends(key).map((item) => item.unanswered)).toEqual([undefined]);
       // the chat's next read, at rest: the turn never came
-      act(() => { jest.advanceTimersByTime(1); settleWaitingSends(key, [], Date.now(), true); });
+      act(() => { jest.advanceTimersByTime(1); observeWaitingClock(key, new Date().toISOString(), 0, Date.now()); settleWaitingSends(key, [], Date.now(), true); });
       await act(async () => { await Promise.resolve(); });
       expect(currentWaitingSends(key).map((item) => item.unanswered)).toEqual([true]);
       expect(renderer.root.findAll((node) => node.props.className === "chat-unanswered-note")).toHaveLength(1);

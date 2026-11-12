@@ -190,10 +190,13 @@ export function waitingBaseline(key: string, now = performance.now(), wall = Dat
  * read whose body was parsed late does not bring its time back. Without a time (an older bridge) the
  * last one stays.
  */
-export function observeWaitingClock(key: string, serverTime: string | null | undefined, received = performance.now(), receivedWall = Date.now()): void {
-  // every answered read, an unchanged one too, is a read since the agent came to rest (markUnanswered)
-  reads.set(key, receivedWall);
-  if (waiting.get(key)?.sends.length) queueMicrotask(() => markUnanswered(key));
+export function observeWaitingClock(key: string, serverTime: string | null | undefined, received = performance.now(), receivedWall = Date.now(), unchanged = false): void {
+  // an answered read is a read since the agent came to rest (markUnanswered) once the chat holds what it read: an
+  // unchanged one (a 304) at once, a new body when the chat settles it (settleWaitingSends)
+  if (unchanged) {
+    reads.set(key, receivedWall);
+    if (waiting.get(key)?.sends.length) queueMicrotask(() => markUnanswered(key));
+  } else answered.set(key, receivedWall);
   const pcTime = serverTime == null ? Number.NaN : Date.parse(serverTime);
   if (Number.isFinite(pcTime) && !((clocks.get(key)?.received ?? Number.NEGATIVE_INFINITY) > received)) clocks.set(key, { pcTime, received, receivedWall });
 }
@@ -221,13 +224,13 @@ export function rememberWaitingSend(key: string, text: string, at = Date.now(), 
   const id = ++nextId;
   pane.sends = [...pane.sends, { id, pane: key, text: typed, at, after, seen: new Set(shown.get(key)?.keys ?? []) }];
   waiting.set(key, pane);
-  setTimeout(() => expireWaitingSends(key), Math.max(0, at + WAITING_STUCK_MS - Date.now()));
   announce();
 }
 
 /**
- * A send still on its way this long after it was sent, the agent never at rest meanwhile (a status stuck at
- * working, a pane that reports none), is let go, as every send was after WAITING_SEND_MS before.
+ * A send still on its way this long after it was sent, its chat open and the agent never at rest meanwhile (a
+ * status stuck at working, a pane that reports none), is let go, as every send was after WAITING_SEND_MS before.
+ * A chat not open keeps its sends: what became of them is told when it is open again.
  */
 export const WAITING_STUCK_MS = 10 * 60_000;
 
@@ -244,6 +247,8 @@ export function expireWaitingSends(key: string, now = Date.now()): void {
 /** when each pane's agent came to rest, as its chat last said (restingSince), and when its transcript was last read */
 const rests = new Map<string, number>();
 const reads = new Map<string, number>();
+/** a read whose body the chat has not settled yet (observeWaitingClock) */
+const answered = new Map<string, number>();
 
 /** The pane's agent is at rest since `at`, or works (null): what markUnanswered goes by. */
 export function restingSince(key: string, at: number | null): void {
@@ -265,7 +270,14 @@ export function markUnanswered(key: string, now = Date.now()): void {
   if (!pane || rest === undefined || read === undefined || (reads.get(key) ?? -Infinity) <= rest) return;
   const due = (send: WaitingSend) => send.unanswered !== true && now - send.at >= WAITING_SEND_MS;
   if (!pane.sends.some(due)) return;
-  const written = (send: WaitingSend) => [...read.keys].some((turn) => !(send.seen ?? new Set()).has(turn));
+  // each user turn the chat read since a send, and no send's own turn, accounts for one send, the oldest first
+  const used = new Set<string>();
+  const written = (send: WaitingSend): boolean => {
+    const turn = [...read.keys].find((turn) => !used.has(turn) && !pane.claimed.has(turn) && !(send.seen ?? new Set()).has(turn));
+    if (turn === undefined) return false;
+    used.add(turn);
+    return true;
+  };
   const machine = key.slice(0, key.indexOf(":"));
   const lifetime = paneLifetimes.generation(machine);
   pane.sends = pane.sends.flatMap((send) => !due(send) ? [send] : written(send) ? []
@@ -355,7 +367,9 @@ export function settleWaitingSends(key: string, turns: readonly Turn[], now = Da
     // the same turns settled again (the waiting list changed) are no new read: the first read's time stays
     const same = before !== undefined && before.latest === latest && before.keys.size === keys.size && [...keys].every((item) => before.keys.has(item));
     if (!same) shown.set(key, { keys, latest, takenAt: now });
-    reads.set(key, now);
+    // the read that brought these turns, now that the chat holds them; a settle again with nothing read is none
+    const read = answered.get(key);
+    if (read !== undefined) { answered.delete(key); reads.set(key, read); }
   }
   restore();
   const pane = waiting.get(key);
