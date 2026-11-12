@@ -223,11 +223,17 @@ const SURFACE = /(?<![[\w-])aria-modal=|<dialog\b|(?<![[\w-])role="(?:dialog|ale
 /** How a component takes part in Back: the helper every surface goes through (lib/sheetHistory.ts), or Settings' own entries. */
 const TAKES_PART = /\b(?:usePhoneSheetBack|useSheetHistory|recordSettings)\(/;
 
-/** A module's top-level functions and components: each one's name, and its source with the comments blanked. */
+/**
+ * A module's top-level functions and components: each one's name, and its source with the comments
+ * blanked, up to the next one. What comes before the first is `(module)`, so no line is left unread.
+ */
 function declarations(source: string): Array<{ name: string; code: string }> {
   const code = stripComments(source);
   const starts = [...code.matchAll(/^(?:export )?(?:default )?(?:async )?function\s+(\w+)|^(?:export )?const\s+(\w+)\b[^=\n]*=\s*(?:memo\(|forwardRef\b|\(|function\b|async\b)/gm)];
-  return starts.map((match, index) => ({ name: match[1] ?? match[2]!, code: code.slice(match.index, starts[index + 1]?.index ?? code.length) }));
+  return [
+    { name: "(module)", code: code.slice(0, starts[0]?.index ?? code.length) },
+    ...starts.map((match, index) => ({ name: match[1] ?? match[2]!, code: code.slice(match.index, starts[index + 1]?.index ?? code.length) })),
+  ];
 }
 
 describe("surfaces over the app", () => {
@@ -247,7 +253,10 @@ describe("surfaces over the app", () => {
     .flatMap((file) => declarations(read(file)).filter(({ code }) => SURFACE.test(code)).map(({ name, code }) => ({ id: `${file}#${name}`, takesPart: TAKES_PART.test(code) })));
 
   it("take part in Back", () => {
-    expect(surfaces.length).toBeGreaterThan(20);
+    // the scan reads the code as it is written: a surface of each kind is among those it finds
+    // (the drawer, a modal dialog, a native one, a menu, a list of choices)
+    const kinds = ["src/App.tsx#App", "src/components/ConfirmDialog.tsx#ConfirmDialog", "src/components/MachineDialog.tsx#MachineDialog", "src/components/RowMenu.tsx#RowMenu", "src/components/AgentPicker.tsx#AgentPicker"];
+    expect(kinds.filter((id) => !surfaces.some((surface) => surface.id === id))).toEqual([]);
     const offenders = surfaces.filter(({ id, takesPart }) => !takesPart && !(id in OWN_ENTRY) && !(id in LEFT_ALONE)).map(({ id }) => id);
     fail(offenders, "A component that draws a surface over the app (aria-modal, <dialog>, or role dialog, alertdialog, menu or listbox) calls usePhoneSheetBack(onClose, open) from src/lib/sheetHistory.ts: on a phone, Back then closes it, where it would leave the app with it still open (an onClose that returns false keeps a busy one). A surface whose history entry a hook of its own pushes goes in OWN_ENTRY with that module, and one Back must leave alone in LEFT_ALONE with the reason.");
   });
@@ -269,7 +278,7 @@ describe("surfaces over the app", () => {
     expect(found("node.closest('[role=\"dialog\"], [aria-modal=\"true\"]')")).toBe(false);
     expect(found("// <div role=\"menu\">")).toBe(false);
     expect(found("<span role=\"tooltip\">")).toBe(false);
-    expect(declarations("export function A() { return <div role=\"menu\" />; }\nfunction b() {}\nexport const C = forwardRef(function C() { return null; });").map(({ name }) => name)).toEqual(["A", "b", "C"]);
+    expect(declarations("const menu = <div role=\"menu\" />;\nexport function A() { return menu; }\nfunction b() {}\nexport const C = forwardRef(function C() { return null; });").map(({ name, code }) => [name, SURFACE.test(code)])).toEqual([["(module)", true], ["A", false], ["b", false], ["C", false]]);
   });
 });
 
