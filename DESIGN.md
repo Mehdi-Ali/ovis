@@ -4340,7 +4340,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   previous/next and close controls, with a dim note that scrolling is shared by all clients.
   A phone places the query above the controls so neither counts nor touch targets are cut.
   Enter searches backward initially, then advances forward; Shift+Enter goes backward.
-  Escape closes the bar and returns desktop focus to the terminal without changing its viewport.
+  Escape closes the bar and returns desktop focus to the terminal without changing its viewport;
+  a phone's Back closes it too, after the keyboard.
   Searches are explicit, literal and supplied by herdr; no browser scrollback is added.
 - `TerminalViewportTools` paints accent overlays for native, inclusive cell ranges after checking
   the corresponding text and cell widths in xterm's current attach buffer. The current result has

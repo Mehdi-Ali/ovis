@@ -2,8 +2,9 @@
  * A phone's Back closes what is open, one thing at a time, and never leaves the app with something
  * still on the screen. At 390x844 by touch: the workspace drawer; a row's ⋯ menu over the drawer,
  * then the drawer; the New workspace dialog opened from the drawer, the agent list and the folder
- * browser inside it, then the dialog; the header's More sheet; the drawer with another pane opened
- * before it, which stays the pane shown. On its side (844x390) a menu is a popover, and Back closes
+ * browser inside it, then the dialog; the header's More sheet; the terminal's find bar, which goes
+ * and leaves the terminal shown; the drawer with another pane opened before it, which stays the
+ * pane shown. On its side (844x390) a menu is a popover, and Back closes
  * it the same. Back on the first screen, with nothing open, leaves the app.
  *
  * Chromium's own Back skips every entry of a page that added one with no tap since its last Back or
@@ -177,6 +178,20 @@ try {
       await back(page);
       await sheet.waitFor({ state: "detached" });
       await stillHere(page, origin, shown, "the header's More sheet");
+
+      // Find in terminal, from the same sheet: Back closes the bar and keeps the terminal
+      await page.locator(".header-more-button").tap();
+      await sheet.getByRole("button", { name: "Find…" }).tap();
+      await page.locator(".row-sheet").getByRole("button", { name: "Find in terminal" }).tap();
+      const find = page.locator(".find-bar");
+      await find.waitFor();
+      await entryHeld(page);
+      await back(page);
+      await find.waitFor({ state: "detached" });
+      await stillHere(page, origin, shown, "the terminal's find bar");
+      assert.equal(await page.locator(".pane-column.is-chat").count(), 0, "the terminal's find bar: Back closes the bar and leaves the terminal shown");
+      await page.locator(".lens-toggle").tap();
+      await page.locator(".pane-column.is-chat").waitFor();
 
       // another pane opened first: Back with the drawer open closes the drawer, and does not go to the pane before
       await page.locator(".drawer-toggle").tap();
