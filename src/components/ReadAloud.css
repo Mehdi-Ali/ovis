@@ -1,0 +1,50 @@
+/* local patch: read aloud, in the chat and the Markdown file viewer. Bottom right of the message area
+   (the turn rail is on the left, the jump pill in the middle) or of the file's body. On a phone the
+   buttons take the touch target size like the jump pill. */
+.read-aloud-controls {
+  position: absolute;
+  right: var(--space-2);
+  bottom: calc(var(--space-2) + var(--composer-over, 0px));
+  z-index: var(--z-popover);
+  display: flex;
+  gap: var(--space-1);
+}
+
+.read-aloud-btn {
+  min-height: var(--control-h);
+  box-shadow: var(--shadow-pop);
+  border-radius: var(--radius-pill);
+}
+
+.read-aloud-btn svg { width: var(--icon-size); height: var(--icon-size); }
+
+.read-aloud-spin { animation: markdown-code-run-spin 0.9s linear infinite; }
+
+@media (pointer: coarse) {
+  .read-aloud-btn.is-icon {
+    width: var(--touch-target);
+    min-height: var(--touch-target);
+  }
+}
+
+/* the sentence being read and the word being said; ::highlight allows only these properties */
+::highlight(read-aloud-sentence) {
+  color: #9a6cf0;
+  background-color: rgb(154 108 240 / 0.14);
+}
+
+::highlight(read-aloud-word) {
+  color: #ecdfff;
+  background-color: rgb(154 108 240 / 0.55);
+  text-decoration: underline;
+}
+
+/* the file viewer and reader: the last thing in the document's scroll box, stuck to its bottom right
+   while the reader is above it, so it never covers the outline column */
+.file-viewer-body > .read-aloud-controls {
+  position: sticky;
+  right: auto;
+  bottom: var(--space-2);
+  width: fit-content;
+  margin-left: auto;
+}

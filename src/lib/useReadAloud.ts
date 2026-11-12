@@ -26,6 +26,11 @@ function registry(): { highlights: HighlightRegistry; Highlight: HighlightCtor }
   return highlights && Highlight ? { highlights, Highlight } : null;
 }
 
+/** Test renderers have no animation frames; stop() runs on every mount, so it must not need one. */
+function cancelFrame(id: number) {
+  if (id !== 0 && typeof cancelAnimationFrame === "function") cancelAnimationFrame(id);
+}
+
 function clearHighlights() {
   const reg = registry();
   reg?.highlights.delete(SENTENCE_HL);
@@ -74,10 +79,13 @@ export interface ReadAloud {
  * `frame` is the chat's message area: only a selection inside it is read, and the last reply is
  * found in it. `lastReply` is that reply's markdown, `active` false stops any reading.
  */
-export function useReadAloud(opts: { paneId: string; machineId: string; frame: RefObject<HTMLElement | null>; lastReply: () => string; active: boolean }): ReadAloud {
+export function useReadAloud(opts: { paneId: string; machineId: string; frame: RefObject<HTMLElement | null>; lastReply: () => string; active: boolean; fallbackRoot?: () => Node | null }): ReadAloud {
   const { paneId, machineId, frame, active } = opts;
   const lastReply = useRef(opts.lastReply);
   lastReply.current = opts.lastReply;
+  // where the text read without a selection is drawn: the chat's last reply, or what the caller names
+  const fallbackRoot = useRef(opts.fallbackRoot);
+  fallbackRoot.current = opts.fallbackRoot;
   const [state, setState] = useState<ReadState>("idle");
   const audio = useRef<HTMLAudioElement | null>(null);
   const run = useRef<Run | null>(null);
@@ -94,7 +102,7 @@ export function useReadAloud(opts: { paneId: string; machineId: string; frame: R
   }, []);
 
   const stop = useCallback(() => {
-    cancelAnimationFrame(raf.current);
+    cancelFrame(raf.current);
     const r = run.current;
     run.current = null;
     if (r) release(r);
@@ -134,7 +142,8 @@ export function useReadAloud(opts: { paneId: string; machineId: string; frame: R
     if (!reg || !seg || !seg.raw) { clearHighlights(); nodes.current = { texts: [], list: [], sentence: null, seg: null }; return; }
     const common = r.source.range?.commonAncestorContainer ?? null;
     const replies = frame.current?.querySelectorAll(".chat-turn-agent");
-    const root = common ? (common.nodeType === Node.TEXT_NODE ? common.parentNode : common) : replies?.item(replies.length - 1) ?? null;
+    const fallback = fallbackRoot.current ? fallbackRoot.current() : replies?.item(replies.length - 1) ?? null;
+    const root = common ? (common.nodeType === Node.TEXT_NODE ? common.parentNode : common) : fallback;
     if (!root) { clearHighlights(); return; }
     const list = textNodes(root, r.source.range);
     const texts = list.map((t) => t.nodeValue ?? "");
@@ -191,7 +200,7 @@ export function useReadAloud(opts: { paneId: string; machineId: string; frame: R
     if (run.current !== r) return;
     paintSentence(r, index);
     setState("playing");
-    cancelAnimationFrame(raf.current);
+    cancelFrame(raf.current);
     raf.current = requestAnimationFrame(tick);
   }, [fetchAhead, paintSentence, stop, tick]);
 
@@ -231,11 +240,11 @@ export function useReadAloud(opts: { paneId: string; machineId: string; frame: R
     if (!el || !run.current) return;
     if (el.paused) {
       void el.play().then(() => setState("playing"), () => undefined);
-      cancelAnimationFrame(raf.current);
+      cancelFrame(raf.current);
       raf.current = requestAnimationFrame(tick);
     } else {
       el.pause();
-      cancelAnimationFrame(raf.current);
+      cancelFrame(raf.current);
       setState("paused");
     }
   }, [tick]);
