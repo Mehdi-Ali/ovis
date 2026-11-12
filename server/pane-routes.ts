@@ -474,7 +474,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
     if (typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > TTS_MAX_CHARS) return badRequest("invalid_text", `text must be a non-empty string under ${TTS_MAX_CHARS} characters`);
     try {
       const wav = await speak(payload.text);
-      return new Response(wav, { headers: { "content-type": "audio/wav", "cache-control": "no-store" } });
+      return new Response(new Blob([wav], { type: "audio/wav" }), { headers: { "content-type": "audio/wav", "cache-control": "no-store" } });
     } catch (error) {
       return errorResponse(error);
     }

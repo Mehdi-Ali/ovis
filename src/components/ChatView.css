@@ -2418,3 +2418,43 @@ ol.markdown-list {
 .chat-abandoned { margin: var(--space-2) 0; }
 .chat-abandoned > summary { font-style: italic; }
 .chat-abandoned-note { margin: var(--space-2) 0 0; color: var(--text-dim); }
+
+/* local patch: read aloud. Bottom right of the message area: the turn rail is on the left, the jump
+   pill in the middle. On a phone the buttons take the touch target size like the jump pill. */
+.read-aloud-controls {
+  position: absolute;
+  right: var(--space-2);
+  bottom: calc(var(--space-2) + var(--composer-over, 0px));
+  z-index: var(--z-popover);
+  display: flex;
+  gap: var(--space-1);
+}
+
+.read-aloud-btn {
+  min-height: var(--control-h);
+  box-shadow: var(--shadow-pop);
+  border-radius: var(--radius-pill);
+}
+
+.read-aloud-btn svg { width: var(--icon-size); height: var(--icon-size); }
+
+.read-aloud-spin { animation: markdown-code-run-spin 0.9s linear infinite; }
+
+@media (pointer: coarse) {
+  .read-aloud-btn.is-icon {
+    width: var(--touch-target);
+    min-height: var(--touch-target);
+  }
+}
+
+/* the sentence being read and the word being said; ::highlight allows only these properties */
+::highlight(read-aloud-sentence) {
+  color: #9a6cf0;
+  background-color: rgb(154 108 240 / 0.14);
+}
+
+::highlight(read-aloud-word) {
+  color: #ecdfff;
+  background-color: rgb(154 108 240 / 0.55);
+  text-decoration: underline;
+}

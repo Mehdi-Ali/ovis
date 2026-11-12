@@ -12,7 +12,7 @@ const TTS_SPEED = 1.1;
 const TTS_TIMEOUT_MS = 90_000;
 
 type Reply = { id?: number; path?: string; error?: string; ready?: boolean };
-type Worker = { proc: ReturnType<typeof Bun.spawn>; waiting: Map<number, (reply: Reply) => void>; dead: boolean };
+type Worker = { proc: Bun.Subprocess<"pipe", "pipe", "ignore">; waiting: Map<number, (reply: Reply) => void>; dead: boolean };
 
 let worker: Worker | null = null;
 let nextId = 0;
@@ -33,7 +33,7 @@ function spawnWorker(): Worker {
     const decoder = new TextDecoder();
     let pending = "";
     try {
-      for await (const chunk of proc.stdout as ReadableStream<Uint8Array>) {
+      for await (const chunk of proc.stdout) {
         pending += decoder.decode(chunk, { stream: true });
         const lines = pending.split("\n");
         pending = lines.pop() ?? "";
@@ -53,7 +53,7 @@ function spawnWorker(): Worker {
   return made;
 }
 
-async function synthesize(text: string): Promise<Uint8Array> {
+async function synthesize(text: string): Promise<ArrayBuffer> {
   const live = worker !== null && !worker.dead ? worker : (worker = spawnWorker());
   const id = ++nextId;
   const reply = await new Promise<Reply>((resolve) => {
@@ -65,8 +65,8 @@ async function synthesize(text: string): Promise<Uint8Array> {
     }, TTS_TIMEOUT_MS);
     live.waiting.set(id, (r) => { clearTimeout(timer); resolve(r); });
     try {
-      live.proc.stdin!.write(`${JSON.stringify({ id, text, voice: TTS_VOICE, speed: TTS_SPEED })}\n`);
-      void live.proc.stdin!.flush();
+      live.proc.stdin.write(`${JSON.stringify({ id, text, voice: TTS_VOICE, speed: TTS_SPEED })}\n`);
+      void live.proc.stdin.flush();
     } catch {
       clearTimeout(timer);
       live.waiting.delete(id);
@@ -75,14 +75,15 @@ async function synthesize(text: string): Promise<Uint8Array> {
   });
   if (reply.error !== undefined || typeof reply.path !== "string") throw new Error(reply.error ?? "tts gave no audio");
   try {
-    return new Uint8Array(await readFile(reply.path));
+    const bytes = await readFile(reply.path);
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   } finally {
     void unlink(reply.path).catch(() => undefined);
   }
 }
 
 /** The WAV (24 kHz mono 16-bit) for one sentence. Calls are served one at a time. */
-export function speak(text: string): Promise<Uint8Array> {
+export function speak(text: string): Promise<ArrayBuffer> {
   const run = queue.then(() => synthesize(text));
   queue = run.catch(() => undefined);
   return run;

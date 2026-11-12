@@ -13,6 +13,8 @@ import "./ChatTimeline.css";
 import { AgentMark } from "./AgentMark.tsx";
 import { AnimatedHeight } from "./AnimatedHeight.tsx";
 import { CodeRunContext, Markdown, ReservedImage } from "./Markdown.tsx";
+import { ReadAloudControls } from "./ReadAloudControls.tsx";
+import { useReadAloud } from "../lib/useReadAloud.ts";
 import { ChatMarkdownImages } from "./ChatMarkdownImages.tsx";
 import { ImageLightbox } from "./ImageLightbox.tsx";
 import { PromptCard } from "./PromptCard.tsx";
@@ -2955,6 +2957,16 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
       {loaded && empty && error === null && prompt === null && activity === "idle" && !(greeted && blank) && sentWaiting.length === 0 && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
   </>;
+  // local patch: read aloud (the selection inside the messages, else the last reply); a send, another pane or unmounting stops it
+  const frameBody = useRef<HTMLDivElement>(null);
+  const lastReply = useCallback(() => {
+    if (state.source !== "conversation") return [...state.messages].reverse().find((m) => m.role !== "user" && m.text.trim() !== "")?.text ?? "";
+    const turn = [...shownTurns].reverse().find((candidate) => candidate.role === "assistant" && candidate.parts.some((part) => part.kind === "text" && part.failed !== true && part.text.trim() !== ""));
+    return turn?.parts.flatMap((part) => part.kind === "text" && part.failed !== true ? [part.text] : []).join("\n\n") ?? "";
+  }, [state.source, state.messages, shownTurns]);
+  const readAloud = useReadAloud({ paneId, machineId, frame: frameBody, lastReply, active: active && visible });
+  const stopReading = readAloud.stop;
+  useEffect(() => { stopReading(); }, [sentKey, stopReading]);
   const jump = newMessages ? <button type="button" className="btn chat-new-messages chat-virtual-jump" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
     : away && <button type="button" className="btn chat-new-messages chat-virtual-jump is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>;
   return <ChatMarkdownImages paneId={paneId} cwd={cwd} connected={connected} onOpen={openMarkdownImage}><FileNameLookupContext.Provider value={fileNames}><ChatPaneContext.Provider value={paneId}><CodeRunContext.Provider value={runAdb}><ChatHistoryContext.Provider value={historyId ?? ""}><ImageViewerContext.Provider value={openViewer}><ToolPathRootContext.Provider value={toolPathRoot(cwd)}>
@@ -2963,7 +2975,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
       && endPresentation?.state === state && endPresentation.key === presentationKey
       && (agentStatus !== "done" || conversationFinishPresented({ source: state.conversationSource, turns: state.turns }))
       && readPresentation === presentationKey && (state.source === "conversation" ? ChatTimeline !== null : agent === null) ? presentationKey : undefined}>
-    <div className="chat-frame-body">
+    <div className="chat-frame-body" ref={frameBody}>
     {state.source === "conversation" ? ChatTimeline === null
       // its chunk is still loading: no turn is read until it arrives, so this is the loading state
       ? <div className="chat-view chat-view-virtual" role="log" aria-live="polite" aria-label={logLabel}>
@@ -2997,6 +3009,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
     </div>}
     {state.source === "conversation" && <ChatMinimap turns={minimap} rowKeys={rowKeys} scroller={scroller} onJump={jumpToTurn} onWheel={minimapWheel} />}
     {jump}
+    {state.source === "conversation" && loaded && !ended && <ReadAloudControls read={readAloud} />}
     {/* only a pane this device may send to takes quotes and comments: they go with its next message */}
     {state.source === "conversation" && interactive && !ended && <ReplyCommentAction scroller={scroller} storageKey={replyCommentsKey(paneStorageId(machineId, paneId))} paneKey={quotable ? paneStorageId(machineId, paneId) : null} />}
     </div>
