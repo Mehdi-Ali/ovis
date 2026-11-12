@@ -181,3 +181,21 @@ test("sends nothing for an answer given up during the read before its key", asyn
     expect(pane.sent).toEqual([]);
   });
 });
+
+// The agent lab's agents whose generic cards changed id every second (agent-lab audit, 2026-11-12): each recorded twice,
+// a few seconds apart, while its question or approval waited, then a change of words that must still be another card
+test.each([
+  ["hermes", "Which color?", "Which size?"],
+  ["muse", "Request user input Color", "Request user input Size"],
+  ["maki", "List directory contents", "Remove directory contents"],
+  ["kimi", "Using Shell (ls -la)", "Using Shell (rm -rf .)"],
+  ["dsh-tui", "Checking with you", "Deleting for you"],
+])("keeps %s's card while its timer or spinner redraws, and not once its words change", (agent, from, to) => {
+  const [before, after] = ["a", "b"].map((frame) => recorded(`lab-${agent}-waiting-${frame}`)) as [string, string];
+  expect(after).not.toBe(before);
+  expect(parseFallbackPrompt(agent, after).id).toBe(parseFallbackPrompt(agent, before).id);
+  // Muse turns its glyph through three frames
+  if (agent === "muse") expect(parseFallbackPrompt(agent, after.replace("\u25c7 Request", "\u25c6 Request")).id).toBe(parseFallbackPrompt(agent, before).id);
+  expect(after).toContain(from);
+  expect(parseFallbackPrompt(agent, after.replace(from, to)).id).not.toBe(parseFallbackPrompt(agent, before).id);
+});
