@@ -258,6 +258,33 @@ describe("a phone's sheet in the history", () => {
     expect(fake.at()).toBe(start);
   });
 
+  it("hands the entry back to a sheet that stays when the one over it closes itself: no step, and no entry made after one", async () => {
+    const start = fake.at();
+    let drawerClosed = 0;
+    let pops = 0;
+    fake.window.addEventListener("popstate", () => { pops += 1; });
+    // a phone's drawer (staying), a row's ⋯ menu over it, closed by its Cancel
+    const leaveDrawer = hooks.enter(() => { drawerClosed += 1; }, true);
+    const leaveMenu = hooks.enter(() => {});
+    const entries = fake.entries.length;
+    leaveMenu(); await settled();
+    expect(pops).toBe(0); expect(fake.entries.length).toBe(entries);
+    expect(drawerClosed).toBe(0); expect(fake.at()).toBe(start + 1); expect(fake.marks()[start + 1]).toBe(true);
+    // through a sheet that closed as another opened from it: the menu's item opens a confirmation, whose Cancel hands the entry back too
+    const leaveMenuAgain = hooks.enter(() => {});
+    leaveMenuAgain();
+    const leaveConfirm = hooks.enter(() => {});
+    await settled();
+    leaveConfirm(); await settled();
+    expect(pops).toBe(0); expect(fake.entries.length).toBe(entries);
+    expect(drawerClosed).toBe(0); expect(fake.at()).toBe(start + 1);
+    // the entry is the drawer's own again: Back closes it, and it alone
+    h.back(); await settled();
+    expect(drawerClosed).toBe(1); expect(fake.at()).toBe(start);
+    leaveDrawer(); await settled();
+    expect(fake.at()).toBe(start);
+  });
+
   it("keeps a sheet that stays up under a navigation, and makes its entry again when the navigation goes", async () => {
     const start = fake.at();
     let closed = 0;
@@ -274,13 +301,23 @@ describe("a phone's sheet in the history", () => {
     leave(); await settled();
   });
 
-  it("closes any other sheet still up under one opened over it with that one, as before", async () => {
-    // the Files dialog under the palette: the palette's close steps off and closes Files too
+  it("leaves a sheet still up under one opened over it: Back closes the one on top, and its own close comes back to the one under", async () => {
+    // the Files dialog under a confirmation (merging a pull request): neither the confirmation's Cancel nor a Back closes Files
     const start = fake.at();
     let filesClosed = 0;
+    let confirmClosed = 0;
     const leaveFiles = hooks.enter(() => { filesClosed += 1; });
-    const leavePalette = hooks.enter(() => {});
-    leavePalette(); await settled();
+    const leaveConfirm = hooks.enter(() => { confirmClosed += 1; });
+    expect(fake.at()).toBe(start + 1);
+    leaveConfirm(); await settled();
+    expect(filesClosed).toBe(0); expect(fake.at()).toBe(start + 1); expect(fake.marks()[start + 1]).toBe(true);
+    const leaveConfirmAgain = hooks.enter(() => { confirmClosed += 1; });
+    h.back(); await settled();
+    expect(confirmClosed).toBe(1); expect(filesClosed).toBe(0);
+    expect(fake.at()).toBe(start + 1); expect(fake.marks()[start + 1]).toBe(true);
+    leaveConfirmAgain(); await settled();
+    // the next Back is the dialog's own
+    h.back(); await settled();
     expect(filesClosed).toBe(1); expect(fake.at()).toBe(start);
     leaveFiles(); await settled();
     expect(fake.at()).toBe(start);
@@ -317,7 +354,7 @@ describe("a phone's sheet in the history", () => {
   });
 
   // last: Settings' module stays on this browser from here, after this module, as in the app
-  it("keeps Settings opened before a closed palette's step lands, over a peek that stays up too (#2000)", async () => {
+  it("keeps Settings opened as the palette closes over a peek that stays up: the palette's entry is the peek's again, with no step left to land under Settings (#2000)", async () => {
     const settingsPath = "./settingsHistory.ts?with-sheets";
     const settings: typeof import("./settingsHistory.ts") = await import(settingsPath);
     const moves: Array<boolean> = [];
@@ -328,8 +365,9 @@ describe("a phone's sheet in the history", () => {
     fake.defer(true);
     leavePalette();
     jest.advanceTimersByTime(0);
-    expect(fake.pending()).toBe(true);
-    // Settings opens before the palette's step back lands
+    // the palette handed its entry back to the peek: no step back is on its way
+    expect(fake.pending()).toBe(false);
+    // Settings opens in the palette's closing click
     settings.recordSettings(settings.settingsLevels(true, null, false));
     await settled();
     fake.defer(false);
