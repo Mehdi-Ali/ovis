@@ -10,6 +10,7 @@ import { ensureSyntaxTree, indentOnInput, LanguageDescription, LanguageSupport, 
 import { search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { drawSelection, dropCursor, EditorView, highlightSpecialChars, keymap } from "@codemirror/view";
+import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { useEffect, useRef } from "react";
 
 import { frontmatterLook, frontmatterSyntax } from "../lib/markdownFrontmatter.ts";
@@ -55,6 +56,12 @@ export function liveMarkdownExtensions(link: (href: string) => void): Extension[
     previewLook,
   ];
 }
+
+/** Local: VS Code style indent guides in the file editor's Live edit (not the composer). Colours take the theme's tokens. */
+const indentGuides = indentationMarkers({
+  thickness: 1,
+  colors: { light: "var(--border)", dark: "var(--border)", activeLight: "var(--md-rail)", activeDark: "var(--md-rail)" },
+});
 
 /** The live editor's headings for the viewer's outline (MarkdownOutline), and how to find them in the editor. */
 export interface LiveOutline {
@@ -150,6 +157,7 @@ export default function MarkdownLiveEditor({ documentId, text, onChange, readOnl
         doc: text,
         extensions: [
           ...liveMarkdownExtensions(link),
+          indentGuides,
           EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
           readOnlyPart.current.of(readOnlyExtension(latest.current.readOnly)),
           EditorView.updateListener.of((update) => {

@@ -441,6 +441,11 @@
   color: var(--md-quote);
 }
 .markdown.file-viewer-markdown .markdown-list > li::marker { color: var(--md-marker); }
+/* Local: indent guides, a hairline down each nested list lined up with the parent item's text,
+   like the editor's guides in Live edit. */
+.markdown.file-viewer-markdown .markdown-list .markdown-list {
+  border-inline-start: var(--hairline) solid var(--border);
+}
 
 /*
  * Settings > File viewer > Markdown outline (MarkdownOutline.tsx). The body's wrapper takes no box
