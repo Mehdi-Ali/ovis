@@ -231,7 +231,7 @@ try {
           }
           await page.locator('.inbox-filter[data-status="all"]').tap();
           await rowCount(page, 6);
-          pass(3, "INPUT, RUN and DONE each narrow the list to their row, and All draws the six again");
+          pass(3, "Needs you, Working and Done each narrow the list to their row, and All draws the six again");
 
           const search = page.locator(".inbox-search-input");
           await search.fill("export");

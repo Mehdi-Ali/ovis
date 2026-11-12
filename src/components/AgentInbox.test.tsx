@@ -9,7 +9,7 @@ import machinesFixture from "../../site/demo/fixtures/machines.json";
 import { inboxKey, inboxOrder, type InboxFilter } from "../lib/agentInbox.ts";
 import * as api from "../lib/api.ts";
 import { PanePressContext } from "../lib/paneSubmitContext.ts";
-import { SettingsProvider } from "../lib/settings.ts";
+import { AGENT_GROUP_SORT_STORAGE_KEY, SettingsProvider } from "../lib/settings.ts";
 import type { SidebarActivity } from "../lib/sidebarActivity.tsx";
 
 // the prompt read is the only request the list makes: each test answers it itself
@@ -144,6 +144,19 @@ describe("AgentInbox", () => {
   };
   const newButton = { isConnected: true, focus() {}, querySelector: () => null, closest: () => null };
   const item = (root: ReactTestInstance, paneId: string) => byClass(root, "inbox-item").find((node) => node.props["data-pane"] === paneId)!;
+
+  it("orders the rows inside a state as this device's Within a state does: the longest wait first, or by the Agents list's names", async () => {
+    // every agent resting, each changed at another time: by wait, by name and in herdr's order they all differ
+    const seqs = new Map([["w1C:p1", 1], ["w1E:p1", 2], ["w1F:p1", 3], ["w1D:p1", 4]]);
+    const resting: SidebarActivity = { seqs: () => seqs, status: () => "idle" };
+    expect(order(await draw(roster(), { activity: resting }))).toEqual(["w1C:p1", "w1E:p1", "w1F:p1", "w1D:p1"]);
+    await act(async () => { renderer?.unmount(); });
+
+    // the device's choice, kept in a key of its own (lib/settings.ts)
+    const stored: Record<string, string> = { [AGENT_GROUP_SORT_STORAGE_KEY]: JSON.stringify("name") };
+    Object.assign(window, { localStorage: { getItem: (key: string) => stored[key] ?? null, setItem() {}, removeItem() {} } });
+    expect(order(await draw(roster(), { activity: resting }))).toEqual(["w1D:p1", "w1C:p1", "w1F:p1", "w1E:p1"]);
+  });
 
   it("draws one row per agent, in the inbox's order", async () => {
     const machines = roster();

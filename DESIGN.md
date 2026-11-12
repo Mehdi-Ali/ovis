@@ -2016,7 +2016,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   ready, by the same displayed state the Agents list draws (a finish that was read is ready), and
   inside a state in the order the Agents list grouped by state uses: this device's Settings →
   Within a state (the longest in the state first by default, each PC's rows apart; Name by the
-  title its row draws). While a finger went down in the list in the last
+  one-line title the Agents list's row draws, which can differ from the name the inbox row shows).
+  While a finger went down in the list in the last
   second, or the focus is inside it, the rows keep the order last drawn: a row never moves under a
   finger.
 - The filters are **All**, **Needs you**, **Working** and **Done**, the Agents list's group headings
