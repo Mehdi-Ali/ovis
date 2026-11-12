@@ -6,6 +6,7 @@ import { heldOrder, INBOX_FILTERS, inboxEmpty, inboxFiltered, inboxKey, inboxOrd
 import { agentGroup, type AgentRow } from "../lib/agentRoster.ts";
 import { useT } from "../lib/i18n.ts";
 import { PanePressContext } from "../lib/paneSubmitContext.ts";
+import { useSettings } from "../lib/settings.ts";
 import { agentName } from "../lib/runtimeMove.ts";
 import type { SidebarActivity } from "../lib/sidebarActivity.tsx";
 import { agentContext, agentTabName, paneMark } from "../lib/sidebarAgents.ts";
@@ -33,6 +34,8 @@ export interface AgentInboxProps {
 
 /** the marks drawn as a full tile, which fill the round face; the others sit on it as a glyph */
 const TILE_MARKS = new Set(["claude", "omp", "omo"]);
+/** a filter's words: the Agents list's heading for the same state */
+const FILTER_WORD: Record<Exclude<InboxFilter, "all">, string> = { blocked: "Needs you", working: "Working", done: "Done" };
 /** how long after a press in the list its rows keep their order */
 const PRESS_HOLD_MS = 1000;
 
@@ -48,7 +51,10 @@ export function AgentInbox({ machines, activity, watching, filter, onFilter, que
   const scroller = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const radios = useRef(new Map<InboxFilter, HTMLButtonElement>());
-  const all = useMemo(() => inboxOrder(machines, activity), [machines, activity]);
+  const { settings } = useSettings();
+  // within a state, the Agents list's own order (Settings → Within a state), names as its rows draw them
+  const { agentGroupSort: sort, sidebarRows } = settings;
+  const all = useMemo(() => inboxOrder(machines, activity, { sort, name: (row) => agentRowTitle(row, sidebarRows === "one").drawn }), [machines, activity, sort, sidebarRows]);
   const questions = useInboxQuestions(questionTargets(all, activity));
   const found = inboxSearched(inboxFiltered(all, filter, activity), query, machines, t);
 
@@ -140,7 +146,7 @@ export function AgentInbox({ machines, activity, watching, filter, onFilter, que
             <button key={value} type="button" role="radio" className="inbox-filter" data-status={value} aria-checked={filter === value} tabIndex={filter === value ? 0 : -1}
               ref={(node) => { if (node) radios.current.set(value, node); else radios.current.delete(value); }}
               onKeyDown={(event) => stepFilter(event, value)} onClick={() => onFilter(value)}>
-              {value === "all" ? t("All") : t(STATUS_WORD[value])}
+              {value === "all" ? t("All") : t(FILTER_WORD[value])}
             </button>
           ))}
         </div>

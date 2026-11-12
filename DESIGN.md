@@ -2013,11 +2013,14 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   A PC that is away draws its rows disabled and faded to 0.55 (an offline Agents row fades to
   0.5), the place ending in **Offline**.
 - Order: every agent pane of every PC the device shows, needs input first, then running, done and
-  ready, the most recently changed first inside a state, by the same displayed state the Agents
-  list draws (a finish that was read is ready). While a finger went down in the list in the last
+  ready, by the same displayed state the Agents list draws (a finish that was read is ready), and
+  inside a state in the order the Agents list grouped by state uses: this device's Settings →
+  Within a state (the longest in the state first by default, each PC's rows apart; Name by the
+  title its row draws). While a finger went down in the list in the last
   second, or the focus is inside it, the rows keep the order last drawn: a row never moves under a
   finger.
-- The filters are **All**, **INPUT**, **RUN** and **DONE**, a radio group (`role="radiogroup"`, the
+- The filters are **All**, **Needs you**, **Working** and **Done**, the Agents list's group headings
+  for the same states (a row's chip keeps the state's badge word), a radio group (`role="radiogroup"`, the
   arrow keys move the choice and the focus); a ready agent shows only under All. The search narrows
   the list as the sidebar's filter does (lib/sidebarFilter.ts): the command palette's fuzzy match
   over the words a row shows, never a working directory or a transcript. The filter, the query and

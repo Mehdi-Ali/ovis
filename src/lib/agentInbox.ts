@@ -8,6 +8,7 @@ import type { AgentStatus, PlanSummary } from "../../shared/protocol.ts";
 import { agentGroup, agentRoster, groupAgentRows, type AgentGroup, type AgentRow } from "./agentRoster.ts";
 import { fileFromLink, type AppLink } from "./deepLink.ts";
 import type { Translate } from "./i18n.ts";
+import type { AgentGroupSort } from "./settings.ts";
 import type { SidebarActivity } from "./sidebarActivity.tsx";
 import { capped } from "./promptText.ts";
 import { machineFilter, sidebarFilter } from "./sidebarFilter.ts";
@@ -27,10 +28,13 @@ export function inboxStatus(row: AgentRow, activity: SidebarActivity): AgentStat
   return row.machine.state === "connected" ? activity.status(row.machine.id, row.entry.pane) : undefined;
 }
 
-/** Every agent row: needs you, working, done, resting; within a state each PC's most recently changed first. */
-export function inboxOrder(machines: readonly Machine[], activity: SidebarActivity): AgentRow[] {
+/**
+ * Every agent row: needs you, working, done, resting; within a state in the order the Agents list grouped by
+ * state uses (Settings → Within a state: the longest in that state first by default, each PC's rows apart).
+ */
+export function inboxOrder(machines: readonly Machine[], activity: SidebarActivity, { sort = "wait", name = () => "" }: { sort?: AgentGroupSort; name?: (row: AgentRow) => string } = {}): AgentRow[] {
   const rows = agentRoster(machines, { byActivity: false, seqs: activity.seqs, pinned: [] }).rest;
-  return groupAgentRows(rows, { sort: "recent", status: (row) => inboxStatus(row, activity), name: () => "", seqs: activity.seqs })
+  return groupAgentRows(rows, { sort, status: (row) => inboxStatus(row, activity), name, seqs: activity.seqs })
     .flatMap((group) => group.rows);
 }
 

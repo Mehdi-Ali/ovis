@@ -23,10 +23,31 @@ describe("agent inbox", () => {
     expect(ids(inboxOrder(fixture, activity(states)))).toEqual(["w1E:p1", "w1F:p1", "w1C:p1", "w1D:p1"]);
   });
 
-  it("puts the more recently changed pane first within a state", () => {
-    const pair = (seqs: [string, number][]): string[] => ids(inboxOrder(fixture, activity({}, new Map(seqs)))).filter((id) => id === "w1E:p1" || id === "w1F:p1");
-    expect(pair([["w1E:p1", 5], ["w1F:p1", 9]])).toEqual(["w1F:p1", "w1E:p1"]);
-    expect(pair([["w1E:p1", 9], ["w1F:p1", 5]])).toEqual(["w1E:p1", "w1F:p1"]);
+  describe("within a state, the Agents list's order (Settings → Within a state)", () => {
+    // two PCs with the same panes, each counting its own changes; a pane with no counter yet sorts last
+    const lab: Machine = { ...JSON.parse(JSON.stringify(fixture[0])), id: "lab", name: "lab" };
+    const pcs = [fixture[0]!, lab];
+    const counters: Record<string, ReadonlyMap<string, number>> = {
+      local: new Map([["w1C:p1", 3], ["w1D:p1", 1], ["w1E:p1", 2]]),
+      lab: new Map([["w1C:p1", 1], ["w1D:p1", 3], ["w1E:p1", 2]]),
+    };
+    const resting: SidebarActivity = { seqs: (machineId) => counters[machineId] ?? new Map(), status: () => "idle" };
+    const named = (row: AgentRow): string => label([row])[0]!;
+    const order = (rows: readonly AgentRow[]): string[] => rows.map(({ machine, entry }) => `${machine.id}/${entry.pane.pane_id}`);
+
+    it("puts the longest in the state first by default, each PC's rows apart in the PCs' order", () => {
+      const wait = ["local/w1D:p1", "local/w1E:p1", "local/w1C:p1", "local/w1F:p1", "lab/w1C:p1", "lab/w1E:p1", "lab/w1D:p1", "lab/w1F:p1"];
+      expect(order(inboxOrder(pcs, resting))).toEqual(wait);
+      expect(order(inboxOrder(pcs, resting, { sort: "wait", name: named }))).toEqual(wait);
+    });
+
+    it("puts the most recently changed first under Recent, each PC's rows apart", () => {
+      expect(order(inboxOrder(pcs, resting, { sort: "recent", name: named }))).toEqual(["local/w1C:p1", "local/w1E:p1", "local/w1D:p1", "local/w1F:p1", "lab/w1D:p1", "lab/w1E:p1", "lab/w1C:p1", "lab/w1F:p1"]);
+    });
+
+    it("orders every PC's rows by name under Name, a tie by the PCs' order", () => {
+      expect(order(inboxOrder(pcs, resting, { sort: "name", name: named }))).toEqual(["local/w1D:p1", "lab/w1D:p1", "local/w1C:p1", "lab/w1C:p1", "local/w1F:p1", "lab/w1F:p1", "local/w1E:p1", "lab/w1E:p1"]);
+    });
   });
 
   it("keeps a row by its own state under a filter, and every row under All", () => {
