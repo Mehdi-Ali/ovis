@@ -112,8 +112,9 @@ try {
     return (await body.exists()) ? new Response(body) : new Response("not found", { status: 404 });
   } });
   const origin = `http://127.0.0.1:${server.port}`;
-  const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
+  let browser: Browser | undefined;
   try {
+    browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
     await open(browser, origin, UPRIGHT, async (page) => {
       const shown = await paneShown(page);
       await page.locator(".drawer-toggle").tap();
@@ -309,8 +310,9 @@ try {
       await stillHere(page, origin, shown, "a menu with the phone on its side");
     });
   } finally {
-    await browser.close();
-    await server.stop(true);
+    // the server goes whatever else failed, a browser that did not start included: left up, it keeps this script from ending
+    try { await browser?.close(); }
+    finally { await server.stop(true); }
   }
   console.log("PASS a phone's Back closes the drawer, a menu over it, New workspace and its lists one at a time, Files after a file closed by its X or by Back and Add PC opened as Settings closed, upright and on its side, and adds no entry with no tap behind it");
 } finally {
