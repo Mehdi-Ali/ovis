@@ -170,8 +170,9 @@
   padding-inline-start: var(--settings-icon-column);
 }
 
-/* the ↺ beside a label whose value moved off its default */
-.settings-reset {
+/* the ↺ beside a label whose value moved off its default; DEMO ONLY: the button that opens a row's sentence (?help=info) */
+.settings-reset,
+.settings-help-button {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -189,15 +190,39 @@
 }
 
 @media (hover: hover) {
-  .settings-reset:hover {
+  .settings-reset:hover,
+  .settings-help-button:hover {
     background: var(--bg-hover);
     color: var(--text-strong);
   }
 }
 
-.settings-reset svg {
+.settings-reset svg,
+.settings-help-button svg {
   width: var(--icon-size-sm);
   height: var(--icon-size-sm);
+}
+
+/* A bare row's sentence over the page (#3275), while a mouse rests on the row or the keyboard is on its
+   control: the one tooltip surface the app has (.relay-map-tooltip), placed by placeSentence in
+   SettingsControls.tsx. It never moves: it is there or it is not. */
+.settings-help {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-popover);
+  box-sizing: border-box;
+  max-width: min(22rem, calc(100vw - var(--space-4)));
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-elevated);
+  border: var(--hairline) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-menu);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-base);
+  overflow-wrap: break-word;
 }
 
 /* one row of theme cards that scrolls sideways (ThemePicker): never more than a card tall */
@@ -481,6 +506,22 @@
   max-width: 54ch;
 }
 
+/* a bare row's sentence opened in the row by a tap (a finger has no hover, #3275): under the name and the
+   control, as wide as the row, starting where the name does */
+.settings-row.is-explained {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.settings-row > .settings-row-sentence {
+  flex: 1 0 100%;
+  min-width: 0;
+}
+
+.settings-row:has(> .settings-row-text .settings-row-icon) > .settings-row-sentence {
+  padding-inline-start: var(--settings-icon-column);
+}
+
 /* a condition that applies right now, on its own line under the sentence */
 .settings-condition {
   display: block;
@@ -683,7 +724,8 @@
     min-height: var(--touch-target);
   }
 
-  .settings-reset {
+  .settings-reset,
+  .settings-help-button {
     min-width: var(--touch-target);
     min-height: var(--touch-target);
     width: var(--touch-target);
@@ -791,7 +833,8 @@
     min-width: 0;
   }
 
-  .settings-row.is-wide > .settings-font-input {
+  .settings-row.is-wide > .settings-font-input,
+  .settings-row.is-wide > .settings-row-sentence {
     flex: 0 0 auto;
   }
 
@@ -828,6 +871,7 @@
 
   .settings-description,
   .settings-hint,
+  .settings-help,
   .settings-row-text > .settings-condition {
     font-size: var(--fs-sm);
   }

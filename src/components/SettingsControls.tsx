@@ -1,8 +1,10 @@
-import { createContext, isValidElement, useContext, useEffect, useId, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw, type LucideIcon } from "lucide-react";
+import { createContext, isValidElement, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type FocusEvent as ReactFocusEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { ChevronDown, ChevronRight, Info, Minus, Plus, RotateCcw, type LucideIcon } from "lucide-react";
 
 import { DEFAULT_SETTINGS, useSettings, type Settings } from "../lib/settings.ts";
 import { useT } from "../lib/i18n.ts";
+import { helpDemo } from "../lib/settingsHelpDemo.ts";
 
 import "./SettingsControls.css";
 
@@ -95,10 +97,243 @@ export function SettingsGroup({ title, note, className, section, heading = false
 }
 
 /**
+ * The id of the sentence of the row a control sits in (SettingsRow): its switch, select or group of choices
+ * is described by it, in sight or not. Zed's settings do the same (crates/settings_ui: each control names and
+ * describes itself by its row's title and description) rather than make the row a group that reads its name twice.
+ */
+const SettingsRowSentence = createContext<string | undefined>(undefined);
+
+/** For a control a page draws itself (a font field, a button): `aria-describedby={useSettingsRowSentence()}`. */
+export function useSettingsRowSentence(): string | undefined {
+  return useContext(SettingsRowSentence);
+}
+
+const describedByAll = (...ids: (string | undefined)[]): string | undefined => ids.filter((id) => id !== undefined && id !== "").join(" ") || undefined;
+
+/** A box on the screen, as getBoundingClientRect gives it. */
+export interface ScreenBox { left: number; top: number; right: number; bottom: number }
+
+/** How far a row's sentence stays from the screen's edge, and from what it must not cover; the narrowest it gets to stay off another row's control. */
+const SENTENCE_EDGE = 8;
+const SENTENCE_GAP = 4;
+const SENTENCE_MIN_WIDTH = 224;
+
+/**
+ * How wide a sentence whose box is `tip` may be so it lies on none of `controls` (the controls of the rows it is
+ * over): up to the nearest one's left edge. Null where no control is in its way, and where the room beside it
+ * is under SENTENCE_MIN_WIDTH: a sentence that narrow grows tall and covers more than it clears, so it keeps its width.
+ */
+export function sentenceRoom(tip: ScreenBox, controls: readonly ScreenBox[]): number | null {
+  const over = controls.filter((control) => control.left < tip.right && control.right > tip.left && control.top < tip.bottom && control.bottom > tip.top);
+  if (over.length === 0) return null;
+  const room = Math.min(...over.map((control) => control.left)) - SENTENCE_GAP * 2 - tip.left;
+  return room >= SENTENCE_MIN_WIDTH ? room : null;
+}
+
+/**
+ * Where a row's sentence goes when it shows over the page (#3275): above the row, its left edge on the name's,
+ * so it covers neither the row's own control nor the row below, which the pointer goes to next. `clear` is the
+ * top of the highest thing in the row it must stay above (the name, or a taller control beside it) and `under`
+ * the bottom of the lowest. It goes under the row only where the screen ends above it.
+ */
+export function placeSentence(row: ScreenBox, name: ScreenBox, clear: number, under: number, size: { width: number; height: number }, screen: { width: number; height: number }): { left: number; top: number; side: "above" | "below" } {
+  // inside the row's card where it fits, and always inside the screen
+  const left = Math.max(SENTENCE_EDGE, Math.min(name.left, row.right - size.width, screen.width - size.width - SENTENCE_EDGE));
+  const above = clear - SENTENCE_GAP - size.height;
+  if (above >= SENTENCE_EDGE) return { left, top: above, side: "above" };
+  return { left, top: Math.min(under + SENTENCE_GAP, screen.height - size.height - SENTENCE_EDGE), side: "below" };
+}
+
+/** A mouse rests this long on a row before its sentence shows; a row entered this soon after another's closed shows its own at once. */
+const SENTENCE_REST_MS = 450;
+const SENTENCE_FOLLOW_MS = 400;
+/** one sentence over the page at a time: how to close the one showing, and when the last one closed */
+let closeSentence: (() => void) | null = null;
+let sentenceClosedAt = Number.NEGATIVE_INFINITY;
+
+/** Whether the keyboard put the focus there, which is what the focus ring follows; a browser without the selector says yes. */
+function keyboardFocus(target: Element): boolean {
+  try { return target.matches(":focus-visible"); } catch { return true; }
+}
+
+/** Whether the focus is where text is typed: such a field keeps Escape for its own draft, and for the dialog behind it. */
+function inTextField(): boolean {
+  const active = document.activeElement;
+  if (active instanceof HTMLTextAreaElement) return true;
+  if (active instanceof HTMLInputElement) return !["button", "checkbox", "radio", "range", "submit", "reset", "file", "color", "image"].includes(active.type);
+  return active instanceof HTMLElement && active.isContentEditable;
+}
+
+/**
+ * A bare row's sentence on demand (#3275). A mouse resting on the row and the keyboard's focus on its control
+ * show it over the page (RowSentence); Escape closes it alone, and it then stays closed until the pointer or the
+ * focus leaves the row. In a text field the Escape is the field's too (a typed size goes back, as before), and the
+ * first text typed there closes the sentence, so it is never in the way of what is being written. A finger has no hover: a tap on the row, anywhere but on its control, opens the sentence
+ * in the row, under its name and control and as wide as the row, and a second tap closes it. `on`: the row has a
+ * sentence and its page does not show it.
+ */
+function useRowSentence(on: boolean): {
+  row: RefObject<HTMLDivElement | null>;
+  /** over the page now, and why */
+  shown: "hover" | "focus" | null;
+  /** in the row now, opened by a tap */
+  opened: boolean;
+  hide: () => void;
+  toggle: () => void;
+  rowEvents: { onPointerEnter?: (event: ReactPointerEvent) => void; onPointerLeave?: () => void; onPointerDown?: (event: ReactPointerEvent) => void; onFocus?: (event: ReactFocusEvent) => void; onBlur?: (event: ReactFocusEvent) => void; onInput?: () => void; onClick?: (event: ReactMouseEvent) => void };
+} {
+  const row = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState<"hover" | "focus" | null>(null);
+  const [opened, setOpened] = useState(false);
+  const rest = useRef<number | undefined>(undefined);
+  // Escape closed it: not again while the pointer rests there or the focus stays
+  const dismissed = useRef(false);
+  // the last press on the row came from a finger
+  const finger = useRef(false);
+  useEffect(() => () => window.clearTimeout(rest.current), []);
+  useEffect(() => {
+    if (shown === null) return;
+    closeSentence?.();
+    const close = (): void => setShown(null);
+    closeSentence = close;
+    const onKey = (event: KeyboardEvent): void => {
+      // an IME's Escape drops its composition, not the sentence
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      // the sentence alone: Settings stays open, and the pointer and the focus stay where they are (WCAG 1.4.13)
+      if (!inTextField()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      dismissed.current = true;
+      setShown(null);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      if (closeSentence === close) closeSentence = null;
+      sentenceClosedAt = performance.now();
+    };
+  }, [shown]);
+  const hide = (): void => { window.clearTimeout(rest.current); setShown(null); };
+  const toggle = (): void => { hide(); setOpened((was) => !was); };
+  if (!on) return { row, shown: null, opened: false, hide, toggle, rowEvents: {} };
+  return {
+    row, shown: opened ? null : shown, opened, hide, toggle,
+    rowEvents: {
+      onPointerEnter: (event) => {
+        if (event.pointerType === "touch" || opened) return;
+        window.clearTimeout(rest.current);
+        if (dismissed.current || shown !== null) return;
+        rest.current = window.setTimeout(() => setShown("hover"), performance.now() - sentenceClosedAt < SENTENCE_FOLLOW_MS ? 0 : SENTENCE_REST_MS);
+      },
+      // the sentence is drawn elsewhere but is this row's child: the pointer on it has not left the row, so it stays to be read
+      onPointerLeave: () => {
+        window.clearTimeout(rest.current);
+        dismissed.current = false;
+        if (shown === "hover") setShown(null);
+      },
+      onPointerDown: (event) => {
+        finger.current = event.pointerType === "touch";
+        // a press on the row's control is a choice, not a question; a press on the sentence keeps it, to select its words
+        if ((event.target as Element).closest(".settings-help")) return;
+        window.clearTimeout(rest.current);
+        if (shown === "hover") setShown(null);
+      },
+      onFocus: (event) => {
+        if (opened || dismissed.current || !keyboardFocus(event.target)) return;
+        window.clearTimeout(rest.current);
+        setShown("focus");
+      },
+      onBlur: (event) => {
+        if (row.current?.contains(event.relatedTarget)) return;
+        dismissed.current = false;
+        if (shown === "focus") setShown(null);
+      },
+      onInput: () => {
+        if (shown === null) return;
+        dismissed.current = true;
+        setShown(null);
+      },
+      onClick: (event) => {
+        if (!finger.current) return;
+        const target = event.target as Element;
+        // the row's name and the room around it, never its control; the ↺ and a link in a condition keep their own tap
+        if (target !== event.currentTarget && target.closest(".settings-row-text") === null) return;
+        if (target.closest("button, a, input, select, textarea")) return;
+        // a tap on a field's name opens its sentence, not the field
+        if (target.closest("label")) event.preventDefault();
+        setOpened((was) => !was);
+      },
+    },
+  };
+}
+
+/**
+ * A row's sentence over the page: drawn in the dialog's own layer, over the dialog and not cut by its scrolling
+ * page (in the document where the row is in no dialog), and placed by placeSentence. Over a row whose control
+ * would be under it, it narrows to the room beside that control (sentenceRoom). It follows its row while the page
+ * scrolls, and goes once the row has left the page's view. Not read out: the row's own copy describes the control.
+ */
+function RowSentence({ row, onGone, children }: { row: HTMLElement; onGone: () => void; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState<{ left: number; top: number; maxWidth: string } | null>(null);
+  const gone = useRef(onGone);
+  gone.current = onGone;
+  useLayoutEffect(() => {
+    const place = (): void => {
+      const tip = box.current;
+      if (!tip) return;
+      const rowBox = row.getBoundingClientRect();
+      const pageEl = row.closest(".modal-body");
+      const page = pageEl?.getBoundingClientRect();
+      if (page && (rowBox.bottom <= page.top || rowBox.top >= page.bottom)) return gone.current();
+      const text = row.querySelector(":scope > .settings-row-text");
+      const name = (row.querySelector(".settings-label") ?? row).getBoundingClientRect();
+      const beside = [...row.children].filter((child) => child !== text).map((child) => child.getBoundingClientRect()).filter((side) => side.height > 0);
+      const clear = Math.min(name.top, ...beside.map((side) => side.top));
+      const under = Math.max(text?.getBoundingClientRect().bottom ?? rowBox.bottom, ...beside.map((side) => side.bottom));
+      const screen = { width: window.innerWidth, height: window.innerHeight };
+      // the other rows' controls: what a sentence over those rows must not lie on
+      const controls = [...(pageEl ?? document).querySelectorAll<HTMLElement>(".settings-row")].filter((other) => other !== row)
+        .flatMap((other) => [...other.children].filter((child) => !child.classList.contains("settings-row-text"))).map((child) => child.getBoundingClientRect()).filter((side) => side.height > 0);
+      const measure = () => placeSentence(rowBox, name, clear, under, { width: tip.offsetWidth, height: tip.offsetHeight }, screen);
+      // at its own width first, then as narrow as the controls under it ask; a narrower sentence is taller and may
+      // reach another row's control, so once more; where that leaves no room, back to its own width
+      let maxWidth = "";
+      tip.style.maxWidth = maxWidth;
+      let next = measure();
+      for (let pass = 0; pass < 2; pass++) {
+        const lies = { left: next.left, top: next.top, right: next.left + tip.offsetWidth, bottom: next.top + tip.offsetHeight };
+        const room = sentenceRoom(lies, controls);
+        if (room !== null && room < tip.offsetWidth) maxWidth = `${room}px`;
+        else if (room === null && pass > 0 && controls.some((control) => control.left < lies.right && control.right > lies.left && control.top < lies.bottom && control.bottom > lies.top)) maxWidth = "";
+        else break;
+        tip.style.maxWidth = maxWidth;
+        next = measure();
+      }
+      setAt((was) => was !== null && was.left === next.left && was.top === next.top && was.maxWidth === maxWidth ? was : { left: next.left, top: next.top, maxWidth });
+    };
+    place();
+    window.addEventListener("scroll", place, { capture: true, passive: true });
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [row]);
+  return createPortal(
+    <div ref={box} className="settings-help" aria-hidden="true" style={at === null ? { visibility: "hidden" } : { left: at.left, top: at.top, maxWidth: at.maxWidth === "" ? undefined : at.maxWidth }}>{children}</div>,
+    row.closest<HTMLElement>(".modal-scrim") ?? document.body,
+  );
+}
+
+/**
  * One setting. `wide` marks a control that needs the whole line on a phone (three or more
  * segments, a text field): the row stacks there, and stays one line everywhere else. `keywords`:
  * more words a search finds it by, for a row opened by another. `held`: a row in the middle of a
  * step (a recording, a confirmation) stays in a search whatever its words have become.
+ * `description`: what the setting does, in a sentence or two. A page that shows sentences draws it under
+ * the name; a bare page shows it on demand (useRowSentence), and either way it describes the row's control.
  */
 export function SettingsRow({ label, description, keywords, held = false, htmlFor, wide = false, reset, onReset, resetAlso, icon: Icon, preview, condition, children }: { label: string; description?: ReactNode; keywords?: string; held?: boolean; htmlFor?: string; wide?: boolean; reset?: readonly (keyof Settings)[];
   /** a row whose value lives inside a setting (one shortcut of shortcutOverrides): passed only while it is changed */
@@ -116,6 +351,11 @@ export function SettingsRow({ label, description, keywords, held = false, htmlFo
   const bare = useContext(SettingsBare);
   const { settings, update } = useSettings();
   const t = useT();
+  const sentenceId = useId();
+  // DEMO ONLY: `off` is Settings as on main, `info` adds the button (lib/settingsHelpDemo.ts)
+  const demo = helpDemo();
+  const sentence = useRowSentence(description !== undefined && bare !== false && demo !== "off");
+  const helpButton = description !== undefined && bare !== false && demo === "info";
   if (!held && words.length > 0 && !matchesSettingsQuery(words, label, description, keywords, condition, children)) return null;
   // `reset`: the keys this row sets; once any is off its default, a button beside the label puts them back
   const changed = onReset !== undefined || (reset !== undefined && reset.some((key) => JSON.stringify(settings[key]) !== JSON.stringify(DEFAULT_SETTINGS[key]))) || resetAlso?.changed === true;
@@ -126,12 +366,15 @@ export function SettingsRow({ label, description, keywords, held = false, htmlFo
   };
   const label_ = htmlFor !== undefined ? <label className="settings-label" htmlFor={htmlFor}>{label}</label> : <span className="settings-label">{label}</span>;
   return (
-    <div className={wide ? "settings-row is-wide" : "settings-row"} data-setting="">
+    <div ref={sentence.row} className={`settings-row${wide ? " is-wide" : ""}${sentence.opened ? " is-explained" : ""}`} data-setting="" {...sentence.rowEvents}>
       <div className="settings-row-text">
-        {changed || Icon !== undefined ? (
+        {changed || Icon !== undefined || helpButton ? (
           <span className="settings-label-line">
             {Icon !== undefined && <Icon className="settings-row-icon" aria-hidden="true" />}
             {label_}
+            {helpButton && <button type="button" className="settings-help-button" aria-expanded={sentence.opened} aria-controls={sentenceId} aria-label={`${t("Details")}: ${label}`} onClick={sentence.toggle}>
+              <Info aria-hidden="true" />
+            </button>}
             {changed && <button type="button" className="settings-reset" title={t("Restore defaults")} aria-label={`${t("Restore defaults")}: ${label}`} onClick={(event) => {
               // the button goes once the values are back: the row's own control takes the focus first
               event.currentTarget.closest(".settings-row")?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), [role='radio'], button:not(.settings-reset):not(:disabled)")?.focus();
@@ -142,28 +385,33 @@ export function SettingsRow({ label, description, keywords, held = false, htmlFo
           </span>
         ) : label_}
         {/* a page without sentences still has them read out, and found by search */}
-        {description !== undefined && <span className={bare === false ? "settings-description" : "visually-hidden"}>{description}</span>}
+        {description !== undefined && !sentence.opened && <span id={sentenceId} className={bare === false ? "settings-description" : "visually-hidden"}>{description}</span>}
         {condition}
       </div>
       {preview !== undefined && <span className="settings-row-preview" aria-hidden="true">{preview}</span>}
-      {children}
+      <SettingsRowSentence.Provider value={description !== undefined ? sentenceId : undefined}>{children}</SettingsRowSentence.Provider>
+      {/* opened by a tap: under the name and the control, as wide as the row */}
+      {sentence.opened && <span id={sentenceId} className="settings-description settings-row-sentence">{description}</span>}
+      {sentence.shown !== null && sentence.row.current !== null && <RowSentence row={sentence.row.current} onGone={sentence.hide}>{description}</RowSentence>}
     </div>
   );
 }
 
 /** `id` for a `<label htmlFor>` beside it; `describedBy`: the id of the hint read with it */
 export function Toggle({ checked, label, onChange, disabled, id, describedBy }: { checked: boolean; label: string; onChange: (checked: boolean) => void; disabled?: boolean; id?: string; describedBy?: string }) {
+  const sentence = useContext(SettingsRowSentence);
   return (
-    <button type="button" id={id} className="settings-toggle" role="switch" aria-checked={checked} aria-label={label} aria-describedby={describedBy} disabled={disabled} onClick={() => onChange(!checked)}>
+    <button type="button" id={id} className="settings-toggle" role="switch" aria-checked={checked} aria-label={label} aria-describedby={describedByAll(describedBy, sentence)} disabled={disabled} onClick={() => onChange(!checked)}>
       <span className="settings-toggle-thumb" />
     </button>
   );
 }
 
 export function SettingsSelect({ className, children, ...props }: ComponentProps<"select">) {
+  const sentence = useContext(SettingsRowSentence);
   return (
     <span className={className ? `settings-select-wrap ${className}` : "settings-select-wrap"}>
-      <select {...props} className="select settings-select">{children}</select>
+      <select {...props} aria-describedby={describedByAll(props["aria-describedby"], sentence)} className="select settings-select">{children}</select>
       <ChevronDown aria-hidden="true" />
     </span>
   );
@@ -174,8 +422,9 @@ export interface SegmentedOption<T extends string> { value: T; label: string; na
 
 /** One of a few short choices, all in sight. Five or more go in a select instead. */
 export function Segmented<T extends string>({ label, value, options, onChange, disabled }: { label: string; value: T; options: readonly SegmentedOption<T>[]; onChange: (value: T) => void; disabled?: boolean }) {
+  const sentence = useContext(SettingsRowSentence);
   return (
-    <div className="segmented settings-segmented" role="group" aria-label={label}>
+    <div className="segmented settings-segmented" role="group" aria-label={label} aria-describedby={sentence}>
       {options.map((option) => (
         <button key={option.value} type="button" aria-pressed={value === option.value} aria-label={option.name} disabled={disabled} onClick={() => onChange(option.value)}>{option.label}</button>
       ))}
@@ -188,8 +437,9 @@ export function Segmented<T extends string>({ label, value, options, onChange, d
  * chip means in full, shown as its tooltip (the one-minute rule of Long turn finished, G-096).
  */
 export function ChipToggles({ label, chips }: { label: string; chips: readonly { label: string; title?: string; icon?: LucideIcon; on: boolean; onChange: (on: boolean) => void }[] }) {
+  const sentence = useContext(SettingsRowSentence);
   return (
-    <div className="settings-chips" role="group" aria-label={label}>
+    <div className="settings-chips" role="group" aria-label={label} aria-describedby={sentence}>
       {chips.map((chip) => (
         <button key={chip.label} type="button" className="settings-chip" aria-pressed={chip.on} title={chip.title} onClick={() => chip.onChange(!chip.on)}>{chip.icon && <chip.icon aria-hidden="true" />}{chip.label}</button>
       ))}
@@ -220,6 +470,7 @@ export function Stepper({ label, value, text, min, max, decreaseLabel, increaseL
   const [draft, setDraft] = useState<string | null>(null);
   const [refused, setRefused] = useState(false);
   const rangeId = useId();
+  const sentence = useContext(SettingsRowSentence);
   const shown = draft ?? String(value);
   const typed = draft === null ? null : typedStep(draft, min, max);
   // what the buttons step from: the size in the field when it is one, else the saved one
@@ -240,7 +491,7 @@ export function Stepper({ label, value, text, min, max, decreaseLabel, increaseL
   pending.current = () => { if (typed !== null && typed !== value) onChange(typed); };
   useEffect(() => () => pending.current(), []);
   const stepper = (
-    <div className="settings-stepper" role="group" aria-label={label}>
+    <div className="settings-stepper" role="group" aria-label={label} aria-describedby={sentence}>
       <button type="button" className="icon-button" aria-label={decreaseLabel} title={decreaseLabel} disabled={current <= min} onClick={() => step(-1)}><Minus aria-hidden="true" /></button>
       {unit === undefined ? <output aria-live="polite">{text}</output> : <span className="settings-stepper-field">
         <input className="settings-stepper-value" type="text" inputMode="numeric" aria-label={label} title={range} value={shown}
