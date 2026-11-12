@@ -104,7 +104,7 @@ export interface FileViewerProps {
  * source has no element holding the whole text, so `onShowSource` shows a selectable source first
  * and the viewer selects it once rendered.
  */
-function CopyFileButton({ text, sourceRef, onShowSource }: { text: string; sourceRef: RefObject<HTMLElement | null>; onShowSource: () => void }) {
+function CopyFileButton({ text, sourceRef, onShowSource, disabled = false }: { text: string; sourceRef: RefObject<HTMLElement | null>; onShowSource: () => void; disabled?: boolean }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -120,7 +120,7 @@ function CopyFileButton({ text, sourceRef, onShowSource }: { text: string; sourc
     if (await copyText(text, source)) setCopied(true);
     else if (!source) onShowSource();
   };
-  return <button type="button" className="icon-button file-viewer-action" aria-label={label} title={label} onClick={() => void copy()}>
+  return <button type="button" className="icon-button file-viewer-action" aria-label={label} title={label} disabled={disabled} onClick={() => void copy()}>
     {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
   </button>;
 }
@@ -611,7 +611,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     {!page && appWindow && <CopyLinkButton href={newTabHref} />}
     <a className="icon-button file-viewer-action file-viewer-wide" href={downloadHref ?? undefined} download={info?.name ?? true} aria-label={t("Download")} title={t("Download")}><Download aria-hidden="true" /></a>
     {canEdit && !markdown && !editing && <button type="button" className="icon-button file-viewer-action" aria-label={t("Edit file")} title={t("Edit file")} onClick={() => setEditing(true)}><Pencil aria-hidden="true" /></button>}
-    {copyable && !editing && <CopyFileButton text={loaded.text} sourceRef={sourceRef} onShowSource={showSourceToSelect} />}
+    {/* while editing it stays in its place, greyed out: what it copies is the file on disk */}
+    {copyable && <CopyFileButton text={loaded.text} sourceRef={sourceRef} onShowSource={showSourceToSelect} disabled={editing} />}
     {!docked && <div className="file-viewer-more" ref={moreRef}>
       <button type="button" className="icon-button file-viewer-action" aria-label={t("More")} title={t("More")} aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><Ellipsis aria-hidden="true" /></button>
       {moreOpen && <div className="file-viewer-more-menu" role="menu" aria-label={t("More")} onKeyDown={moveInMore}>
@@ -645,12 +646,11 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
         {viewButton}
         {/* how the text shows: Preview or source is one choice of two, so one toggle; wrapping is a
             setting (Settings → File viewer), not an action here */}
-        {textFile && previewable && !editing && <div className="file-viewer-group">
+        {/* live edit keeps the outline (its headings come from the editor) and greys Show source out in its place */}
+        {textFile && previewable && <div className="file-viewer-group">
           {outlineButton}
-          <button type="button" className="icon-button file-viewer-action" aria-pressed={mode === "code"} aria-label={t("Show source")} title={t("Show source")} onClick={() => setChosen({ path, mode: mode === "code" ? "preview" : "code" })}><Braces aria-hidden="true" /></button>
+          <button type="button" className="icon-button file-viewer-action" aria-pressed={!editing && mode === "code"} aria-label={t("Show source")} title={t("Show source")} disabled={editing} onClick={() => setChosen({ path, mode: mode === "code" ? "preview" : "code" })}><Braces aria-hidden="true" /></button>
         </div>}
-        {/* live edit keeps the outline (its headings come from the editor) */}
-        {editing && outlined && <div className="file-viewer-group">{outlineButton}</div>}
         <div className="file-viewer-group">{fileActions}</div>
       </div>
       {closeButton}
@@ -660,9 +660,9 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const toolbar = docked && directory === null && <div className="file-viewer-toolbar">
     {meta}
     {viewButton}
-    {textFile && previewable && !editing && <div className="segmented file-viewer-modes" role="group" aria-label={t("Show the Markdown file as")}>
-      <button type="button" aria-pressed={mode === "preview"} onClick={() => setChosen({ path, mode: "preview" })}>{t("Preview")}</button>
-      <button type="button" aria-pressed={mode === "code"} onClick={() => setChosen({ path, mode: "code" })}>{t("Source")}</button>
+    {textFile && previewable && <div className="segmented file-viewer-modes" role="group" aria-label={t("Show the Markdown file as")}>
+      <button type="button" aria-pressed={!editing && mode === "preview"} disabled={editing} onClick={() => setChosen({ path, mode: "preview" })}>{t("Preview")}</button>
+      <button type="button" aria-pressed={!editing && mode === "code"} disabled={editing} onClick={() => setChosen({ path, mode: "code" })}>{t("Source")}</button>
     </div>}
     {outlineButton}
     {htmlPage && modes}

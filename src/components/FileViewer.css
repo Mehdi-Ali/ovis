@@ -871,3 +871,10 @@
 
 /* a markdown file's view (Preview | Live edit): an icon button like the others, marked while editing */
 .file-viewer-view-cycle[data-view="live"] { color: var(--accent); }
+
+/* controls that do not apply while a file is edited (Show source, Copy, Preview | Source) stay in place, greyed out */
+.file-viewer-action:disabled,
+.file-viewer-modes button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
