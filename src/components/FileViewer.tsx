@@ -595,6 +595,12 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const newTabHref = relay ? previewUrl : htmlPage && !source ? pageUrl : markdown ? previewUrl : url;
   const newTabSrc = useResourceUrl(newTabHref);
   const rawSrc = relay ? readerHref(machineId, `${shownPath}#L1`) : urlSrc;
+  // Preview | Live edit: the first of the header's actions, before the outline
+  const viewButton = canEdit && markdown && <button type="button" className="btn btn-ghost file-viewer-action file-viewer-view-cycle" data-view={viewing}
+      aria-label={viewTitle} title={viewTitle} disabled={editing && editChanged} onClick={() => setEditing(!editing)}>
+      {viewing === "preview" ? <Eye aria-hidden="true" /> : <NotebookPen aria-hidden="true" />}
+      <span className="file-viewer-view-name">{viewNames[viewing]}</span>
+    </button>;
   const fileActions = <>
     {!page && onTogglePresentation && <button type="button" className="icon-button file-viewer-action" aria-label={docked ? t("Show as a popup") : t("Show beside the pane")} title={docked ? t("Show as a popup") : t("Show beside the pane")} onClick={onTogglePresentation}>
       {docked ? <Maximize2 aria-hidden="true" /> : <PanelRight aria-hidden="true" />}
@@ -606,11 +612,6 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     {!page && appWindow && <CopyLinkButton href={newTabHref} />}
     <a className="icon-button file-viewer-action file-viewer-wide" href={downloadHref ?? undefined} download={info?.name ?? true} aria-label={t("Download")} title={t("Download")}><Download aria-hidden="true" /></a>
     {canEdit && !markdown && !editing && <button type="button" className="icon-button file-viewer-action" aria-label={t("Edit file")} title={t("Edit file")} onClick={() => setEditing(true)}><Pencil aria-hidden="true" /></button>}
-    {canEdit && markdown && <button type="button" className="btn btn-ghost file-viewer-action file-viewer-view-cycle" data-view={viewing}
-      aria-label={viewTitle} title={viewTitle} disabled={editing && editChanged} onClick={() => setEditing(!editing)}>
-      {viewing === "preview" ? <Eye aria-hidden="true" /> : <NotebookPen aria-hidden="true" />}
-      <span className="file-viewer-view-name">{viewNames[viewing]}</span>
-    </button>}
     {copyable && !editing && <CopyFileButton text={loaded.text} sourceRef={sourceRef} onShowSource={showSourceToSelect} />}
     {!docked && <div className="file-viewer-more" ref={moreRef}>
       <button type="button" className="icon-button file-viewer-action" aria-label={t("More")} title={t("More")} aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><Ellipsis aria-hidden="true" /></button>
@@ -642,6 +643,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
         {meta}
       </div>
       <div className="file-viewer-actions">
+        {viewButton}
         {/* how the text shows: Preview or source is one choice of two, so one toggle; wrapping is a
             setting (Settings → File viewer), not an action here */}
         {textFile && previewable && !editing && <div className="file-viewer-group">
@@ -658,6 +660,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   // file's Preview | Source stands in for the dialog's Show source toggle)
   const toolbar = docked && directory === null && <div className="file-viewer-toolbar">
     {meta}
+    {viewButton}
     {textFile && previewable && !editing && <div className="segmented file-viewer-modes" role="group" aria-label={t("Show the Markdown file as")}>
       <button type="button" aria-pressed={mode === "preview"} onClick={() => setChosen({ path, mode: "preview" })}>{t("Preview")}</button>
       <button type="button" aria-pressed={mode === "code"} onClick={() => setChosen({ path, mode: "code" })}>{t("Source")}</button>
