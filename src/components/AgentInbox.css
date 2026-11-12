@@ -36,9 +36,10 @@
   line-height: var(--lh-tight);
 }
 
+/* what the filters' row gains above (to hold its pills' targets) is taken here, so nothing drawn moves */
 .inbox-search {
   position: relative;
-  margin: 0 var(--space-4) var(--space-2);
+  margin: 0 var(--space-4) calc(var(--space-2) + var(--space-1) - (var(--touch-target) - var(--control-h) + var(--space-1) / 2) / 2);
 }
 
 .inbox-search-glass {
@@ -81,7 +82,8 @@
 .inbox-filters {
   display: flex;
   gap: calc(var(--space-1) + var(--space-1) / 2);
-  padding: var(--space-1) var(--space-4) var(--space-2);
+  /* a row that scrolls sideways clips up and down too: room above for the pills' 44px targets (below has it) */
+  padding: calc((var(--touch-target) - var(--control-h) + var(--space-1) / 2) / 2) var(--space-4) var(--space-2);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -217,13 +219,6 @@
   font-weight: var(--fw-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.inbox-time {
-  flex: 0 0 auto;
-  color: var(--text-dim);
-  font-size: var(--fs-sm);
-  font-variant-numeric: tabular-nums;
 }
 
 .inbox-words {

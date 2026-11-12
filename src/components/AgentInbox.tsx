@@ -71,10 +71,18 @@ export function AgentInbox({ machines, activity, watching, filter, onFilter, que
     if (!holding) kept.current = { readerKey, order: shown.map(inboxKey) };
   });
 
+  // the place the list had is reached again once its rows are back: a waiting row's question comes after the mount,
+  // and a list shorter than the place clamps it. Until the place is reached or the reader touches the list, a scroll
+  // (the clamp's own) is not kept as the place; once they do, the place is theirs and is never set again
+  const restoring = useRef<number | null>(scroll.current);
+  const stopRestoring = (): void => { restoring.current = null; };
   useLayoutEffect(() => {
-    if (scroller.current) scroller.current.scrollTop = scroll.current;
-    root.current?.focus({ preventScroll: true });
-  }, []);
+    const node = scroller.current;
+    if (node === null || restoring.current === null) return;
+    node.scrollTop = restoring.current;
+    if (node.scrollTop === restoring.current) restoring.current = null;
+  }, [questions]);
+  useLayoutEffect(() => { root.current?.focus({ preventScroll: true }); }, []);
 
   const [pcMenu, setPcMenu] = useState<HTMLElement | null>(null);
 
@@ -102,6 +110,8 @@ export function AgentInbox({ machines, activity, watching, filter, onFilter, que
   };
   const rows = shown.map(describe);
   const connected = machines.filter((machine) => machine.state === "connected");
+  // the sheet of PCs is for a choice among two or more: it closes when that choice goes, and stays closed if it comes back
+  useEffect(() => { if (connected.length < 2) setPcMenu(null); }, [connected.length]);
   const emptyWhy = inboxEmpty(machines, all.length, rows.length);
   const empty = emptyWhy === "loading" ? t("Loading agents…") : emptyWhy === "none" ? t("No agents running") : emptyWhy === "no-match" ? t("No agents match") : null;
 
@@ -115,8 +125,9 @@ export function AgentInbox({ machines, activity, watching, filter, onFilter, que
   };
 
   return (
-    <section className="agent-inbox" aria-labelledby={titleId} tabIndex={-1} ref={root}>
-      <div className="inbox-scroll" ref={scroller} onScroll={(event) => { scroll.current = event.currentTarget.scrollTop; }}>
+    <section className="agent-inbox" aria-labelledby={titleId} tabIndex={-1} ref={root}
+      onWheel={stopRestoring} onTouchStart={stopRestoring} onPointerDown={stopRestoring} onKeyDown={stopRestoring}>
+      <div className="inbox-scroll" ref={scroller} onScroll={(event) => { if (restoring.current === null) scroll.current = event.currentTarget.scrollTop; }}>
         <h1 id={titleId} className="inbox-title">{t("Agents")}</h1>
         <div className="inbox-search" role="search">
           <Search className="inbox-search-glass" aria-hidden="true" />
