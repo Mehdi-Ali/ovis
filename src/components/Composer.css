@@ -1631,3 +1631,51 @@
 .file-live-editor.composer-live .cm-content { padding: 0; }
 .composer-live .cm-editor.cm-focused { outline: 0; }
 .composer-live .cm-placeholder { color: var(--text-dim); }
+
+/* The corner button that grows the message box (Composer.tsx, expanded): a small square in the
+   card's top right corner, over the text's own top padding, the scrollbar gutter beside it. */
+.composer-expand {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md, 6px);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0.7;
+}
+.composer-expand:hover,
+.composer-expand:focus-visible,
+.composer-expand[aria-pressed="true"] { opacity: 1; color: var(--text-strong); background: var(--bg-hover, transparent); }
+.composer-expand svg { width: 0.95rem; height: 0.95rem; }
+@media (pointer: coarse) {
+  .composer-expand { width: 2.25rem; height: 2.25rem; opacity: 0.85; }
+}
+
+/* the text clears the button */
+.composer-surface .composer-text,
+.composer-surface .composer-measure,
+.composer-surface .composer-live { padding-right: calc(var(--space-4) + 1.5rem); }
+
+/* Expanded: the box takes most of the pane's height (--app-height is what a phone keyboard
+   leaves), leaving the controls row and a strip of the transcript; the text scrolls inside. */
+.composer-surface.is-expanded .composer-text,
+.composer-surface.is-expanded .composer-live {
+  height: max(10lh, calc(var(--app-height, 100dvh) - 14rem));
+  max-height: max(10lh, calc(var(--app-height, 100dvh) - 14rem));
+}
+.composer-surface.is-expanded .file-live-editor.composer-live .cm-editor { min-height: 100%; }
+@media (max-width: 640px), (pointer: coarse) {
+  .composer-surface.is-expanded .composer-text,
+  .composer-surface.is-expanded .composer-live {
+    height: max(4lh, calc(var(--app-height, 100dvh) - 10rem));
+    max-height: max(4lh, calc(var(--app-height, 100dvh) - 10rem));
+  }
+}

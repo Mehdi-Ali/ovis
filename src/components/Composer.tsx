@@ -14,7 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { ArrowUp, ClipboardPaste, FileText, Folder, FolderGit2, GitBranch, LoaderCircle, Package, Plus, Puzzle, Square, TriangleAlert, UserRound, X, type LucideIcon } from "lucide-react";
+import { ArrowUp, ClipboardPaste, FileText, Folder, FolderGit2, GitBranch, LoaderCircle, Maximize2, Minimize2, Package, Plus, Puzzle, Square, TriangleAlert, UserRound, X, type LucideIcon } from "lucide-react";
 
 import "./Composer.css";
 
@@ -332,6 +332,11 @@ export function Composer({
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
+  // the corner button grows the message box to most of the pane for a long draft; it falls back
+  // to its usual size once the draft is sent or cleared
+  const [expanded, setExpanded] = useState(false);
+  const expandedRef = useRef(false);
+  expandedRef.current = expanded;
   const [note, setNote] = useState<string | DraftRefusal | UploadFailure | null>(null);
   // shown only when chosen in Settings → Quick replies: a button beside the box was one more thing to read
   const quickOpen = settings.showQuickReplies;
@@ -428,12 +433,21 @@ export function Composer({
     const element = textareaRef.current;
     const measurement = measurementRef.current;
     if (!element || !measurement) return;
+    // expanded, the stylesheet gives the box its height
+    if (expandedRef.current) { element.style.height = ""; return; }
     // Measuring the live field at auto height enlarges the transcript and clamps its scroll.
     element.style.height = `${measurement.scrollHeight}px`;
   }, []);
 
   // A suggestion or prompt hint changes only the placeholder of a populated draft.
-  useLayoutEffect(sizeTextarea, [sizeTextarea, text, text.length === 0 ? placeholder : null, boxWidth, facesLoaded]);
+  useLayoutEffect(sizeTextarea, [sizeTextarea, text, text.length === 0 ? placeholder : null, boxWidth, facesLoaded, expanded]);
+
+  // a sent or cleared draft takes the box back to its usual size
+  const hadText = useRef(false);
+  useEffect(() => {
+    if (text.length > 0) hadText.current = true;
+    else if (hadText.current) { hadText.current = false; setExpanded(false); }
+  }, [text]);
 
   // SettingsProvider writes --chat-scale in a passive effect. Measure on the next frame,
   // after that CSS is applied, so a draft rewraps without waiting for another keystroke.
@@ -1313,7 +1327,7 @@ export function Composer({
 
       <div
         ref={surfaceRef}
-        className={`composer-surface${dragging ? " is-dragging" : ""}`}
+        className={`composer-surface${dragging ? " is-dragging" : ""}${expanded ? " is-expanded" : ""}`}
         data-compact={statusCompact ? "" : undefined}
         onDragEnter={(event) => {
           event.preventDefault();
@@ -1471,6 +1485,13 @@ export function Composer({
           </div>
         )}
 
+        {!viewOnly && <button type="button" className="composer-expand"
+          aria-pressed={expanded} aria-label={t(expanded ? "Collapse message box" : "Expand message box")} title={t(expanded ? "Collapse message box" : "Expand message box")}
+          // keeps the caret and the keyboard where they are
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => setExpanded((value) => !value)}>
+          {expanded ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
+        </button>}
         {liveBox ? <Suspense fallback={null}>
           <ComposerLiveEditor text={text} caret={caretRef.current} placeholder={placeholder} label={t("Message")} autoFocus={autoFocus === true && !modalOpen()}
             onText={(value, at) => {

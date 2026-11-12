@@ -265,4 +265,6 @@ export const COMPOSER_KO: Record<string, string> = {
   "Not sent: no agent is running in this pane. Your message stayed here.": "보내지 않음: 이 패널에서 실행 중인 에이전트가 없습니다. 메시지는 그대로 남아 있습니다.",
   "1 comment": "코멘트 1개",
   "{count} comments": "코멘트 {count}개",
+  "Expand message box": "메시지 입력란 펼치기",
+  "Collapse message box": "메시지 입력란 접기",
 };
