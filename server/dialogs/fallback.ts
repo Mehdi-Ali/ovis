@@ -119,8 +119,9 @@ const WAITING_LINES: Readonly<Record<string, readonly WaitingLine[]>> = {
     { pattern: new RegExp(`^(❓ \\S(?:.*\\S)?) {2}\\(\\s?${ELAPSED} · ↓ \\d+ tok\\)$`, "u"), steady: "$1  (<time> · ↓ <tokens> tok)" },
     // the hint with the time left to answer: "↑/↓ to select, Enter to lock, Tab next question  (3542s)"
     { pattern: /^(↑\/↓ to select, Enter to lock\b.*\S) {2}\(\d+s\)$/u, steady: "$1  (<time left>)" },
-    // the status bar under it, every segment of which ticks: "☤ gpt-6-luna │ 12.7K/1.1M │ … │ ⏱ 1m 2s   ─ Use your…"
-    { pattern: /^☤ \S.* │ ⏱ .*$/u, steady: "☤ <status>" },
+    // the status bar under it, every segment of which ticks up to its timer; the words it echoes after the timer stay:
+    // "☤ gpt-6-luna │ 12.7K/1.1M │ … │ ⏱ 1m 2s   ─ Use your…"
+    { pattern: new RegExp(`^☤ \\S.* │ ⏱ ${ELAPSED}(?: {2,}(\\S.*))?$`, "u"), steady: (_all, echo) => `☤ <status>${echo ? ` ${echo}` : ""}` },
   ],
   // "◈ Request user input Color — running (59s)", its glyph turning ◆/◈/◇
   muse: [{ pattern: new RegExp(`^[◆◈◇] (\\S(?:.*\\S)?) — running \\(${ELAPSED}\\)$`, "u"), steady: "◈ $1 — running (<time>)" }],
@@ -132,7 +133,7 @@ const WAITING_LINES: Readonly<Record<string, readonly WaitingLine[]>> = {
   "dsh-tui": [{ pattern: new RegExp(`^[\\u{1F311}-\\u{1F318}] (\\S(?:.*\\S)?) · ${ELAPSED} · ↑ [\\d.,]+[kKmM]? · ↓ [\\d.,]+[kKmM]? tokens$`, "u"), steady: "<moon> $1 · <time> · <tokens>" }],
 };
 
-interface WaitingLine { pattern: RegExp; steady: string; each?: true }
+interface WaitingLine { pattern: RegExp; steady: string | ((all: string, echo?: string) => string); each?: true }
 
 function waitingReader(rules: readonly WaitingLine[], shown: string[]): SteadyReader {
   const steadied = new Map<string, string>();
@@ -141,12 +142,13 @@ function waitingReader(rules: readonly WaitingLine[], shown: string[]): SteadyRe
     const at = shown.flatMap((line, index) => rule.pattern.test(line) ? [index] : []);
     if (at.length === 0 || (at.length > 1 && !rule.each)) continue;
     for (const index of at) {
-      steadied.set(shown[index]!, shown[index]!.replace(rule.pattern, rule.steady));
+      steadied.set(shown[index]!, (typeof rule.steady === "string" ? shown[index]!.replace(rule.pattern, rule.steady) : shown[index]!.replace(rule.pattern, rule.steady)));
       working.push(index);
     }
   }
   return working.length === 0 ? { read: (other) => other, working: null }
-    : { read: (other) => steadied.get(other) ?? other, working: working.sort((a, b) => a - b) };
+    // one line read so stays a number, as the id has always held it (Copilot's and Grok's cards keep their ids)
+    : { read: (other) => steadied.get(other) ?? other, working: working.length === 1 ? working[0]! : working.sort((a, b) => a - b) };
 }
 
 interface SteadyReader {

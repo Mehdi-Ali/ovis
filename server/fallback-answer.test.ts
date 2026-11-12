@@ -185,9 +185,10 @@ test("sends nothing for an answer given up during the read before its key", asyn
 // The agent lab's agents whose generic cards changed id every second (agent-lab audit, 2026-11-12): each recorded twice,
 // a few seconds apart, while its question or approval waited, then a change of words that must still be another card
 test.each([
-  ["hermes", "Which color?", "Which size?"],
+  // the waiting line's own words, each found once on the screen, so the change is to that line and nothing else
+  ["hermes", "\u2753 Which color?", "\u2753 Which size?"],
   ["muse", "Request user input Color", "Request user input Size"],
-  ["maki", "List directory contents", "Remove directory contents"],
+  ["maki", "bash> List directory contents", "bash> Remove directory contents"],
   ["kimi", "Using Shell (ls -la)", "Using Shell (rm -rf .)"],
   ["dsh-tui", "Checking with you", "Deleting for you"],
 ])("keeps %s's card while its timer or spinner redraws, and not once its words change", (agent, from, to) => {
@@ -196,6 +197,20 @@ test.each([
   expect(parseFallbackPrompt(agent, after).id).toBe(parseFallbackPrompt(agent, before).id);
   // Muse turns its glyph through three frames
   if (agent === "muse") expect(parseFallbackPrompt(agent, after.replace("\u25c7 Request", "\u25c6 Request")).id).toBe(parseFallbackPrompt(agent, before).id);
-  expect(after).toContain(from);
+  expect(after.split(from).length).toBe(2);
   expect(parseFallbackPrompt(agent, after.replace(from, to)).id).not.toBe(parseFallbackPrompt(agent, before).id);
+});
+
+test("keeps the words Hermes's status bar echoes, blanking only its ticking segments", () => {
+  const [before, after] = ["a", "b"].map((frame) => recorded(`lab-hermes-waiting-${frame}`)) as [string, string];
+  const echo = "\u2500 Use your tool for asking...";
+  expect(after.split(echo).length).toBe(2);
+  expect(parseFallbackPrompt("hermes", after).id).toBe(parseFallbackPrompt("hermes", before).id);
+  expect(parseFallbackPrompt("hermes", after.replace(echo, "\u2500 Delete the staging data...")).id).not.toBe(parseFallbackPrompt("hermes", before).id);
+});
+
+test("keeps the ids of Copilot's and Grok's cards as #3730 gave them", () => {
+  // their one waiting line is still read as one index, so a card already on screen keeps its id across this change
+  expect(parseFallbackPrompt("copilot", recorded("copilot-1.0.109-ask-32s")).id).toBe("2af485654211");
+  expect(parseFallbackPrompt("grok", recorded("grok-1.0.77-ask")).id).toBe("09168e691891");
 });
