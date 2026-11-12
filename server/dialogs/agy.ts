@@ -30,11 +30,12 @@ import {
  *
  *   ↑/↓ Navigate · → Next · enter Submit · esc Skip
  *
+ * Antigravity 1.5.6 names Enter `Select` on a single question asked alone (`↑/↓ Navigate · enter Select · esc Skip`).
  * Multi-select questions prefix each choice with `[x] ` or `[ ] ` (never the `Write-in...` row)
  * and add `space Toggle` to the hint bar. Questions revisited with `← Back` after a single-choice
  * answer prefix the chosen row with `✓ `.
  */
-export const AGY_ASK_HINT_RE = /↑\/↓\s+Navigate\b[\s\S]*?\benter\s+(?:Submit(?:\s+All)?|Write-in)\b[\s\S]*?\besc\s+Skip\b/i;
+export const AGY_ASK_HINT_RE = /↑\/↓\s+Navigate\b[\s\S]*?\benter\s+(?:Submit(?:\s+All)?|Select|Write-in)\b[\s\S]*?\besc\s+Skip\b/i;
 
 const AGY_WRITE_IN_HINT_RE = /\benter\s+Submit(?:\s+All)?\s*·\s*esc\s+Back\b/i;
 const AGY_QUESTION_RE = /^Question\s+(\d+)\/(\d+):\s*(.+)$/;

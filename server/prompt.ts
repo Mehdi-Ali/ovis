@@ -506,6 +506,9 @@ export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer,
       if (picked.some((choice) => !Number.isInteger(choice) || choice < 0 || choice >= parsed.options.length)) {
         throw new InvalidAnswer("An option index is outside the displayed range.");
       }
+      // ticks with typed text are sent only by a card whose own steps take both (agy's write-in); any other card that
+      // says it takes them (pi-ask's form, answered through its bridge) would type the text and drop the ticks
+      if (!parsed.customSteps) throw new InvalidAnswer("This prompt does not take ticks and typed text together.");
     }
     if (parsed.responder === "fallback-gjc-menu") {
       if (/[\r\n]/.test(text)) throw new InvalidAnswer("Use the terminal for a multiline GJC custom answer.");

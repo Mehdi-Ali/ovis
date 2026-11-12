@@ -1,0 +1,35 @@
+import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { answerKeys, parseInteractivePrompt } from "../prompt.ts";
+import { finishPrompt, publicPrompt } from "./shared.ts";
+
+// Antigravity 1.5.6's ask_question, one question asked alone, as it drew it at 120 columns: its hint names Enter "Select"
+const screen = readFileSync(new URL("../fixtures/agy-1.5.6-ask.txt", import.meta.url), "utf8");
+
+test("reads Antigravity 1.5.6's single question, whose hint names Enter Select", () => {
+  const prompt = parseInteractivePrompt("agy", screen)!;
+  expect(prompt.question).toBe("Which file would you like to create?");
+  expect(prompt.options.map((option) => option.label)).toEqual(["(Recommended) hello.txt", "bye.txt"]);
+  expect(prompt.custom_option_index).toBe(2);
+  expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+});
+
+test("does not read the folder-trust picker as a question", () => {
+  expect(parseInteractivePrompt("agy", readFileSync(new URL("../fixtures/agy-1.5.6-trust.txt", import.meta.url), "utf8"))).toBeNull();
+});
+
+test("ticks rows and types a write-in in one answer on Antigravity 1.5.6's multiple choice", () => {
+  const prompt = parseInteractivePrompt("agy", readFileSync(new URL("../fixtures/agy-1.5.6-ask-multi.txt", import.meta.url), "utf8"))!;
+  expect(prompt.multi_select).toBe(true);
+  expect(prompt.checks_with_text).toBe(true);
+  expect(prompt.options.map((option) => option.label)).toEqual(["(Recommended) Desktop", "Mobile", "Web"]);
+  // Mobile ticked, then down to Write-in..., Enter opens its field, the text, Enter submits (sent to Antigravity 1.5.6: it answered "Mobile, TV")
+  expect(answerKeys(prompt, { option_indices: [1], custom_text: "TV" })).toEqual([...["down", "space", "down", "down", "enter"].map((key) => ({ keys: [key] })), { text: "TV" }, { keys: ["enter"] }]);
+});
+
+test("refuses ticks with typed text for a card whose own steps cannot take both", () => {
+  // a multiple choice that says it takes ticks with text, as pi-ask's form does, but has no steps of its own for them
+  const parsed = finishPrompt("pi", { kind: "question", title: "Question", question: "Which?", body: null, options: [{ label: "A", description: null }, { label: "B", description: null }], multi_select: true, checks_with_text: true, custom_option_index: 2 },
+    { responder: "pi-ask-question", menuLabels: ["A", "B", "Other"], selectedIndex: 0, checkedOptionIndices: [], customMenuIndex: 2, rejectWithEscapeIndex: null });
+  expect(() => answerKeys(publicPrompt(parsed), { option_indices: [0], custom_text: "C" })).toThrow("This prompt does not take ticks and typed text together.");
+});
