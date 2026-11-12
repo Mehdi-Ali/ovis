@@ -1,6 +1,7 @@
 import { Visualization } from "./Visualization.tsx";
 import { createContext, Fragment, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
-import { BookOpen, Check, Copy, ImageOff, LoaderCircle, Maximize2, Play } from "lucide-react";
+import { BookOpen, Check, Copy, ImageOff, LoaderCircle, Maximize2, Play, X } from "lucide-react";
+import type { AdbRunStatus, AdbRunStatusReader } from "../lib/api.ts";
 
 import { foldCode, mathNestsTooDeep, parseInline, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../../shared/markdown.ts";
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
@@ -385,7 +386,7 @@ function List({ block }: { block: ListBlock }) {
  * Local patch: runs an adb code block in a small pane under the agent's (server /api/pane/adb-run).
  * Only the chat view provides it, so a block elsewhere (file preview, docs) shows no Run button.
  */
-export const CodeRunContext = createContext<((command: string) => Promise<void>) | null>(null);
+export const CodeRunContext = createContext<((command: string) => Promise<AdbRunStatusReader>) | null>(null);
 const ADB_LINE = /^\s*adb\s/m;
 
 /** A fence in no language, or in one that says plain output (a log, a command's answer): the files it names open. */
@@ -404,16 +405,32 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
   const runnable = runCode !== null && ADB_LINE.test(value);
   const [running, setRunning] = useState<"idle" | "starting" | "started">("idle");
   const [runError, setRunError] = useState<string | null>(null);
+  // the pane's progress, shown here because a phone never shows the pane itself
+  const [runStatus, setRunStatus] = useState<AdbRunStatus | null>(null);
+  const runSeq = useRef(0);
+  useEffect(() => () => { runSeq.current++; }, []);
   const run = async (): Promise<void> => {
     if (runCode === null || running === "starting") return;
+    const seq = ++runSeq.current;
     setRunning("starting");
     setRunError(null);
+    setRunStatus({ state: "running", lines: ["Starting..."] });
     try {
-      await runCode(value);
+      const read = await runCode(value);
       setRunning("started");
       window.setTimeout(() => setRunning("idle"), 2000);
+      const until = Date.now() + 5 * 60_000;
+      while (seq === runSeq.current && Date.now() < until) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        if (seq !== runSeq.current) return;
+        const status = await read().catch(() => null);
+        if (status === null || status.state === "unknown") continue;
+        setRunStatus(status);
+        if (status.state !== "running") return;
+      }
     } catch (error) {
       setRunning("idle");
+      setRunStatus(null);
       setRunError(error instanceof Error ? error.message : String(error));
     }
   };
@@ -456,6 +473,12 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
         </span>
       </div>
       {runError !== null && <p className="markdown-code-error" role="alert">{`Couldn't run: ${runError}`}</p>}
+      {runStatus !== null && (
+        <p className={`markdown-code-run-status is-${runStatus.state}`} role="status">
+          {runStatus.state === "running" ? <LoaderCircle aria-hidden="true" className="markdown-code-run-spin" /> : runStatus.state === "ok" ? <Check aria-hidden="true" /> : <X aria-hidden="true" />}
+          <span>{runStatus.lines.join(" · ")}</span>
+        </p>
+      )}
       {copyFailed && <p className="markdown-code-error" role="alert">{t("Couldn't copy. Select the text and copy it manually.")}</p>}
       {/* a block in no language is output (a log, a command's answer): the files it names open */}
       <HighlightedCode code={fold !== null && !expanded ? fold.head : value} language={grammar} limit={CHAT_HIGHLIGHT_LIMIT} open={plain ? open : null} />

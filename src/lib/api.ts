@@ -1175,9 +1175,17 @@ export async function resizePane(paneId: string, direction: PaneDirection, machi
 }
 
 /** POST /api/pane/adb-run (local patch): runs an adb code block in a small pane split under the agent's. */
-export async function runAdbBlock(paneId: string, command: string, machineId = "local"): Promise<void> {
-  await sendJson(machinePath(machineId, "pane/adb-run"), "POST", { pane_id: paneId, command });
+export async function runAdbBlock(paneId: string, command: string, machineId = "local"): Promise<AdbRunStatusReader> {
+  const response = await sendJson(machinePath(machineId, "pane/adb-run"), "POST", { pane_id: paneId, command });
+  const runId = ((await response.json()) as { run_id?: string | null }).run_id ?? null;
+  return async () => runId === null
+    ? { state: "unknown", lines: [] }
+    : getJson<AdbRunStatus>(machinePath(machineId, `pane/adb-run/status?${new URLSearchParams({ run: runId }).toString()}`));
 }
+
+/** What the adb-run pane is doing: one line per step, the last one current. */
+export type AdbRunStatus = { state: "running" | "ok" | "failed" | "unknown"; lines: string[] };
+export type AdbRunStatusReader = () => Promise<AdbRunStatus>;
 
 /** POST /api/pane/clear: clears the pane's terminal screen in herdr. */
 export async function clearPane(paneId: string, machineId = "local"): Promise<void> {
