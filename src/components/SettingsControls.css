@@ -838,6 +838,12 @@
     flex: 0 0 auto;
   }
 
+  /* a stacked row is a column already, and the opened sentence its last line: wrapping would size that column to
+     its widest child's own width (a font field, four segments), past the card */
+  .settings-row.is-wide.is-explained {
+    flex-wrap: nowrap;
+  }
+
   /* a stepper under its name ends on the card's edge, as the font rows' steppers do */
   .settings-row.is-wide > .settings-stepper,
   .settings-row.is-wide > .settings-file-size {

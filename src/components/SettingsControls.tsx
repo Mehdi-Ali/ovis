@@ -1,4 +1,4 @@
-import { createContext, isValidElement, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type FocusEvent as ReactFocusEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
+import { Children, cloneElement, createContext, Fragment, isValidElement, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type FocusEvent as ReactFocusEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, Info, Minus, Plus, RotateCcw, type LucideIcon } from "lucide-react";
 
@@ -183,9 +183,10 @@ function useRowSentence(on: boolean): {
   row: RefObject<HTMLDivElement | null>;
   /** over the page now, and why */
   shown: "hover" | "focus" | null;
+  /** whether it is on the screen: while its row is outside the page's view it is shown and drawn nowhere */
+  drawn: RefObject<boolean>;
   /** in the row now, opened by a tap */
   opened: boolean;
-  hide: () => void;
   toggle: () => void;
   rowEvents: { onPointerEnter?: (event: ReactPointerEvent) => void; onPointerLeave?: () => void; onPointerDown?: (event: ReactPointerEvent) => void; onFocus?: (event: ReactFocusEvent) => void; onBlur?: (event: ReactFocusEvent) => void; onInput?: () => void; onClick?: (event: ReactMouseEvent) => void };
 } {
@@ -197,6 +198,7 @@ function useRowSentence(on: boolean): {
   const dismissed = useRef(false);
   // the last press on the row came from a finger
   const finger = useRef(false);
+  const drawn = useRef(false);
   useEffect(() => () => window.clearTimeout(rest.current), []);
   useEffect(() => {
     if (shown === null) return;
@@ -206,6 +208,8 @@ function useRowSentence(on: boolean): {
     const onKey = (event: KeyboardEvent): void => {
       // an IME's Escape drops its composition, not the sentence
       if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      // nothing is on the screen to close (the row is outside the page's view): this Escape is not the sentence's
+      if (!drawn.current) return;
       // the sentence alone: Settings stays open, and the pointer and the focus stay where they are (WCAG 1.4.13)
       if (!inTextField()) {
         event.preventDefault();
@@ -223,9 +227,9 @@ function useRowSentence(on: boolean): {
   }, [shown]);
   const hide = (): void => { window.clearTimeout(rest.current); setShown(null); };
   const toggle = (): void => { hide(); setOpened((was) => !was); };
-  if (!on) return { row, shown: null, opened: false, hide, toggle, rowEvents: {} };
+  if (!on) return { row, shown: null, drawn, opened: false, toggle, rowEvents: {} };
   return {
-    row, shown: opened ? null : shown, opened, hide, toggle,
+    row, shown: opened ? null : shown, drawn, opened, toggle,
     rowEvents: {
       onPointerEnter: (event) => {
         if (event.pointerType === "touch" || opened) return;
@@ -284,13 +288,13 @@ function useRowSentence(on: boolean): {
  * A row's sentence over the page: drawn in the dialog's own layer, over the dialog and not cut by its scrolling
  * page (in the document where the row is in no dialog), and placed by placeSentence. Over a row whose control
  * would be under it, it narrows to the room beside that control (sentenceRoom). It follows its row while the page
- * scrolls, and goes once the row has left the page's view. Not read out: the row's own copy describes the control.
+ * scrolls and is drawn only while the row is in the page's view: a dialog moves the keyboard's focus without
+ * scrolling (lib/useFocusTrap.ts), so the focus can be on a setting the page is not scrolled to, and its sentence
+ * then waits for the row (`drawn` says which). Not read out: the row's own copy describes the control.
  */
-function RowSentence({ row, onGone, children }: { row: HTMLElement; onGone: () => void; children: ReactNode }) {
+function RowSentence({ row, drawn, children }: { row: HTMLElement; drawn: RefObject<boolean>; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState<{ left: number; top: number; maxWidth: string } | null>(null);
-  const gone = useRef(onGone);
-  gone.current = onGone;
   useLayoutEffect(() => {
     const place = (): void => {
       const tip = box.current;
@@ -298,11 +302,18 @@ function RowSentence({ row, onGone, children }: { row: HTMLElement; onGone: () =
       const rowBox = row.getBoundingClientRect();
       const pageEl = row.closest(".modal-body");
       const page = pageEl?.getBoundingClientRect();
-      if (page && (rowBox.bottom <= page.top || rowBox.top >= page.bottom)) return gone.current();
+      if (page && (rowBox.bottom <= page.top || rowBox.top >= page.bottom)) {
+        drawn.current = false;
+        setAt(null);
+        return;
+      }
+      drawn.current = true;
       const text = row.querySelector(":scope > .settings-row-text");
       const name = (row.querySelector(".settings-label") ?? row).getBoundingClientRect();
+      // the ↺ beside the name stands taller than the name: the sentence clears it and its focus ring too
+      const line = row.querySelector(":scope > .settings-row-text > .settings-label-line")?.getBoundingClientRect();
       const beside = [...row.children].filter((child) => child !== text).map((child) => child.getBoundingClientRect()).filter((side) => side.height > 0);
-      const clear = Math.min(name.top, ...beside.map((side) => side.top));
+      const clear = Math.min(name.top, line?.top ?? name.top, ...beside.map((side) => side.top));
       const under = Math.max(text?.getBoundingClientRect().bottom ?? rowBox.bottom, ...beside.map((side) => side.bottom));
       const screen = { width: window.innerWidth, height: window.innerHeight };
       // the other rows' controls: what a sentence over those rows must not lie on
@@ -329,14 +340,33 @@ function RowSentence({ row, onGone, children }: { row: HTMLElement; onGone: () =
     window.addEventListener("scroll", place, { capture: true, passive: true });
     window.addEventListener("resize", place);
     return () => {
+      drawn.current = false;
       window.removeEventListener("scroll", place, true);
       window.removeEventListener("resize", place);
     };
-  }, [row]);
+  }, [row, drawn]);
   return createPortal(
     <div ref={box} className="settings-help" aria-hidden="true" style={at === null ? { visibility: "hidden" } : { left: at.left, top: at.top, maxWidth: at.maxWidth === "" ? undefined : at.maxWidth }}>{children}</div>,
     row.closest<HTMLElement>(".modal-scrim") ?? document.body,
   );
+}
+
+const DESCRIBED_ELEMENTS = new Set(["button", "input", "select", "textarea"]);
+
+/**
+ * The buttons and fields a page draws in its row as plain elements (Edit key bar, Import, a key's field): each is
+ * described by the row's sentence, as the row's own controls are, unless it brings a description of its own. What a
+ * component draws inside the row is that component's to describe (useSettingsRowSentence). A row without a sentence
+ * goes through it too, unchanged: a row whose sentence comes and goes (a shortcut being recorded) keeps one shape,
+ * so its controls are never drawn anew and keep the focus.
+ */
+function describedByRow(children: ReactNode, sentence: string | undefined): ReactNode {
+  return Children.map(children, (child) => {
+    if (!isValidElement<{ children?: ReactNode; "aria-describedby"?: string }>(child)) return child;
+    if (typeof child.type === "string" && DESCRIBED_ELEMENTS.has(child.type)) return sentence !== undefined && child.props["aria-describedby"] === undefined ? cloneElement(child, { "aria-describedby": sentence }) : child;
+    if ((typeof child.type !== "string" && child.type !== Fragment) || child.props.children === undefined) return child;
+    return cloneElement(child, undefined, describedByRow(child.props.children, sentence));
+  });
 }
 
 /**
@@ -401,10 +431,10 @@ export function SettingsRow({ label, description, keywords, held = false, htmlFo
         {condition}
       </div>
       {preview !== undefined && <span className="settings-row-preview" aria-hidden="true">{preview}</span>}
-      <SettingsRowSentence.Provider value={description !== undefined ? sentenceId : undefined}>{children}</SettingsRowSentence.Provider>
+      <SettingsRowSentence.Provider value={description !== undefined ? sentenceId : undefined}>{describedByRow(children, description !== undefined ? sentenceId : undefined)}</SettingsRowSentence.Provider>
       {/* opened by a tap: under the name and the control, as wide as the row */}
       {sentence.opened && <span id={sentenceId} className="settings-description settings-row-sentence">{description}</span>}
-      {sentence.shown !== null && sentence.row.current !== null && <RowSentence row={sentence.row.current} onGone={sentence.hide}>{description}</RowSentence>}
+      {sentence.shown !== null && sentence.row.current !== null && <RowSentence row={sentence.row.current} drawn={sentence.drawn}>{description}</RowSentence>}
     </div>
   );
 }

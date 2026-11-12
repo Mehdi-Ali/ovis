@@ -985,6 +985,37 @@ async function rowSentences(browser: import("playwright-core").Browser, url: str
     assert.equal(await size.evaluate((field) => field === document.activeElement), true);
     assert.equal(await sentence.count(), 0, "a click into a field shows no sentence");
 
+    // a dialog moves the keyboard's focus without scrolling (lib/useFocusTrap.ts), so the focus can be on a setting the
+    // page is not scrolled to: its sentence waits, drawn nowhere, and shows once the row is in the page's view
+    await appearance(page);
+    await page.evaluate(() => { for (const fold of document.querySelectorAll<HTMLDetailsElement>(".settings-body:not([hidden]) details")) fold.open = true; });
+    const far = page.getByRole("group", { name: "Status indicators", exact: true }).getByRole("button", { name: "Classic", exact: true });
+    const farText = await describes(page.getByRole("group", { name: "Status indicators", exact: true }));
+    assert.ok(farText !== null && farText.trim() !== "");
+    const outOfView = () => far.evaluate((control) => { const page = control.closest(".modal-body")!.getBoundingClientRect(); const row = control.closest(".settings-row")!.getBoundingClientRect(); return row.bottom <= page.top || row.top >= page.bottom; });
+    const drawnSentence = () => page.evaluate(() => { const tip = document.querySelector<HTMLElement>(".settings-help"); return tip === null ? null : tip.style.visibility === "hidden" ? "waiting" : tip.textContent; });
+    await far.evaluate((control: HTMLElement) => control.focus({ preventScroll: true }));
+    assert.equal(await outOfView(), true, "the focused setting is below what the page shows");
+    assert.equal(await drawnSentence(), "waiting", "no sentence is drawn for a setting the page is not scrolled to");
+    await far.evaluate((control) => control.scrollIntoView({ block: "nearest" }));
+    await page.waitForFunction((want) => { const tip = document.querySelector<HTMLElement>(".settings-help"); return tip !== null && tip.style.visibility !== "hidden" && tip.textContent === want; }, farText);
+    // scrolled away again it is drawn nowhere, and Escape is then Settings' own
+    await far.evaluate((control) => { control.closest(".modal-body")!.scrollTop = 0; });
+    await page.waitForFunction(() => (document.querySelector<HTMLElement>(".settings-help")?.style.visibility ?? "") === "hidden");
+    await page.keyboard.press("Escape");
+    await page.locator(".settings-dialog").waitFor({ state: "detached" });
+
+    // a button and a field a page draws in its row are described by the row's sentence too
+    await page.goto(`${url}?settings=terminal`);
+    await page.locator(".settings-dialog").waitFor();
+    /** a row's own sentence, not a hidden line one of its controls keeps (a size field's range) */
+    const sentenceOf = (name: string) => rowOf(page, name).locator(":scope > .settings-row-text > .visually-hidden[id]").textContent();
+    const keyBarText = await sentenceOf("Key bar");
+    assert.ok(keyBarText !== null && keyBarText.trim() !== "");
+    assert.equal(await describes(page.getByRole("button", { name: "Edit key bar", exact: true })), keyBarText, "Edit key bar is described by its row's sentence");
+    await appearance(page);
+    assert.equal(await describes(page.getByRole("textbox", { name: "Terminal font", exact: true })), await sentenceOf("Terminal font"), "the font field is described by its row's sentence");
+
     // a device that only watches reads the same sentence
     await appearance(page, "&demo_devices=watch");
     await rowOf(page, "Density").locator(".settings-label").hover();
@@ -1021,6 +1052,19 @@ async function rowSentences(browser: import("playwright-core").Browser, url: str
     assert.equal(await opened.count(), 1, "a tap on the control is the control's: the sentence stays as it was");
     await density.locator(".settings-label").tap();
     await opened.waitFor({ state: "detached" });
+    // a stacked row with a wide control (the font field): its opened sentence stays in the card, and the page does
+    // not scroll sideways
+    const font = rowOf(page, "Terminal font");
+    await font.locator(".settings-label").tap();
+    await font.locator(":scope > .settings-row-sentence").waitFor();
+    assert.deepEqual(await font.evaluate((row) => {
+      const line = row.querySelector(":scope > .settings-row-sentence")!.getBoundingClientRect();
+      const card = row.closest(".settings-card")!.getBoundingClientRect();
+      const body = row.closest(".settings-body")!;
+      return { inCard: line.left >= card.left && line.right <= card.right + 0.5, sideways: body.scrollWidth > body.clientWidth + 1 };
+    }), { inCard: true, sideways: false }, "a stacked row's sentence stays in its card");
+    await font.locator(".settings-label").tap();
+    await font.locator(":scope > .settings-row-sentence").waitFor({ state: "detached" });
     // a tap that puts the focus in a field draws nothing over the page either
     await page.getByRole("textbox", { name: "Terminal font size", exact: true }).tap();
     await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Terminal font size");
@@ -1029,7 +1073,7 @@ async function rowSentences(browser: import("playwright-core").Browser, url: str
   } finally {
     await phone.close();
   }
-  console.log("PASS a row's sentence: over the page on a resting mouse and on keyboard focus, off its control and the row below, closed alone by Escape and by a press on its control, none for a click or a tap into a field, opened in the row by a tap, and the same on a watching device");
+  console.log("PASS a row's sentence: over the page on a resting mouse and on keyboard focus, off its control and the row below, closed alone by Escape and by a press on its control, none for a click or a tap into a field, waiting for a row out of view, describing a row's button and field, opened in the row by a tap and inside the card, and the same on a watching device");
 }
 
 async function mergedRows(browser: import("playwright-core").Browser, url: string): Promise<void> {

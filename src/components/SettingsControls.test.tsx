@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { act, createElement } from "react";
+import { act, createElement, Fragment, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 
@@ -159,12 +159,12 @@ describe("where a row's sentence goes (#3275)", () => {
 });
 
 describe("a row's sentence describes its control (#3275)", () => {
-  const render = (bare: boolean): string => {
+  const render = (bare: boolean, control: ReactNode = createElement(Toggle, { label: "Collapse work", checked: false, onChange: () => {} })): string => {
     const saved = Object.getOwnPropertyDescriptor(navigator, "languages");
     Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
     try {
       return renderToStaticMarkup(createElement(SettingsProvider, null, createElement(SettingsBare.Provider, { value: bare },
-        createElement(SettingsRow, { label: "Collapse work", description: "Starts folded.", children: createElement(Toggle, { label: "Collapse work", checked: false, onChange: () => {} }) }))));
+        createElement(SettingsRow, { label: "Collapse work", description: "Starts folded.", children: control }))));
     } finally {
       if (saved) Object.defineProperty(navigator, "languages", saved);
       else Reflect.deleteProperty(navigator, "languages");
@@ -176,5 +176,17 @@ describe("a row's sentence describes its control (#3275)", () => {
     const id = new RegExp(`<span id="([^"]+)" class="${shownAs}">Starts folded\\.</span>`).exec(html)?.[1];
     expect(id).toBeString();
     expect(html).toContain(`role="switch" aria-checked="false" aria-label="Collapse work" aria-describedby="${id}"`);
+  });
+
+  it("describes a button and a field the page draws in the row, and leaves one that brings its own description", () => {
+    const html = render(true, createElement(Fragment, null,
+      createElement("span", { className: "settings-chips" }, createElement("button", { type: "button" }, "Edit key bar")),
+      createElement("input", { "aria-label": "Key" }),
+      createElement("button", { type: "button", "aria-describedby": "own-note" }, "Move everything")));
+    const id = /<span id="([^"]+)" class="visually-hidden">Starts folded\.<\/span>/.exec(html)?.[1];
+    expect(id).toBeString();
+    expect(html).toContain(`<button type="button" aria-describedby="${id}">Edit key bar</button>`);
+    expect(html).toContain(`<input aria-label="Key" aria-describedby="${id}"/>`);
+    expect(html).toContain(`<button type="button" aria-describedby="own-note">Move everything</button>`);
   });
 });

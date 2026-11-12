@@ -31,7 +31,7 @@ import { FoldHelpersRow } from "./FoldHelpersRow.tsx";
 import { FilesPanelRow } from "./FilesPanelRow.tsx";
 import { onSettingsHistory, recordSettings, settingsEntry, settingsLevels, type SettingsLevel } from "../lib/settingsHistory.ts";
 import { ThemeFiles, themeLabel } from "./ThemeFiles.tsx";
-import { ChipToggles, SettingsBare, Segmented, SettingsFold, SettingsGroup, SettingsQuery, SettingsRow, SettingsSelect, Stepper, Toggle, settingsQueryWords } from "./SettingsControls.tsx";
+import { ChipToggles, SettingsBare, Segmented, SettingsFold, SettingsGroup, SettingsQuery, SettingsRow, SettingsSelect, Stepper, Toggle, settingsQueryWords, useSettingsRowSentence } from "./SettingsControls.tsx";
 import { PcLoadSetting } from "./MachineStats.tsx";
 import { helpDemo } from "../lib/settingsHelpDemo.ts";
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
@@ -151,6 +151,8 @@ const UI_FONT_PLACEHOLDER = '"Noto Sans JP", "Segoe UI"';
  */
 function FontFamilyInput({ value, label, onCommit, placeholder = FONT_FAMILY_PLACEHOLDER, fixedWidthFor = null }: { value: string; label: string; onCommit: (family: string) => void; placeholder?: string; /** the surface that needs every glyph on one advance: a proportional pick from the list is refused in its name */ fixedWidthFor?: "terminal" | null }) {
   const t = useT();
+  // the field and Browse are this component's own: each is described by the sentence of the row they sit in
+  const sentence = useSettingsRowSentence();
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   // typed and not yet saved: only that is saved when the field goes, never a value put back meanwhile (a row's ↺)
@@ -209,6 +211,7 @@ function FontFamilyInput({ value, label, onCommit, placeholder = FONT_FAMILY_PLA
           placeholder={placeholder}
           maxLength={FONT_FAMILY_MAX_CHARS}
           aria-label={label}
+          aria-describedby={sentence}
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
@@ -222,7 +225,7 @@ function FontFamilyInput({ value, label, onCommit, placeholder = FONT_FAMILY_PLA
           }}
         />
         {canListInstalledFonts() && (
-          <button type="button" className="btn settings-font-browse" aria-expanded={browsing} aria-label={t("Browse installed fonts for {label}", { label })} onClick={() => void browse()}>
+          <button type="button" className="btn settings-font-browse" aria-expanded={browsing} aria-label={t("Browse installed fonts for {label}", { label })} aria-describedby={sentence} onClick={() => void browse()}>
             <Search aria-hidden="true" />
             {t("Browse")}
           </button>

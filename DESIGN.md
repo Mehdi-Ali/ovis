@@ -4036,7 +4036,12 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   no wider than `22rem`), fixed in the dialog's scrim so the scrolling page does not cut it. It goes
   above the row with its left edge on the name's, so it covers neither the row's own control nor
   the row below, which the pointer goes to next; under the row only where the screen ends above it.
-  Over another row's control it narrows to the room beside that control, down to `224px`. It never
+  Over another row's control it narrows to the room beside that control, down to `224px`; with less
+  room than that (the row under a font row's field) it keeps its width and lies on that control's
+  near end, which the reader reaches by leaving the sentence or with Escape. It is drawn only while
+  its row is in the page's view: a dialog's Tab moves the focus without scrolling
+  (`lib/useFocusTrap.ts`), so on a setting the page is not scrolled to the sentence waits for the
+  row, and Escape is not its own meanwhile. It never
   moves: it is there or it is not, and a row entered within `400ms` of another's closing shows its
   own at once. The pointer on it keeps it, it takes no focus, and Escape closes it alone and leaves
   Settings open. The keyboard on a setting always shows its sentence, so from there the first Escape
@@ -4049,8 +4054,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   click or a tap that puts the focus in a field or a select shows no sentence. In a text field that
   Escape is the field's too, and the first text typed closes it. A finger has no hover: a tap on the row, anywhere but its control, opens the sentence in the
   row, under the name and the control at the row's width (`.settings-row-sentence`), and a second
-  tap closes it, so nothing is drawn over a phone's page. The row's switch, select, stepper or
-  group of choices is described by the same sentence (`aria-describedby`), as
+  tap closes it, so nothing is drawn over a phone's page. Every control in the row is described by
+  the same sentence (`aria-describedby`): its switch, select, stepper or group of choices, and a
+  button or a field the page draws there (one that brings a description of its own keeps it), as
   [Zed's settings](https://github.com/zed-industries/zed/blob/main/crates/settings_ui/src/settings_ui.rs)
   give each control its row's description, so a screen reader reads it with the control. The
   pattern is WAI-ARIA's [tooltip](https://www.w3.org/WAI/ARIA/apg/patterns/tooltip/) (hover and
