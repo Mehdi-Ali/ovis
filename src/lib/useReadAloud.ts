@@ -212,6 +212,8 @@ export function useReadAloud(opts: { paneId: string; machineId: string; frame: R
     if (held.current === null) capture();
     const picked = held.current;
     held.current = null;
+    // the browser's own selection colour would cover the purple sentence; the cloned range is kept
+    if (picked) getSelection()?.removeAllRanges();
     const text = picked?.text ?? lastReply.current();
     const segs = segment(text);
     if (segs.length === 0) return;
