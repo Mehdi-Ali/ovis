@@ -3,20 +3,22 @@ import { createElement, useLayoutEffect } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import type { Machine } from "../../shared/machines.ts";
 import type { HerdrPane, HerdrWorkspace } from "../../shared/protocol.ts";
-import type { AppLink, CreateDraft } from "./deepLink.ts";
+import { NAV_KEY, type AppLink, type CreateDraft } from "./deepLink.ts";
 import { FILE_PREVIEW_KEY } from "./historyKeys.ts";
 import type { SelectionMark } from "./selectionMark.ts";
 import * as settingsHistory from "./settingsHistory.ts";
 import * as sheetHistory from "./sheetHistory.ts";
 import { popUnread, useAddressBar } from "./useAddressBar.ts";
+import { INBOX_FROM_KEY } from "./useInbox.ts";
 
 // The two history modules answer the handler from what their own popstate listeners last saw, on the
 // window they loaded with. That is not this file's window (another test file may have loaded them,
-// and left its last answer): here no pop is Settings closing or a sheet's step.
+// and left its last answer): here no pop is Settings closing, and a sheet's step only where a test says so.
 const loaded = { settings: { ...settingsHistory }, sheet: { ...sheetHistory } };
+let sheetStep = false;
 beforeAll(() => {
   mock.module("./settingsHistory.ts", () => ({ ...loaded.settings, settingsSteppedOff: () => false }));
-  mock.module("./sheetHistory.ts", () => ({ ...loaded.sheet, sheetSteppedOff: () => false }));
+  mock.module("./sheetHistory.ts", () => ({ ...loaded.sheet, sheetSteppedOff: () => sheetStep }));
 });
 afterAll(() => {
   mock.module("./settingsHistory.ts", () => loaded.settings);
@@ -36,7 +38,9 @@ const roster = (): Snapshot => ({
 }) as unknown as Snapshot;
 
 /** what the app shows: the hook's inputs that the tests move */
-let place: { paneId: string; newSessionOpen: boolean; newFields: Omit<CreateDraft, "kind"> | null; sidebarCollapsed: boolean; snapshot: Snapshot; viewing: Preview | null };
+let place: { paneId: string; newSessionOpen: boolean; newFields: Omit<CreateDraft, "kind"> | null; sidebarCollapsed: boolean; snapshot: Snapshot; viewing: Preview | null; linkLanded: boolean; inbox: { open: boolean; enabled: boolean } };
+/** what the handler asked of a phone's agent list */
+let inboxCalls: string[];
 /** the panes the handler asked the app to select */
 let asked: Array<string | null>;
 /** every history write: the method, the entry it was made on and the address it left there */
@@ -60,20 +64,26 @@ const refs = {
 };
 
 function Probe() {
-  const { paneId, newSessionOpen, newFields, sidebarCollapsed, snapshot, viewing } = place;
+  const { paneId, newSessionOpen, newFields, sidebarCollapsed, snapshot, viewing, linkLanded, inbox } = place;
   const machine = { id: "local", name: "workstation", kind: "local", enabled: true, state: "connected", error: null, snapshot } as Machine;
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId) as HerdrPane;
   refs.machines.current = [machine];
   // the app marks its selection at commit (lib/useSelection.ts)
   useLayoutEffect(() => { refs.selection.current = { machineId: "local", paneId, generation: 0 }; }, [paneId]);
   useAddressBar({
+    // the list stands in the pane's place while open on a phone (lib/useInbox.ts)
+    inbox: {
+      shown: inbox.open && inbox.enabled, enabled: inbox.enabled,
+      show: () => { inboxCalls.push("show"); place.inbox = { ...place.inbox, open: true }; draw(); },
+      leave: () => { inboxCalls.push("leave"); place.inbox = { ...place.inbox, open: false }; draw(); },
+    },
     newSessionOpen, newFields, sidebarCollapsed, snapshot, selectedPaneId: paneId, selectedPane: pane,
     selectedWorkspace: snapshot.workspaces.find((workspace) => workspace.workspace_id === pane.workspace_id) as HerdrWorkspace,
     selectedMachineId: "local", selectedMachine: machine, machines: refs.machines.current, machinesRef: refs.machines,
     // Reopen files on return: a file left behind is hidden and its entry keeps it (lib/useFilePanels.ts)
     viewing, leaveFile: () => { place.viewing = null; draw(); return true; },
     restoreFile: () => {}, fileFromPop: () => 0, forgetLeftFiles: () => {}, openFile: () => {},
-    locked: false, linkLanded: true, view: "chat", wideScreen: true, autoSelected: false, newTab: null,
+    locked: false, linkLanded, view: "chat", wideScreen: true, autoSelected: false, newTab: null,
     settingsOpen: false, settingsPage: null, settingsLinkPage: null, settingsLinkSection: null,
     pendingFile: refs.pendingFile, pendingLink: refs.pendingLink, pendingCreate: refs.pendingCreate, linkSince: refs.linkSince, rosterSeq: refs.rosterSeq,
     selectTargetRef: refs.selectTarget, selectionRef: refs.selection,
@@ -90,7 +100,9 @@ const drawNow = (): void => { (renderer as unknown as { unstable_flushSync(run: 
 beforeEach(() => {
   for (const key of ["window", "IS_REACT_ACT_ENVIRONMENT"]) descriptors.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
-  place = { paneId: "p2", newSessionOpen: false, newFields: null, sidebarCollapsed: false, snapshot: roster(), viewing: null };
+  place = { paneId: "p2", newSessionOpen: false, newFields: null, sidebarCollapsed: false, snapshot: roster(), viewing: null, linkLanded: true, inbox: { open: false, enabled: false } };
+  inboxCalls = [];
+  sheetStep = false;
   asked = [];
   writes = [];
   listeners = [];
@@ -152,6 +164,8 @@ async function mount(addresses: string[]): Promise<void> {
 }
 const addresses = (): string[] => entries.map((entry) => entry.url.search);
 const back = (): Promise<void> => act(async () => { window.history.go(-1); });
+const forward = (): Promise<void> => act(async () => { window.history.go(1); });
+const FROM_INBOX = { [NAV_KEY]: true, [INBOX_FROM_KEY]: true };
 
 it("says a popstate is unread only while it is being dispatched and the handler has not read it", () => {
   const pop = new Event("popstate");
@@ -291,4 +305,121 @@ it("holds nothing once the dispatch is over, though the handler never heard the 
 
   // Then the address says what is shown.
   expect(writes).toEqual([`replaceState 0 ${P2}&sidebar=hidden`]);
+});
+
+it("writes the list's place with no pane, and leaving it for the pane under it pushes one entry marked as from the list", async () => {
+  // Given a phone on its list, with the app's own pick p2 under it.
+  place = { ...place, inbox: { open: true, enabled: true } };
+  await mount([P2]);
+
+  // Then the address is the app's own start.
+  expect(addresses()).toEqual([""]);
+
+  // When p2 is opened from the list.
+  await act(async () => { place.inbox = { ...place.inbox, open: false }; draw(); });
+
+  // Then one entry is pushed, and its state says it was left from the list.
+  expect(writes).toEqual([`pushState 1 ${P2}`]);
+  expect(entries[1]!.state).toEqual(FROM_INBOX);
+});
+
+it("pushes the pane opened from the list though nothing was written while the list showed", async () => {
+  // Given a phone that opened on its list before its link landed.
+  place = { ...place, linkLanded: false, inbox: { open: true, enabled: true } };
+  await mount([""]);
+
+  // When the link lands with p1 opened from the list.
+  await act(async () => { place.linkLanded = true; place.paneId = "p1"; place.inbox = { ...place.inbox, open: false }; draw(); });
+
+  // Then the list's entry stays under p1's.
+  expect(writes).toEqual([`pushState 1 ${P1}`]);
+  expect(entries[1]!.state).toEqual(FROM_INBOX);
+});
+
+it("Back onto the list's entry shows the list and Forward its pane again, writing nothing", async () => {
+  // Given p1 opened from the list.
+  place = { ...place, paneId: "p1", inbox: { open: false, enabled: true } };
+  await mount(["", P1]);
+  entries[1]!.state = FROM_INBOX;
+
+  // When Back lands on the list's entry.
+  await back();
+
+  // Then the list shows, and nothing is selected or written.
+  expect(inboxCalls).toEqual(["show"]);
+  expect(asked).toEqual([]);
+  expect(writes).toEqual([]);
+
+  // When Forward lands on p1's entry, p1 still selected under the list.
+  await forward();
+
+  // Then the list is left, and neither entry is written over nor another pushed.
+  expect(inboxCalls).toEqual(["show", "leave"]);
+  expect(asked).toEqual([]);
+  expect(writes).toEqual([]);
+  expect(addresses()).toEqual(["", P1]);
+});
+
+it("Forward from the list onto another pane selects it and pushes nothing", async () => {
+  // Given the list shown by Back from p1's entry, and p2 picked under it since (a moved tab picked again).
+  place = { ...place, paneId: "p1", inbox: { open: false, enabled: true } };
+  await mount(["", P1]);
+  entries[1]!.state = FROM_INBOX;
+  await back();
+  await act(async () => { place.paneId = "p2"; draw(); });
+  expect(writes).toEqual([]);
+
+  // When Forward lands on p1's entry.
+  await forward();
+
+  // Then p1 is selected over the list's place, and the history keeps its two entries.
+  expect(asked).toEqual(["p1"]);
+  expect(inboxCalls).toEqual(["show", "leave"]);
+  expect(addresses()).toEqual(["", P1]);
+  expect(entries).toHaveLength(2);
+});
+
+it("opens the list in place by a replace, and a window widened past a phone's leaves it by a replace", async () => {
+  // Given p1 opened cold from a link on a phone that has the list.
+  place = { ...place, paneId: "p1", inbox: { open: false, enabled: true } };
+  await mount([P1]);
+
+  // When the list opens over it, the window widens, and narrows again.
+  await act(async () => { place.inbox = { ...place.inbox, open: true }; draw(); });
+  await act(async () => { place.inbox = { ...place.inbox, enabled: false }; draw(); });
+  await act(async () => { place.inbox = { ...place.inbox, enabled: true }; draw(); });
+
+  // Then each place was written over the one entry.
+  expect(writes).toEqual(["replaceState 0 ", `replaceState 0 ${P1}`, "replaceState 0 "]);
+  expect(entries).toHaveLength(1);
+});
+
+it("with no list on this screen, Back onto a place with no pane shows nothing", async () => {
+  // Given p1 on its entry over the app's start, the list off.
+  place = { ...place, paneId: "p1" };
+  await mount(["", P1]);
+
+  // When Back lands on the start.
+  await back();
+
+  // Then nothing is asked of the list or the selection, and nothing is written.
+  expect(inboxCalls).toEqual([]);
+  expect(asked).toEqual([]);
+  expect(writes).toEqual([]);
+});
+
+it("leaves the list alone on a Settings entry and on a sheet's step off its entry", async () => {
+  // Given p1 on its entry, over an entry of Settings with no pane in its address.
+  place = { ...place, paneId: "p1", inbox: { open: false, enabled: true } };
+  await mount(["", P1]);
+  entries[0]!.state = { "ovis:settings": { page: null, keyBar: false, depth: 1 } };
+
+  // When Back lands on Settings' entry, and a sheet then steps off its own entry onto p1's.
+  await back();
+  sheetStep = true;
+  await forward();
+
+  // Then neither showed nor left the list, nor selected anything.
+  expect(inboxCalls).toEqual([]);
+  expect(asked).toEqual([]);
 });
