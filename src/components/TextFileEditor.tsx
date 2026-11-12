@@ -7,6 +7,7 @@ import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 
 /** Live preview editing for markdown: CodeMirror and Atomic Editor load only when a file is first edited live. */
 const MarkdownLiveEditor = lazy(() => import("./MarkdownLiveEditor.tsx"));
+export type { LiveOutline } from "./MarkdownLiveEditor.tsx";
 
 /** How the text is edited: drawn as it is typed (markdown only), or as plain text. */
 export type EditSurface = "live" | "raw";
@@ -61,6 +62,8 @@ export interface TextFileEditorProps {
   surface?: EditSurface;
   /** a link pressed in the live editor, its href as written */
   onLink?: (href: string) => void;
+  /** the live editor's headings, for the viewer's outline */
+  onOutline?: (outline: import("./MarkdownLiveEditor.tsx").LiveOutline | null) => void;
 }
 
 /**
@@ -70,7 +73,7 @@ export interface TextFileEditorProps {
  * does with a buffer whose file changed on disk (without its Overwrite: a save never replaces
  * changes this editor has not seen).
  */
-export function TextFileEditor({ path, paneId, name, onDone, onChanged, surface = "raw", onLink }: TextFileEditorProps) {
+export function TextFileEditor({ path, paneId, name, onDone, onChanged, surface = "raw", onLink, onOutline }: TextFileEditorProps) {
   const t = useT();
   const { fetchEditableText, saveEditableText } = useMachineApi();
   const key = draftKey(useMachineId(), path);
@@ -193,7 +196,7 @@ export function TextFileEditor({ path, paneId, name, onDone, onChanged, surface 
       {/* a new editor per file revision and reload, opening on the text typed so far */}
       <MarkdownLiveEditor key={`${file.path}\u0000${file.revision}\u0000${opens}`} documentId={`${file.path}\u0000${file.revision}\u0000${opens}`}
         text={draft} onChange={setDraft} readOnly={state.kind === "saving" || state.kind === "confirming"}
-        onLink={onLink ?? openExternal} label={t("Text of {name}", { name })} />
+        onLink={onLink ?? openExternal} label={t("Text of {name}", { name })} onOutline={onOutline} />
     </Suspense>}
     {file !== null && surface === "raw" && <textarea className="file-editor-text" value={draft} onChange={(event) => setDraft(event.target.value)}
       readOnly={state.kind === "saving" || state.kind === "confirming"} aria-label={t("Text of {name}", { name })}

@@ -38,6 +38,19 @@ export interface MarkdownOutlineProps {
   /** the header button that shows it: a press there is no press outside, and the focus goes back to it */
   toggle: RefObject<HTMLElement | null>;
   onClose: (refocus: boolean) => void;
+  /** headings not drawn as the Preview's (the live editor's): where each entry's heading is, and how to bring it up */
+  locate?: OutlineLocator;
+}
+
+/**
+ * The headings of a document the outline cannot find as the Preview's `h3`s (the live editor draws
+ * only the lines in view): the box that scrolls, each entry's heading top in viewport pixels, and a
+ * jump that brings an entry's heading to the top.
+ */
+export interface OutlineLocator {
+  scroller: () => HTMLElement | null;
+  tops: () => number[];
+  jump: (entry: OutlineEntry) => void;
 }
 
 /**
@@ -46,7 +59,9 @@ export interface MarkdownOutlineProps {
  * scrolling the list alone: the document's position and the focus stay where they are. Choosing
  * an entry brings its heading (each heading its own, a repeated title included) to the top.
  */
-export function MarkdownOutline({ id, entries, scroller, drawer, toggle, onClose }: MarkdownOutlineProps) {
+export function MarkdownOutline({ id, entries, scroller: given, drawer, toggle, onClose, locate }: MarkdownOutlineProps) {
+  // the live editor names the box that scrolls; the Preview's is the viewer body
+  const scroller = locate === undefined ? given : { get current() { return locate.scroller(); } };
   const t = useT();
   const list = useRef<HTMLElement>(null);
   const [active, setActive] = useState(-1);
@@ -68,11 +83,13 @@ export function MarkdownOutline({ id, entries, scroller, drawer, toggle, onClose
       }
       chosen.current = null;
       const top = box.getBoundingClientRect().top;
-      const headings = headingsIn(box);
       // scrolled to its end, the document's last headings can rise no further: the last one in view is read
       const atEnd = box.scrollTop > 0 && box.scrollTop + box.clientHeight >= box.scrollHeight - 1;
+      const line = atEnd ? box.clientHeight : READING_LINE_PX;
+      if (locate !== undefined) { setActive(currentHeading(locate.tops().map((at) => at - top), line)); return; }
+      const headings = headingsIn(box);
       // a heading of a chunk not drawn yet (ProgressiveMarkdown) is below every drawn one
-      setActive(currentHeading(entries.map((entry) => (headings[entry.at]?.getBoundingClientRect().top ?? Infinity) - top), atEnd ? box.clientHeight : READING_LINE_PX));
+      setActive(currentHeading(entries.map((entry) => (headings[entry.at]?.getBoundingClientRect().top ?? Infinity) - top), line));
     };
     measure();
     const onScroll = (): void => { if (frame === 0) frame = requestAnimationFrame(measure); };
@@ -81,7 +98,8 @@ export function MarkdownOutline({ id, entries, scroller, drawer, toggle, onClose
       box.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(frame);
     };
-  }, [scroller, entries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [given, locate, entries]);
 
   // the marked entry in the middle of the list; the browser holds the list's scroll to its range at either end
   useLayoutEffect(() => {
@@ -128,6 +146,14 @@ export function MarkdownOutline({ id, entries, scroller, drawer, toggle, onClose
   /** Brings the entry's own heading to the top of the document; a drawer then closes, handing the focus back to its button. */
   const choose = (entry: OutlineEntry, index: number): void => {
     const box = scroller.current;
+    if (locate !== undefined && box !== null) {
+      locate.jump(entry);
+      // the editor scrolls on its next measure: the choice is held from where that leaves the box
+      requestAnimationFrame(() => requestAnimationFrame(() => { chosen.current = { index, scrollTop: box.scrollTop }; }));
+      setActive(index);
+      if (drawer) onClose(true);
+      return;
+    }
     const heading = box === null ? undefined : headingsIn(box)[entry.at];
     if (box === null || heading === undefined) return;
     box.scrollTop += heading.getBoundingClientRect().top - box.getBoundingClientRect().top - JUMP_INSET_PX;

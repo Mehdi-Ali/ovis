@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Braces, Check, Code, Copy, Download, Ellipsis, ExternalLink, Eye, Link2, Maximize2, NotebookPen, PanelRight, Pencil, PencilLine, TableOfContents, TriangleAlert, X } from "lucide-react";
+import { Braces, Check, Code, Copy, Download, Ellipsis, ExternalLink, Eye, Link2, Maximize2, NotebookPen, PanelRight, Pencil, TableOfContents, TriangleAlert, X } from "lucide-react";
 
 import "./FileViewer.css";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
@@ -10,7 +10,7 @@ import { flushSync } from "react-dom";
 import { RelayRenderedPage } from "./RelayRenderedPage.tsx";
 import { usePageFocusGuard } from "../lib/usePageFocusGuard.ts";
 import { joinFilePath } from "../lib/joinFilePath.ts";
-import { type EditSurface, hasDraft, TextFileEditor } from "./TextFileEditor.tsx";
+import { hasDraft, type LiveOutline, TextFileEditor } from "./TextFileEditor.tsx";
 import { TextFileView } from "./TextFileView.tsx";
 import { MarkdownImageContext } from "./Markdown.tsx";
 import { MarkdownOutline, OUTLINE_COLUMN_MIN_PX, useWideEnough } from "./MarkdownOutline.tsx";
@@ -165,8 +165,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   // the file's text in an editor (TextFileEditor), and whether it holds changes not saved, which nothing closes over but Cancel and Close
   const [editing, setEditing] = useState(false);
   const [editChanged, setEditChanged] = useState(false);
-  // how a markdown file is edited: drawn as typed (Live) or as plain text (Edit); the viewer's own Preview is not editing
-  const [editSurface, setEditSurface] = useState<EditSurface>("live");
+  // a markdown file in live edit: its headings, for the outline (the Preview's come from its blocks)
+  const [liveOutline, setLiveOutline] = useState<LiveOutline | null>(null);
   // a save reads the file again, for the viewer to show what is now on disk
   const [saves, setSaves] = useState(0);
   const locale = useLocale();
@@ -397,7 +397,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   // the Markdown outline: a drawn Preview (not the editor) with two headings or more lists them,
   // beside it on a wide viewer, in a drawer over it (from the header's Outline button) on a narrow one
   const previewBlocks = !editing && view === "markdown" && preview.status === "ready" ? preview.blocks : null;
-  const outline = useMemo(() => previewBlocks !== null ? outlineOf(previewBlocks) : [], [previewBlocks]);
+  const liveOutlined = editing && liveOutline !== null ? liveOutline : null;
+  const outline = useMemo(() => liveOutlined !== null ? liveOutlined.entries : previewBlocks !== null ? outlineOf(previewBlocks) : [], [liveOutlined, previewBlocks]);
   const outlined = outline.length > 1;
   const [split, setSplit] = useState<HTMLDivElement | null>(null);
   const outlineColumn = useWideEnough(outlined ? split : null, OUTLINE_COLUMN_MIN_PX);
@@ -416,7 +417,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   /** The body with the outline after it. The wrapper is always there (`display: contents` without an outline), so the body is never remounted, its focus and scroll kept, as an outline comes and goes. */
   const withOutline = (box: ReactNode) => <div ref={setSplit} className={outlined ? "file-viewer-split is-outlined" : "file-viewer-split"}>
     {box}
-    {outlineShown && <MarkdownOutline id={outlineId} entries={outline} scroller={bodyRef} drawer={!outlineColumn} toggle={outlineToggle} onClose={closeOutline} />}
+    {outlineShown && <MarkdownOutline id={outlineId} entries={outline} scroller={bodyRef} drawer={!outlineColumn} toggle={outlineToggle} onClose={closeOutline} locate={liveOutlined?.locate} />}
   </div>;
   const codeShown = textFile && loaded !== null && view === "code" && (!htmlPage || source);
   // the source as shown (a cut prefix without the row after its final newline): past
@@ -466,16 +467,12 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const draftWaits = canEdit && hasDraft(machineId, info.path);
   useEffect(() => { if (draftWaits) setEditing(true); }, [draftWaits]);
   const markdown = info?.kind === "text" && /\.(?:md|markdown)$/i.test(info.name);
-  // Preview -> Live -> Edit -> Preview for a markdown file; Preview shows the file on disk, so with unsaved
-  // changes the button only moves between the two editors (Save or Cancel leads back to Preview)
-  const viewing: "preview" | EditSurface = editing ? editSurface : "preview";
-  const nextView: "preview" | EditSurface = viewing === "preview" ? "live" : viewing === "live" ? "raw" : editChanged ? "live" : "preview";
-  const viewNames = { preview: t("Preview"), live: t("Live edit"), raw: t("Edit") };
-  const showView = (next: "preview" | EditSurface): void => {
-    if (next === "preview") { setEditing(false); return; }
-    setEditSurface(next);
-    setEditing(true);
-  };
+  // Preview or Live edit, for a markdown file; Preview shows the file on disk, so with unsaved changes
+  // the button waits for Save or Cancel
+  const viewing: "preview" | "live" = editing ? "live" : "preview";
+  const viewNames = { preview: t("Preview"), live: t("Live edit") };
+  const viewTitle = editing && editChanged ? t("Save or cancel your changes to go back to Preview")
+    : t("{current}. Switch to {next}", { current: viewNames[viewing], next: viewNames[editing ? "preview" : "live"] });
   // a link pressed in the live editor: a web link opens in a new tab, a file beside this one opens here
   const openEditorLink = useCallback((href: string) => {
     if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^[a-z]:[\\/]/i.test(href)) {
@@ -535,7 +532,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
         return <iframe className="file-viewer-pdf" src={urlSrc ?? undefined} title={info.name} />;
       case "text":
         if (editing && paneId !== null) return <TextFileEditor path={info.path} paneId={paneId} name={info.name} onChanged={setEditChanged}
-          surface={markdown ? editSurface : "raw"} onLink={openEditorLink}
+          surface={markdown ? "live" : "raw"} onLink={openEditorLink} onOutline={setLiveOutline}
           onDone={(saved) => { setEditing(false); setEditChanged(false); if (saved) setSaves((count) => count + 1); }} />;
         if (htmlPage && !source) return <>
           {!docked && modes}
@@ -608,11 +605,10 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     {(page || markdown) && !appWindow && <a className="icon-button file-viewer-action file-viewer-wide" href={rawSrc ?? undefined} target="_blank" rel="noopener" aria-label={t("Open raw file")} title={t("Open raw file")}><Code aria-hidden="true" /></a>}
     {!page && appWindow && <CopyLinkButton href={newTabHref} />}
     <a className="icon-button file-viewer-action file-viewer-wide" href={downloadHref ?? undefined} download={info?.name ?? true} aria-label={t("Download")} title={t("Download")}><Download aria-hidden="true" /></a>
-    {canEdit && !markdown && !editing && <button type="button" className="icon-button file-viewer-action" aria-label={t("Edit file")} title={t("Edit file")} onClick={() => { setEditSurface("raw"); setEditing(true); }}><Pencil aria-hidden="true" /></button>}
+    {canEdit && !markdown && !editing && <button type="button" className="icon-button file-viewer-action" aria-label={t("Edit file")} title={t("Edit file")} onClick={() => setEditing(true)}><Pencil aria-hidden="true" /></button>}
     {canEdit && markdown && <button type="button" className="btn btn-ghost file-viewer-action file-viewer-view-cycle" data-view={viewing}
-      aria-label={t("{current}. Switch to {next}", { current: viewNames[viewing], next: viewNames[nextView] })}
-      title={t("{current}. Switch to {next}", { current: viewNames[viewing], next: viewNames[nextView] })} onClick={() => showView(nextView)}>
-      {viewing === "preview" ? <Eye aria-hidden="true" /> : viewing === "live" ? <NotebookPen aria-hidden="true" /> : <PencilLine aria-hidden="true" />}
+      aria-label={viewTitle} title={viewTitle} disabled={editing && editChanged} onClick={() => setEditing(!editing)}>
+      {viewing === "preview" ? <Eye aria-hidden="true" /> : <NotebookPen aria-hidden="true" />}
       <span className="file-viewer-view-name">{viewNames[viewing]}</span>
     </button>}
     {copyable && !editing && <CopyFileButton text={loaded.text} sourceRef={sourceRef} onShowSource={showSourceToSelect} />}
@@ -652,6 +648,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
           {outlineButton}
           <button type="button" className="icon-button file-viewer-action" aria-pressed={mode === "code"} aria-label={t("Show source")} title={t("Show source")} onClick={() => setChosen({ path, mode: mode === "code" ? "preview" : "code" })}><Braces aria-hidden="true" /></button>
         </div>}
+        {/* live edit keeps the outline (its headings come from the editor) */}
+        {editing && outlined && <div className="file-viewer-group">{outlineButton}</div>}
         <div className="file-viewer-group">{fileActions}</div>
       </div>
       {closeButton}
