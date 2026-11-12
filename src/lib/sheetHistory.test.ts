@@ -475,6 +475,22 @@ describe("a phone's sheet in the history", () => {
     stopListening();
   });
 
+  it("stops waiting for a step the app asked for that never lands: a sheet that opened meanwhile gets its entry, and the next Back is the user's", async () => {
+    const start = fake.at();
+    // the step is asked for, and the browser drops the traversal
+    expect(sheetStep.goingBack(h.state)).toBe(false);
+    let closed = 0;
+    const leave = hooks.enter(() => { closed += 1; });
+    expect(fake.at()).toBe(start);
+    jest.advanceTimersByTime(999);
+    expect(fake.at()).toBe(start);
+    jest.advanceTimersByTime(1);
+    expect(fake.at()).toBe(start + 1); expect(fake.marks()[start + 1]).toBe(true);
+    h.back(); await settled();
+    expect(closed).toBe(1); expect(fake.at()).toBe(start);
+    leave(); await settled();
+  });
+
   it("closes Settings too when the closed sheet's entry had its address changed before its step back", async () => {
     const settingsPath = "./settingsHistory.ts?with-sheets";
     const settings: typeof import("./settingsHistory.ts") = await import(settingsPath);

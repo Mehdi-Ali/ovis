@@ -14,14 +14,20 @@ function fakeBrowser() {
   let keys = 0;
   const entries: Array<{ state: unknown; href: string; key: string }> = [{ state: null, href: "/?pane=a", key: "k0" }];
   let index = 0;
-  const listeners = new Map<string, Array<(event: { state: unknown }) => void>>();
   const activation = { isActive: false };
   /** the browser drops the next traversal asked for by key, as when another one overtakes it */
   let dropping = false;
+  type Pop = { state: unknown; stopImmediatePropagation: () => void };
+  const listeners = new Map<string, Array<(event: Pop) => void>>();
   const land = (next: number): void => {
     if (next === index || next < 0 || next >= entries.length) return;
     index = next;
-    queueMicrotask(() => { const event = { state: entries[index]!.state }; for (const listener of listeners.get("popstate") ?? []) listener(event); });
+    queueMicrotask(() => {
+      // one event for every listener in the order they were added, until one stops it
+      let stopped = false;
+      const event: Pop = { state: entries[index]!.state, stopImmediatePropagation: () => { stopped = true; } };
+      for (const listener of listeners.get("popstate") ?? []) { if (stopped) break; listener(event); }
+    });
   };
   const history = {
     get state() { return entries[index]!.state; },
@@ -35,14 +41,14 @@ function fakeBrowser() {
     history,
     get location() { return { href: entries[index]!.href }; },
     navigation: {
-      get currentEntry() { return { key: entries[index]!.key }; },
+      get currentEntry() { return { key: entries[index]!.key, index }; },
       traverseTo(key: string) {
         if (dropping) return { committed: Promise.reject(new Error("dropped")), finished: Promise.reject(new Error("dropped")) };
         land(entries.findIndex((entry) => entry.key === key));
         return { committed: Promise.resolve(), finished: Promise.resolve() };
       },
     },
-    addEventListener(type: string, listener: (event: { state: unknown }) => void) { listeners.set(type, [...(listeners.get(type) ?? []), listener]); },
+    addEventListener(type: string, listener: (event: Pop) => void) { listeners.set(type, [...(listeners.get(type) ?? []), listener]); },
   };
   return {
     window, entries, activation,
@@ -50,7 +56,7 @@ function fakeBrowser() {
     key: () => entries[index]!.key,
     drop: (on: boolean) => { dropping = on; },
     /** a tap the browser counts as one */
-    tap: () => { activation.isActive = true; for (const listener of listeners.get("pointerup") ?? []) listener({ state: null }); },
+    tap: () => { activation.isActive = true; for (const listener of listeners.get("pointerup") ?? []) listener({ state: null, stopImmediatePropagation: () => {} }); },
   };
 }
 const fake = fakeBrowser();
@@ -60,7 +66,7 @@ const settled = async () => {
   for (let i = 0; i < 6; i++) await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
 };
 let sheetHistory: typeof import("./sheetHistory.ts");
-const enter = (onBack: () => boolean | void): (() => void) => { const id = sheetHistory.enterSheet(onBack, null); return () => sheetHistory.leaveSheet(id); };
+const enter = (onBack: () => boolean | void, returns = false): (() => void) => { const id = sheetHistory.enterSheet(onBack, null, false, returns); return () => sheetHistory.leaveSheet(id); };
 
 beforeAll(async () => {
   originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
@@ -100,6 +106,7 @@ describe("a phone's sheet where Back skips an entry made with no tap", () => {
     expect(fake.at()).toBe(start);
     const entries = fake.entries.length;
     const leaveSecond = enter(() => {});
+    await settled();
     expect(fake.entries.length).toBe(entries); expect(fake.at()).toBe(start);
     fake.tap();
     expect(fake.at()).toBe(start + 1);
@@ -184,6 +191,85 @@ describe("a phone's sheet where Back skips an entry made with no tap", () => {
     h.back(); await settled();
     expect(closed).toBe(1); expect(fake.at()).toBe(start);
     leaveSecond(); await settled();
+  });
+
+  it("takes the entry the user's Back left for the file list that comes back in front with it, and tells the file's viewer the way onto it is not its own", async () => {
+    const start = fake.at();
+    const address = fake.window.location.href;
+    // the file viewer's listener, added after the module's as the app's are: the file each traversal lands on, unless told it is being taken
+    const shown: unknown[] = [];
+    fake.window.addEventListener("popstate", (event) => { shown.push(sheetStep.taking(event as unknown as Event) ? "taken" : (event.state as Record<string, unknown> | null)?.["file"] ?? null); });
+    fake.tap();
+    // a file opened from the file list, which gave it its entry and Back with it, then the user's Back
+    h.pushState({ file: "notes.txt" }, "", "/?pane=a&file=notes.txt");
+    const fileEntry = fake.key();
+    h.back(); await settled();
+    expect(shown).toEqual([null]);
+    // the list is in front again, with no tap since: it goes onto the file's old entry and takes it
+    let closed = 0;
+    const entries = fake.entries.length;
+    const leave = enter(() => { closed += 1; }, true);
+    await settled();
+    expect(fake.key()).toBe(fileEntry); expect(fake.entries.length).toBe(entries);
+    expect((h.state as Record<string, unknown>)["file"]).toBeUndefined();
+    expect(typeof (h.state as Record<string, unknown>)["ovis:sheet"]).toBe("string");
+    expect(fake.window.location.href).toBe(address);
+    expect(sheetHistory.sheetSteppedOff()).toBe(true);
+    expect(shown).toEqual([null, "taken"]);
+    h.back(); await settled();
+    expect(closed).toBe(1); expect(fake.at()).toBe(start);
+    expect(shown).toEqual([null, "taken", null]);
+    leave(); await settled();
+  });
+
+  it("goes back off that entry when the list closed before the way onto it landed, and the file is not shown again", async () => {
+    const start = fake.at();
+    const shown: unknown[] = [];
+    fake.window.addEventListener("popstate", (event) => { shown.push(sheetStep.taking(event as unknown as Event) ? "taken" : (event.state as Record<string, unknown> | null)?.["file"] ?? null); });
+    fake.tap();
+    h.pushState({ file: "notes.txt" }, "");
+    h.back(); await settled();
+    const leave = enter(() => {}, true);
+    // the way onto the file's old entry is under way, and the list closes before it lands
+    expect(fake.at()).toBe(start + 1);
+    leave();
+    await settled(); await settled();
+    expect(fake.at()).toBe(start);
+    expect(shown).toEqual([null, "taken", null]);
+    expect(sheetHistory.sheetSteppedOff()).toBe(true);
+  });
+
+  it("waits for a tap after all when the browser drops the way onto the entry the Back left", async () => {
+    const start = fake.at();
+    fake.tap();
+    h.pushState({ file: "notes.txt" }, "");
+    h.back(); await settled();
+    fake.drop(true);
+    let closed = 0;
+    const leave = enter(() => { closed += 1; }, true);
+    await settled();
+    fake.drop(false);
+    expect(fake.at()).toBe(start);
+    fake.tap();
+    expect(fake.at()).toBe(start + 1);
+    expect(typeof (h.state as Record<string, unknown>)["ovis:sheet"]).toBe("string");
+    h.back(); await settled();
+    expect(closed).toBe(1); expect(fake.at()).toBe(start);
+    leave(); await settled();
+  });
+
+  it("leaves the entry ahead alone once a tap came: the sheet makes its own", async () => {
+    const start = fake.at();
+    fake.tap();
+    h.pushState({ file: "notes.txt" }, "");
+    const fileEntry = fake.key();
+    h.back(); await settled();
+    fake.tap();
+    const leave = enter(() => {}, true);
+    await settled();
+    expect(fake.at()).toBe(start + 1); expect(fake.key()).not.toBe(fileEntry);
+    leave(); await settled();
+    expect(fake.at()).toBe(start);
   });
 
   it("makes the entry of a dialog that comes back from under a file closed by its own control, with no new tap", async () => {

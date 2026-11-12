@@ -1242,7 +1242,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   it stays, and the top one's own close comes back to it. Settings, a file or a diff closing by
   itself is no Back either: a dialog that opens as Settings closes (Add PC, from Add a connection)
   stays up, over the screen Settings was opened from, and Files takes Back again as soon as a file
-  opened from it has closed. A busy dialog keeps Back, and a device's
+  opened from it has closed, by its own X or by Back. A busy dialog keeps Back, and a device's
   request to join answers nothing on it: Deny and Approve are its ways out. With nothing open,
   Back goes to the pane before, and from the first one it leaves the app at once, with no second
   press asked for: Android draws that way out itself (predictive back), and a press held back
