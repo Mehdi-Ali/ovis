@@ -246,7 +246,7 @@ describe.skipIf(process.platform !== "linux")("editing a text file (#771)", () =
 
   it("saves nothing on a platform that cannot prove where the file lies", async () => {
     const note = file("win.md", "win\n");
-    textSaveHooks.platform = "win32";
+    textSaveHooks.platform = "freebsd";
     expect(await error(await save(note, sha("win\n"), "x\n"))).toEqual([501, "unsupported_platform"]);
     expect(readFileSync(note, "utf8")).toBe("win\n");
   });

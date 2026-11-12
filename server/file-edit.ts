@@ -21,7 +21,9 @@ import { openAuthorized, ownedFolders, release, resolveFilePath } from "./file-v
  * of its folder (`/proc/self/fd/N/<name>`), so a folder on the way swapped for a link meanwhile
  * cannot send the rename anywhere else; on macOS the folders from the pane's folder down must be
  * this user's own and writable by nobody else (`ownedFolders`), checked right before the rename.
- * Other platforms do not save yet. The file's extended attributes and access list are carried over
+ * On Windows (a single-user PC's own files, no owners or modes to keep) the folder must still resolve to
+ * itself, inside the pane's folder, right before the rename; a junction swapped in between that look and
+ * the rename is not ruled out as it is on Linux. Other platforms do not save yet. The file's extended attributes and access list are carried over
  * to the new file (file-attributes.ts); one whose access list cannot be is not saved. A read runs on a file thread (`file-pool.ts` `text-read`). A save
  * runs on the server's own thread, synchronously: two saves never interleave, and a save is over
  * when it is answered, never still running after a timeout. It is at most 1 MiB written to the
@@ -67,7 +69,7 @@ const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes)
 
 /** The pane's folder as it resolves: never a filesystem's root, and never inside `.git`. */
 function sandbox(cwd: string): string {
-  if (platform() !== "linux" && platform() !== "darwin") throw new TextEditRefused(501, "unsupported_platform", "Saving files from the app is not available on this PC yet");
+  if (platform() !== "linux" && platform() !== "darwin" && platform() !== "win32") throw new TextEditRefused(501, "unsupported_platform", "Saving files from the app is not available on this PC yet");
   let root: string;
   try { root = realpathSync(cwd); } catch { throw new TextEditRefused(404, "not_found", "the pane's folder is not there"); }
   if (parse(root).root === root || root.split(sep).some(isGit)) throw new TextEditRefused(403, "outside_pane", "Only a file inside the pane's folder can be edited");
@@ -172,8 +174,9 @@ export function saveEditableText(input: string, cwd: string, revision: string, t
   if (bytes.length > MAX_EDITABLE_TEXT_BYTES) throw new TextEditRefused(413, "too_large", "The text is too large to save here");
   // a rename gives the path a new file: one with other links, or another owner, would not be that file afterwards
   if (current.stat.nlink > 1n) throw new TextEditRefused(403, "linked_file", "This file has other links; edit it in the terminal");
+  const windows = platform() === "win32";
   const uid = process.getuid?.();
-  if (uid === undefined || current.stat.uid !== BigInt(uid)) throw new TextEditRefused(403, "not_owner", "This file belongs to another user");
+  if (!windows && (uid === undefined || current.stat.uid !== BigInt(uid))) throw new TextEditRefused(403, "not_owner", "This file belongs to another user");
 
   const folder = dirname(current.file);
   const name = basename(current.file);
@@ -191,28 +194,32 @@ export function saveEditableText(input: string, cwd: string, revision: string, t
     // the file itself must be writable: opening it to write (without truncating) changes nothing
     closeSync(openSame(join(anchor, name), constants.O_WRONLY, current.stat));
     // and its attributes and access list are read from it, for the new file
-    original = openSame(join(anchor, name), constants.O_RDONLY, current.stat);
+    // (not on Windows, where nothing is copied and a file held open cannot be renamed over)
+    if (!windows) original = openSame(join(anchor, name), constants.O_RDONLY, current.stat);
     // a name of its own, short whatever the file's is
     temp = `.ovis-edit-${randomBytes(6).toString("hex")}.tmp`;
     const fd = openSync(join(anchor, temp), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     try {
-      if (BigInt(fstatSync(fd).gid) !== current.stat.gid) fchownSync(fd, uid, Number(current.stat.gid));
+      if (!windows && uid !== undefined && BigInt(fstatSync(fd).gid) !== current.stat.gid) fchownSync(fd, uid, Number(current.stat.gid));
       for (let written = 0; written < bytes.length;) written += writeSync(fd, bytes, written, bytes.length - written);
-      if (!copyFileAttributes(original, fd, platform())) throw new TextEditRefused(403, "access_list", "This file's access list could not be kept; edit it in the terminal");
+      // Windows: the new file takes its folder's inherited permissions, as a file an editor saves does
+      if (!windows && !copyFileAttributes(original, fd, platform())) throw new TextEditRefused(403, "access_list", "This file's access list could not be kept; edit it in the terminal");
       // the mode last: a write (and a change of group) clears set-id bits given before it, and with an
       // access list its group bits are the list's mask, which the file's own mode already agrees with
-      fchmodSync(fd, Number(current.stat.mode & 0o7777n));
+      if (!windows) fchmodSync(fd, Number(current.stat.mode & 0o7777n));
       fsyncSync(fd);
     } finally { closeSync(fd); }
     textSaveHooks.beforeRename?.();
     // the last look: the folder still inside the pane's folder, and the same file, unchanged
-    const proven = platform() === "linux" ? inside(root, join(readlinkSync(anchor), name)) && !readlinkSync(anchor).endsWith(" (deleted)") : ownedFolders(root, current.file, uid) && realpathSync(folder) === folder;
+    const proven = platform() === "linux" ? inside(root, join(readlinkSync(anchor), name)) && !readlinkSync(anchor).endsWith(" (deleted)")
+      : windows ? realpathSync(folder) === folder && inside(root, join(folder, name))
+      : ownedFolders(root, current.file, uid) && realpathSync(folder) === folder;
     if (!proven) throw new TextEditRefused(409, "stale_revision", "The file was moved since it was opened");
     const check = openSame(join(anchor, name), constants.O_RDONLY, current.stat);
     let now: Buffer;
     try { now = readUpTo(check, MAX_EDITABLE_TEXT_BYTES + 1); } finally { closeSync(check); }
     if (sha256(now) !== revision) throw stale(now);
-    renameSync(join(anchor, temp), join(anchor, name));
+    renameOver(join(anchor, temp), join(anchor, name));
     temp = null;
     if (folderFd !== null) fsyncSync(folderFd);
     const saved = statSync(join(anchor, name));
@@ -223,6 +230,20 @@ export function saveEditableText(input: string, cwd: string, revision: string, t
     if (temp !== null) try { unlinkSync(join(anchor, temp)); } catch { /* never created, or already gone */ }
     if (original !== -1) closeSync(original);
     if (folderFd !== null) closeSync(folderFd);
+  }
+}
+
+/**
+ * `from` renamed over `to`. On Windows a scanner or indexer holding the file for a moment makes the
+ * replace fail with EPERM, EBUSY or EACCES; it is tried again a few times, 50 ms apart, before that stands.
+ */
+function renameOver(from: string, to: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try { renameSync(from, to); return; } catch (error) {
+      const code = (error as NodeJS.ErrnoException | null)?.code;
+      if (platform() !== "win32" || attempt >= 5 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
   }
 }
 
