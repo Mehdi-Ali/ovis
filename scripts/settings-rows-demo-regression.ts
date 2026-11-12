@@ -252,11 +252,18 @@ async function dialogSearch(browser: import("playwright-core").Browser, url: str
       await search.fill("openai api key");
       await results.locator('input[aria-label="OpenAI API key"]').waitFor();
 
-      // Escape empties a search from a result too, not only from the field
+      // Escape empties a search from a result too, not only from the field. The keyboard on a result shows its
+      // row's sentence (#3275), which closes first and leaves the search and the focus as they are
       await search.fill("sound");
-      await results.getByRole("switch", { name: "Play sounds", exact: true }).focus();
+      const playSounds = results.getByRole("switch", { name: "Play sounds", exact: true });
+      await playSounds.focus();
+      await page.locator(".settings-help").waitFor();
       await page.keyboard.press("Escape");
-      assert.equal(await search.inputValue(), "", `${width}px: Escape on a result empties the search`);
+      await page.locator(".settings-help").waitFor({ state: "detached" });
+      assert.equal(await search.inputValue(), "sound", `${width}px: Escape on a result closes its sentence first and keeps the search`);
+      assert.equal(await playSounds.evaluate((control) => control === document.activeElement), true, `${width}px: and leaves the focus on the result`);
+      await page.keyboard.press("Escape");
+      assert.equal(await search.inputValue(), "", `${width}px: the next Escape on a result empties the search`);
       assert.equal(await search.evaluate((field) => field === document.activeElement), true, `${width}px: the field takes the focus back`);
 
       // a row a found row opens is found with it: Custom from a description match shows its field

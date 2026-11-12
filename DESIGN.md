@@ -3971,7 +3971,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   font) is found by that row's words. Nothing matching says **No settings match.** A
   phone's results take the list's place under the field. Edit key bar opens over the Terminal
   page, so Back steps out to it. The first Escape empties the search wherever the focus is in it and
-  gives the field the focus, the next closes Settings. The command palette's Settings entries still land on pages and groups.
+  gives the field the focus, the next closes Settings; a row's sentence that is showing closes before either (below). The command palette's Settings entries still land on pages and groups.
 - Each step into Settings is an entry of the browser's history (`lib/settingsHistory.ts`): the
   dialog, the page a phone opens from its list, the key bar editor. The system Back button (and
   an edge swipe) takes one step out and never leaves the app from inside Settings; the Back
@@ -4039,8 +4039,12 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   Over another row's control it narrows to the room beside that control, down to `224px`. It never
   moves: it is there or it is not, and a row entered within `400ms` of another's closing shows its
   own at once. The pointer on it keeps it, it takes no focus, and Escape closes it alone and leaves
-  Settings open; in a text field that Escape is the field's too, and the first text typed closes
-  it. A finger has no hover: a tap on the row, anywhere but its control, opens the sentence in the
+  Settings open. The keyboard on a setting always shows its sentence, so from there the first Escape
+  closes the sentence and the next does what Escape does (empties the search, closes Settings), as
+  [React Aria's tooltip](https://github.com/adobe/react-spectrum/blob/main/packages/react-aria/src/tooltip/useTooltipTrigger.ts)
+  takes Escape while it is open and stops it there: closing Settings would move the focus, which
+  1.4.13 does not allow a dismissal to do. In a text field that Escape is the field's too, and the
+  first text typed closes it. A finger has no hover: a tap on the row, anywhere but its control, opens the sentence in the
   row, under the name and the control at the row's width (`.settings-row-sentence`), and a second
   tap closes it, so nothing is drawn over a phone's page. The row's switch, select, stepper or
   group of choices is described by the same sentence (`aria-describedby`), as
