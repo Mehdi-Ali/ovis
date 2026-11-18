@@ -872,6 +872,21 @@
   background: var(--bg-elevated);
 }
 
+/* a reader window opened from the installed app has no title bar either (Open in a new window): its
+   header drags the window, as the app's header does (styles.css), and keeps clear of the window controls */
+@media (display-mode: window-controls-overlay) {
+  .file-reader-header {
+    -webkit-app-region: drag;
+    app-region: drag;
+    padding-right: calc(var(--space-3) + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+  }
+
+  .file-reader-header :is(button, a, input, select, textarea, [tabindex], [role="menu"]) {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
+
 .file-reader-header .modal-title {
   margin: 0;
   font-size: var(--fs-lg);

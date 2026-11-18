@@ -54,9 +54,9 @@ export function FileReader({ target }: { target: ReaderTarget }) {
 
   const open = useCallback((linked: string) => {
     const next = resolveFromDocument(path, linked);
-    window.history.pushState(null, "", readerHref(target.machine, next));
+    window.history.pushState(null, "", readerHref(target.machine, next, undefined, undefined, target.pane ?? null));
     setPath(next);
-  }, [path, target.machine]);
+  }, [path, target.machine, target.pane]);
 
   if (locked === null) return <main className="file-reader"><p className="file-viewer-note" role="status">{t("Opening…")}</p></main>;
   if (locked) return <AccessGate reason={lockReason} initialCode="" consumePairCode={() => ""} pairingUnconfirmed={false} onUnlocked={() => setLocked(false)} />;
@@ -65,7 +65,7 @@ export function FileReader({ target }: { target: ReaderTarget }) {
     <ChunkFailureNotice />
     <MachineContext.Provider value={target.machine}>
       <OpenFileContext.Provider value={open}>
-        <FileViewer key={path} page path={path} paneId={null} onClose={close} onOpen={open} />
+        <FileViewer key={path} page path={path} paneId={target.pane ?? null} editable={Boolean(target.pane)} onClose={close} onOpen={open} />
       </OpenFileContext.Provider>
     </MachineContext.Provider>
   </div>;

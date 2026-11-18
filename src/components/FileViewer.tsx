@@ -464,7 +464,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const noticed = notes.length > 0;
   const copyable = textFile && loaded !== null && !loaded.truncated;
   // shown as text (an HTML page as its source), in a pane's folder the server checks it lies in, and small enough
-  const canEdit = editable && settings.editTextFiles && !page && paneId !== null && textFile && (!htmlPage || source) && info.size <= MAX_EDITABLE_TEXT_BYTES;
+  // the reader's page edits too when it was opened from a pane (Open in a new window names it)
+  const canEdit = editable && settings.editTextFiles && paneId !== null && textFile && (!htmlPage || source) && info.size <= MAX_EDITABLE_TEXT_BYTES;
   // text typed and not saved (closed, or the viewer moved): the file opens in its editor again, with it
   const draftWaits = canEdit && hasDraft(machineId, info.path);
   useEffect(() => { if (draftWaits) setEditing(true); }, [draftWaits]);
@@ -610,6 +611,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   // In particular, never navigate a blob containing HTML, SVG, XML or other active text.
   const newTabHref = relay ? previewUrl : htmlPage && !source ? pageUrl : markdown ? previewUrl : url;
   const newTabSrc = useResourceUrl(newTabHref);
+  // Open in a new window: the reader, told the pane so it can edit inside the pane's folder
+  const windowSrc = useResourceUrl(relay || page ? newTabHref : readerHref(machineId, shownPath, undefined, undefined, paneId));
   const rawSrc = relay ? readerHref(machineId, `${shownPath}#L1`) : urlSrc;
   // Preview | Live edit: the first of the header's actions, before the outline
   const viewButton = canEdit && markdown && <button type="button" className="icon-button file-viewer-action file-viewer-view-cycle" aria-pressed={editing} data-view={viewing}
@@ -621,8 +624,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       {docked ? <Maximize2 aria-hidden="true" /> : <PanelRight aria-hidden="true" />}
     </button>}
     {/* the same reader in a window of its own (a popup window, also from the installed app), so the chat stays in this one */}
-    {!page && newTabSrc && <button type="button" className="icon-button file-viewer-action file-viewer-wide" aria-label={t("Open in a new window")} title={t("Open in a new window")}
-      onClick={() => window.open(newTabSrc, "_blank", `popup,width=${Math.min(1000, screen.availWidth)},height=${screen.availHeight}`)}>
+    {!page && windowSrc && <button type="button" className="icon-button file-viewer-action file-viewer-wide" aria-label={t("Open in a new window")} title={t("Open in a new window")}
+      onClick={() => window.open(windowSrc, "_blank", `popup,width=${Math.min(1000, screen.availWidth)},height=${screen.availHeight}`)}>
       <AppWindow aria-hidden="true" />
     </button>}
     {/* new tab, raw and download: buttons in the row, and on a phone in the More menu after Copy */}

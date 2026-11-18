@@ -6,12 +6,14 @@
 import { pageAddress, pageSearch } from "./pageQuery.ts";
 import { shellMode, type ShellMode } from "./shellMode.ts";
 
-export interface ReaderTarget { machine: string; path: string }
+/** `pane`: the pane the file was opened from (Open in a new window), so the reader can edit inside its folder */
+export interface ReaderTarget { machine: string; path: string; pane?: string | null }
 
 const PARAM = "read";
 
-export function readerHref(machine: string, path: string, pathname = window.location.pathname, mode: ShellMode = shellMode()): string {
+export function readerHref(machine: string, path: string, pathname = window.location.pathname, mode: ShellMode = shellMode(), pane: string | null = null): string {
   const query = new URLSearchParams({ [PARAM]: path, machine });
+  if (pane) query.set("pane", pane);
   return pageAddress(pathname, `?${query.toString()}`, "", mode);
 }
 
@@ -19,7 +21,8 @@ export function readerFromSearch(search: string): ReaderTarget | null {
   const query = new URLSearchParams(search);
   const path = query.get(PARAM);
   if (path === null || path.trim() === "") return null;
-  return { machine: query.get("machine") || "local", path };
+  const pane = query.get("pane");
+  return pane ? { machine: query.get("machine") || "local", path, pane } : { machine: query.get("machine") || "local", path };
 }
 
 /**
