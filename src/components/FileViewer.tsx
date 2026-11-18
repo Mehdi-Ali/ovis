@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Braces, Check, Code, Copy, Download, Ellipsis, ExternalLink, Eye, Link2, Maximize2, NotebookPen, PanelRight, Pencil, TableOfContents, TriangleAlert, X } from "lucide-react";
+import { AppWindow, Braces, Check, Code, Copy, Download, Ellipsis, ExternalLink, Eye, Link2, Maximize2, NotebookPen, PanelRight, Pencil, TableOfContents, TriangleAlert, X } from "lucide-react";
 
 import "./FileViewer.css";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
@@ -619,6 +619,11 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const fileActions = <>
     {!page && onTogglePresentation && <button type="button" className="icon-button file-viewer-action" aria-label={docked ? t("Show as a popup") : t("Show beside the pane")} title={docked ? t("Show as a popup") : t("Show beside the pane")} onClick={onTogglePresentation}>
       {docked ? <Maximize2 aria-hidden="true" /> : <PanelRight aria-hidden="true" />}
+    </button>}
+    {/* the same reader in a window of its own (a popup window, also from the installed app), so the chat stays in this one */}
+    {!page && newTabSrc && <button type="button" className="icon-button file-viewer-action file-viewer-wide" aria-label={t("Open in a new window")} title={t("Open in a new window")}
+      onClick={() => window.open(newTabSrc, "_blank", `popup,width=${Math.min(1000, screen.availWidth)},height=${screen.availHeight}`)}>
+      <AppWindow aria-hidden="true" />
     </button>}
     {/* new tab, raw and download: buttons in the row, and on a phone in the More menu after Copy */}
     {/* in the installed app's window a new tab would be another app window: Copy link takes their place */}
