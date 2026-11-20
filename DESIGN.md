@@ -3065,22 +3065,23 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   maintainer-approved adaptation of agent-of-empires' plan strip (#1040): only its step
   visibility is taken, and herdr keeps its existing shared chip rather than importing that
   separate always-visible strip or a progress bar, so the status line stays one row on a phone.
-- Settings > Appearance > **Context left on agent rows** (the device setting `sidebarContext`, off
-  by default, #1305) adds the composer's context ring to each agent row, after the plan count
-  (`.context-count`): the same ring at the badges' size, then the percentage left in the same quiet
-  mono figures, with the composer's words as its name and title ("Context 62% left · 76k of 200k
-  tokens"). It turns `--status-blocked` at 20% left or less, the composer's own threshold, and
-  draws nothing where the composer's ring would draw nothing (no known window), so a row only
-  shows it for Claude Code and Codex panes, whose transcripts the server already reads for the
-  plan. The Codex app, Paseo and T3 Code keep the ring by the composer only, and so does Ovis by
-  default; the row ring is opt-in for people who watch several agents' context at once.
+- A Claude agent's row draws its prompt cache time where the context ring was (`.agent-cache`, `AgentCacheMark`):
+  a clock and the minutes left (`⏱42m`, `--status-done` green over 15 minutes, `--notice` yellow from there
+  down) or `≈cold` in `--text-dim` once the time is out, in the same quiet mono figures as the other counts,
+  titled "Prompt cache (est.)". It is the composer chip's estimate for the main session (last request's time
+  plus the lifetime its latest cache write asked for, 60 minutes until one says), counted down on one shared
+  30 s tick. It is drawn in the one-line rows without the pointer on them, and nothing for other agents or
+  before an answer reported usage. The sidebar no longer draws context: the ring stays by the composer (the
+  device setting `sidebarContext` and its toggle are gone, #1305 reversed).
+  Every agent row draws its state: the classic marks keep their question mark and dots, and a READY or
+  unknown agent gets herdr's quiet ring and dot where classic once drew nothing (`restMark`).
 - Settings > Appearance > **Agents under workspaces** (the device setting `sidebarAgentTree`, off by
   default, #773) turns the PCs list into a PC > workspace > agent tree: each workspace row lists its
   agents under it (`.workspace-agents`, a list named "Agents in <workspace>"), in the roster's
   order, one level in on the dim branch a worktree hangs from, and a worktree's agents a level
   further in. An agent row is a one-line workspace row's height: its mark, the title the Agents list
   gives it, its live name and its tab's name where the workspace has several, its background and plan
-  counts, the context ring while Context left on agent rows is on, and its state in the rows' trailing
+  counts, a Claude agent's prompt cache time, and its state in the rows' trailing
   cell (NOT RESTORED for a pane herdr could not bring back, as on a workspace row). It opens its pane as the Agents row does; its pin, mute and group
   stay in the Agents list's menu, which stays as it is. The selected agent's row takes the selection's
   fill (and the forced-colors bar) from its workspace's row, so one row is filled. Under the filter

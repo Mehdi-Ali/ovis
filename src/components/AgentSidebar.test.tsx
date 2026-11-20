@@ -12,6 +12,7 @@ import type { SidebarFilter } from "../lib/sidebarFilter.ts";
 import { SidebarFilterProvider } from "../lib/sidebarFilterContext.ts";
 import { setSidebarPins } from "../lib/sidebarPins.ts";
 import { AgentSidebar } from "./AgentSidebar.tsx";
+import { StatusBadge } from "./Sidebar.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 
 const fixture: Machine[] = JSON.parse(JSON.stringify(machinesFixture.machines));
@@ -467,33 +468,58 @@ describe("AgentSidebar fold memory", () => {
     expect((await sidebar.remount(inactive)).expanded()).toBe(true);
   });
 
-  it("draws the composer's context ring on agent rows only while Context left on agent rows is on", async () => {
-    // Given three agents: one with 40% left, one with 15% left, one whose window is not known.
-    const contexts: Record<string, { used: number; window: number | null }> = {
-      [paneId]: { used: 120_000, window: 200_000 },
-      "w1E:p1": { used: 170_000, window: 200_000 },
-      "w1F:p1": { used: 30_000, window: null },
+  it("marks every state on an agent row, a ready or unknown agent too, in the default classic marks", async () => {
+    // Given the default classic marks: a cell elsewhere keeps READY and unknown bare, an agent row's cell (restMark) draws herdr's ring and dot.
+    const marks = async (status: AgentStatus | undefined, restMark: boolean) => {
+      await act(async () => { renderer?.unmount(); });
+      await act(async () => { renderer = create(<SettingsProvider><StatusBadge compact restMark={restMark} status={status} /></SettingsProvider>); });
+      return renderer!.root.findAll((node) => node.type === "span" && typeof node.props.className === "string" && /^sidebar-status-(glyph|dot|mark)$/.test(node.props.className))
+        .map((node) => node.children.join(""));
+    };
+    expect(await marks("idle", true)).toEqual(["○"]);
+    expect(await marks(undefined, true)).toEqual(["·"]);
+    expect(await marks("idle", false)).toEqual([]);
+    // the states that already had a mark keep exactly one
+    expect(await marks("blocked", true)).toEqual(["?"]);
+    expect(await marks("working", true)).toEqual([""]);
+    expect(await marks("done", true)).toEqual([""]);
+    // and every row of the list draws one in its state cell
+    await act(async () => { renderer?.unmount(); });
+    await act(async () => { renderer = create(view(roster())); });
+    const cells = renderer!.root.findAll((node) => node.type === "span" && node.props.className === "agent-row-state");
+    expect(cells.length).toBeGreaterThan(2);
+    for (const cell of cells) {
+      expect(cell.findAll((node) => node.type === "span" && typeof node.props.className === "string" && /^sidebar-status-(glyph|dot|mark)$/.test(node.props.className))).toHaveLength(1);
+    }
+  });
+
+  it("draws a Claude agent's prompt cache time on its row, never its context", async () => {
+    // Given three agents: one whose cache was written 10 minutes ago for an hour, one 2 hours ago, one with no usage yet; all with a context.
+    const now = Date.now();
+    const caches: Record<string, { last_at: number; ttl_ms: number }> = {
+      [paneId]: { last_at: now - 10 * 60_000, ttl_ms: 60 * 60_000 },
+      "w1E:p1": { last_at: now - 120 * 60_000, ttl_ms: 60 * 60_000 },
     };
     const filled = roster().map((machine) => ({
       ...machine,
-      snapshot: machine.snapshot === null ? null : { ...machine.snapshot, panes: machine.snapshot.panes.map((pane) => contexts[pane.pane_id] ? { ...pane, context: contexts[pane.pane_id] } : pane) },
+      snapshot: machine.snapshot === null ? null : { ...machine.snapshot, panes: machine.snapshot.panes.map((pane) => ({ ...pane, context: { used: 120_000, window: 200_000 }, ...(caches[pane.pane_id] ? { cache: caches[pane.pane_id] } : {}) })) },
     }));
-    const rings = async () => {
+    const draw = async () => {
       await act(async () => { renderer?.unmount(); });
       await act(async () => { renderer = create(<SettingsProvider><SidebarFilterProvider value={{ filter: inactive, reportBranches: () => {} }}>
         <AgentSidebar machines={filled} selectedMachineId="local" selectedPaneId={null} stateWord={(machine) => machine.state} onSelect={() => {}} />
       </SidebarFilterProvider></SettingsProvider>); });
-      return renderer!.root.findAll((node) => node.type === "span" && node.props["data-testid"] === "context-left")
-        .map((node) => [node.props["aria-label"], node.props.className]);
     };
-    // When the setting was never chosen, no row draws a ring.
-    expect(await rings()).toEqual([]);
-    // When it is on, the rows with a known window draw the ring with the composer's words, red at 20% left or less.
-    stored.set("ovis:sidebar-context", "true");
-    expect(await rings()).toEqual([
-      ["Context 40% left · 120k of 200k tokens", "context-count"],
-      ["Context 15% left · 170k of 200k tokens", "context-count is-low"],
+    const spans = (id: string) => renderer!.root.findAll((node) => node.type === "span" && node.props["data-testid"] === id);
+    await draw();
+    // Then the warm one says 50 minutes in green, the cold one says cold in grey, the third draws nothing, and no row draws a context ring.
+    expect(spans("agent-cache").map((node) => [node.props.className, node.props.title, node.props["aria-label"]])).toEqual([
+      ["agent-cache is-green", "Prompt cache (est.)", "Prompt cache (est.): 50m"],
+      ["agent-cache is-cold", "Prompt cache (est.)", "Prompt cache (est.): ≈cold"],
     ]);
+    stored.set("ovis:sidebar-context", "true");
+    await draw();
+    expect(spans("context-left")).toEqual([]);
   });
 
   it("draws the groups in one list, so a row whose state changes moves to its new group instead of being drawn anew", async () => {

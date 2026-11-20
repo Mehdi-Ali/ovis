@@ -159,7 +159,6 @@
   "scripts/held-rows-demo-regression.ts": 7,
   "scripts/sidebar-branch-line-demo-regression.ts": 7,
   "scripts/sidebar-tokens-demo-regression.ts": 7,
-  "scripts/sidebar-context-ring-demo-regression.ts": 7,
   "scripts/machine-conflict-regression.ts": 7,
   "scripts/machine-events-browser-regression.ts": 6,
   "scripts/mirror-scroll-demo-regression.ts": 6,

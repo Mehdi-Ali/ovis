@@ -121,21 +121,22 @@ describe("Settings > Appearance > Agents under workspaces (#773)", () => {
     expect(agentButton("web:pi").props.title).toContain("Maru");
   });
 
-  it("says a pane herdr could not restore, and the context ring while Context left on agent rows is on, as the other rows do", async () => {
+  it("says a pane herdr could not restore, and a Claude pane's prompt cache time, never its context, as the other rows do", async () => {
     stored.set("ovis:sidebar-agent-tree", "true");
     const marked: SessionSnapshot = {
       ...snapshot,
       panes: snapshot.panes.map((entry) => entry.pane_id === "api:codex" ? { ...entry, restore_error: "session gone" }
-        : entry.pane_id === "api:claude" ? { ...entry, context: { used: 120_000, window: 200_000 } } : entry),
+        : entry.pane_id === "api:claude" ? { ...entry, context: { used: 120_000, window: 200_000 }, cache: { last_at: Date.now() - 18 * 60_000, ttl_ms: 60 * 60_000 } } : entry),
     };
-    const rings = () => agentButton("api:claude").findAll((node) => node.props["data-testid"] === "context-left").map((node) => node.props["aria-label"]);
+    const marks = () => agentButton("api:claude").findAll((node) => node.props["data-testid"] === "agent-cache").map((node) => node.props.className);
     await draw({ shown: marked });
     expect(agentButton("api:codex").findAll((node) => node.props["data-status"] !== undefined).map((node) => node.props["data-status"])).toEqual(["restore-error"]);
-    expect(rings()).toEqual([]);
+    expect(marks()).toEqual(["agent-cache is-green"]);
+    // the context ring is gone, also for a device that had turned it on
     await act(async () => renderer!.unmount());
     stored.set("ovis:sidebar-context", "true");
     await draw({ shown: marked });
-    expect(rings()).toEqual(["Context 40% left · 120k of 200k tokens"]);
+    expect(agentButton("api:claude").findAll((node) => node.props["data-testid"] === "context-left")).toEqual([]);
   });
 
   it("gives the selection's fill to the selected agent's row, not its workspace's", async () => {

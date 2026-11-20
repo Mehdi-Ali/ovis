@@ -92,7 +92,7 @@ export interface Settings {
   /** the Filter field above the sidebar's lists (components/MachineSidebar.tsx), off until chosen; off, the command palette's
    *  Filter workspaces and agents still opens it for the time it holds words or the focus */
   sidebarFilter: boolean;
-  /** the composer's context ring on each agent row of the sidebar (components/Sidebar.tsx ContextBadge); off until chosen */
+  /** kept so a stored choice still reads; the sidebar no longer draws context on agent rows (it draws the prompt cache time, components/AgentCacheMark.tsx) */
   sidebarContext: boolean;
   /** an agent's helpers folded under its row in the Agents list (components/AgentSidebar.tsx); off until chosen */
   foldHelpers: boolean;

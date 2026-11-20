@@ -480,8 +480,6 @@ const BASE: Record<string, string> = {
   "New group": "新しいグループ",
   "Add group": "グループを追加",
   "No group": "グループなし",
-  "Context {percent}% used": "コンテキスト使用 {percent}%",
-  "{used} of {window} tokens": "{used} / {window} トークン",
   "Permission mode": "権限モード",
   "Model": "モデル",
   "One model name, without spaces.": "空白を含まないモデル名を一つ指定してください。",

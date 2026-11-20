@@ -482,8 +482,6 @@ const BASE: Record<string, string> = {
   "New group": "新分组",
   "Add group": "添加分组",
   "No group": "无分组",
-  "Context {percent}% used": "上下文已用 {percent}%",
-  "{used} of {window} tokens": "{used} / {window} Token",
   "Permission mode": "权限模式",
   "Model": "模型",
   "One model name, without spaces.": "填写一个不含空格的模型名称。",

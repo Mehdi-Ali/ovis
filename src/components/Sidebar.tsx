@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Ellipsis, Folder, FolderOpen, GitBranch, His
 
 import "./Sidebar.css";
 
-import type { AgentStatus, PaneContext, PaneInfo, PlanSummary, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
+import type { AgentStatus, PaneInfo, PlanSummary, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
 import { paneTitle } from "../../shared/notify-policy.ts";
 import { MAX_LABEL_CHARS } from "../../shared/labels.ts";
 import { renamesWorkspace } from "../lib/layoutTargets.ts";
@@ -12,6 +12,7 @@ import { PanePressContext } from "../lib/paneSubmitContext.ts";
 import { usePaneLocked } from "../lib/paneLocks.ts";
 import type { AppActions } from "../lib/actions.ts";
 import { indicatorGlyph, knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
+import { AgentCacheMark } from "./AgentCacheMark.tsx";
 import { AgentMark } from "./AgentMark.tsx";
 import { WorkspaceFavicon } from "./WorkspaceFavicon.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -20,7 +21,6 @@ import { WorktreeDialog, type WorktreeDialogMode } from "./WorktreeDialog.tsx";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { folderName, shortPathTitle, stripPaneChrome, tabTitle, taskRowLines } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
-import { contextLeftPercent, formatTokens } from "../lib/compose.ts";
 import { userErrorMessage } from "../lib/userError.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
 import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
@@ -107,8 +107,11 @@ function alignBreath(event: AnimationEvent<HTMLSpanElement>) {
   for (const animation of event.currentTarget.getAnimations()) animation.startTime = 0;
 }
 
-/** `detail`: what the agent itself said of the state (a blocked agent's reason), after the state's words */
-export function StatusBadge({ status, compact = false, detail = null }: { status?: AgentStatus; compact?: boolean; detail?: string | null }) {
+/**
+ * `detail`: what the agent itself said of the state (a blocked agent's reason), after the state's words.
+ * `restMark`: an agent row's cell, which says every state, so classic marks READY and unknown too, with herdr's quiet ring and dot.
+ */
+export function StatusBadge({ status, compact = false, detail = null, restMark = false }: { status?: AgentStatus; compact?: boolean; detail?: string | null; restMark?: boolean }) {
   const t = useT();
   const { settings } = useSettings();
   const value = knownStatus(status);
@@ -124,6 +127,7 @@ export function StatusBadge({ status, compact = false, detail = null }: { status
   // Dots or Symbols: herdr's TUI glyph for every state, in herdr's color (lib/status.ts, Sidebar.css)
   const indicators = settings.statusIndicators;
   const dot = value === "working" || value === "done" || value === "waiting";
+  const rest = restMark && (value === "idle" || value === "unknown");
   return (
     <span
       className={`badge badge-${value}${compact ? " sidebar-status" : ""}`}
@@ -134,6 +138,7 @@ export function StatusBadge({ status, compact = false, detail = null }: { status
     >
       {compact && indicators !== "classic" && <span className="sidebar-status-glyph" aria-hidden="true" onAnimationStart={value === "working" ? alignBreath : undefined}>{indicatorGlyph(value, indicators)}</span>}
       {compact && indicators === "classic" && value === "blocked" && <span className="sidebar-status-mark" aria-hidden="true">?</span>}
+      {compact && indicators === "classic" && rest && <span className="sidebar-status-glyph" aria-hidden="true">{indicatorGlyph(value, "dots")}</span>}
       {compact && indicators === "classic" && dot && <span className="sidebar-status-dot" aria-hidden="true" onAnimationStart={value === "working" ? alignBreath : undefined} />}
       <span className={compact ? "visually-hidden" : undefined}>{label}</span>
     </span>
@@ -164,28 +169,6 @@ export function PlanBadge({ plan }: { plan?: PlanSummary }) {
   return (
     <span className={`plan-count${plan.done === plan.total ? " is-done" : ""}`} title={plan.current ? `${label} · ${plan.current}` : label} aria-label={label} data-testid="plan-progress">
       <ListChecks aria-hidden="true" />{plan.done}/{plan.total}
-    </span>
-  );
-}
-
-/**
- * What is left of the pane's context: the composer's ring, its words and its threshold (red at 20%
- * left or less), so the two never disagree; a window nothing names draws nothing, as the ring does.
- */
-export function ContextBadge({ context }: { context?: PaneContext | undefined }) {
-  const t = useT();
-  const left = context ? contextLeftPercent(context) : null;
-  if (!context || left === null || context.window === null) return null;
-  const label = `${t("Context {percent}% used", { percent: 100 - left })} · ${t("{used} of {window} tokens", { used: formatTokens(context.used), window: formatTokens(context.window) })}`;
-  const radius = 6;
-  const circumference = 2 * Math.PI * radius;
-  return (
-    <span className={`context-count${left <= 20 ? " is-low" : ""}`} title={label} aria-label={label} data-testid="context-left">
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <circle className="context-count-track" cx="8" cy="8" r={radius} />
-        <circle className="context-count-used" cx="8" cy="8" r={radius}
-          strokeDasharray={`${circumference * (100 - left) / 100} ${circumference}`} transform="rotate(-90 8 8)" />
-      </svg>{left}%
     </span>
   );
 }
@@ -813,9 +796,9 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions, watching = 
         <span className="workspace-agent-badges">
           <BackgroundBadge count={online ? pane.background_tasks : 0} />
           <PlanBadge plan={online ? pane.plan : undefined} />
-          <ContextBadge context={online && settings.sidebarContext ? pane.context : undefined} />
+          <AgentCacheMark cache={online ? pane.cache : undefined} />
         </span>
-        <span className="sidebar-pane-meta">{online && pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge compact status={online ? activity.status(machineId, pane) : undefined} />}</span>
+        <span className="sidebar-pane-meta">{online && pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge compact restMark status={online ? activity.status(machineId, pane) : undefined} />}</span>
       </button>
     </li>;
   };

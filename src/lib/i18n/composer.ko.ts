@@ -7,6 +7,8 @@
  * Register and fixed terms follow ../i18n.ko.ts; a key another feature also uses goes there.
  */
 export const COMPOSER_KO: Record<string, string> = {
+  "Context {percent}% used": "컨텍스트 {percent}% 사용",
+  "{used} of {window} tokens": "{window} 토큰 중 {used}",
   "Next": "다음",
   "Next question": "다음 질문",
   "Edit queued message": "대기 중인 메시지 편집",

@@ -918,11 +918,11 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   100% { opacity: 1; }
 }
 
-/* background tasks still running, a pane's plan and its context left: a number beside the state, quieter than
+/* background tasks still running, a pane's plan and its prompt cache time: a number beside the state, quieter than
    it, at the information floor (G-039) */
 .background-count,
 .plan-count,
-.context-count {
+.agent-cache {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
@@ -936,7 +936,7 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
 
 .background-count svg,
 .plan-count svg,
-.context-count svg {
+.agent-cache svg {
   width: var(--space-3);
   height: var(--space-3);
 }
@@ -1113,24 +1113,18 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   color: var(--status-done);
 }
 
-/* the composer's context ring at the badges' size (Composer.css .composer-context): plain until little is left */
-.context-count-track,
-.context-count-used {
-  fill: none;
-  stroke-width: 2.5;
+/* a Claude agent's prompt cache time (AgentCacheMark.tsx), the composer chip's colours: green over 15 minutes
+   left, yellow below, grey at ≈cold */
+.agent-cache.is-green {
+  color: var(--status-done);
 }
 
-.context-count-track {
-  stroke: var(--border-strong);
+.agent-cache.is-yellow {
+  color: var(--notice);
 }
 
-.context-count-used {
-  stroke: currentColor;
-  stroke-linecap: round;
-}
-
-.context-count.is-low {
-  color: var(--status-blocked);
+.agent-cache.is-cold {
+  color: var(--text-dim);
 }
 
 /* Compact rows, the default (Settings → Sidebar rows → Two lines keeps the tall ones), as herdr-app's list: one line
