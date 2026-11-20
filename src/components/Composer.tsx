@@ -39,7 +39,7 @@ import {
   composerStatusCompact,
   composerStatusHint,
   composerStatusWord,
-  contextLeftPercent,
+  contextLeftPercent, contextTone,
   type DraftRefusal,
   draftSendNote,
   formatTokens,
@@ -70,6 +70,7 @@ import { OmpBtw } from "./OmpBtw.tsx";
 import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 import { usePaneCommands } from "../lib/usePaneCommands.ts";
+import { CacheChip } from "./CacheChip.tsx";
 import { useT } from "../lib/i18n.ts";
 import { offersRetry, userFailure, type UserFailure } from "../lib/userError.ts";
 import { AttachmentTooLargeError } from "../lib/api.ts";
@@ -188,25 +189,21 @@ function readSlashUsage(): Record<string, number> {
 }
 
 /**
- * What is left of the context, as a ring filled by what is used (as Codex's app shows it):
- * red when little is left. It only shows: the number is in its tooltip and read to a screen
- * reader, and a press does nothing. A window the transcript does not name draws no ring.
+ * The share of the context that is used, in words (`ctx 34%`; just `34%` on a narrow screen), coloured
+ * by how full it is: green up to a quarter, then yellow, orange past 45% and red past 60%. It only
+ * shows: the tokens are in its tooltip and read to a screen reader, and a press does nothing. A
+ * window the transcript does not name draws no label.
  */
-function ContextRing({ context }: { context: NonNullable<ConversationMetadata["context"]> }) {
+function ContextLabel({ context, compact }: { context: NonNullable<ConversationMetadata["context"]>; compact: boolean }) {
   const t = useT();
   const left = contextLeftPercent(context);
   if (left === null || context.window === null) return null;
   // local: the label counts what is used, as the token detail beside it does
-  const label = t("Context {percent}% used", { percent: 100 - left });
+  const used = 100 - left;
+  const label = t("Context {percent}% used", { percent: used });
   const detail = t("{used} of {window} tokens", { used: formatTokens(context.used), window: formatTokens(context.window) });
-  const radius = 6;
-  const circumference = 2 * Math.PI * radius;
-  return <span className={`composer-context${left <= 20 ? " is-low" : ""}`} title={`${label} · ${detail}`}>
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <circle className="composer-context-track" cx="8" cy="8" r={radius} />
-      <circle className="composer-context-used" cx="8" cy="8" r={radius}
-        strokeDasharray={`${circumference * (100 - left) / 100} ${circumference}`} transform="rotate(-90 8 8)" />
-    </svg>
+  return <span className={`composer-context is-ctx-${contextTone(used)}`} title={`${label} · ${detail}`}>
+    <span aria-hidden="true">{compact ? `${used}%` : t("ctx {percent}%", { percent: used })}</span>
     <span className="visually-hidden">{label} · {detail}</span>
   </span>;
 }
@@ -1252,7 +1249,7 @@ export function Composer({
   // Fit only changes to drawn content. Streaming context usage is a fixed-size ring;
   // transcript/status refreshes need no measurement layout.
   useLayoutEffect(fitStatus, [fitStatus, agent, metadata?.model, metadata?.reasoning_effort,
-    metadata?.context?.window, mobile, usageCaption, usage?.problem, hintText, dictation.shown, backgroundTasks,
+    metadata?.context?.window, metadata?.cache?.main.requests, mobile, usageCaption, usage?.problem, hintText, dictation.shown, backgroundTasks,
     plan?.done, plan?.total, plan?.current, statusCompact, facesLoaded, t]);
   const menuId = `composer-menu-${paneId}`;
   // the suggestions' own close, for a pointer or a phone, which has no Escape: it does what Escape does, and the
@@ -1626,9 +1623,9 @@ export function Composer({
             <span className="composer-agent-label visually-hidden">{agentLabel}</span>
             <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
             <strong className="visually-hidden">{t(composerStatusWord(shownStatus))}</strong>
-            {/* the mark, the model, the level and the context ring as one quiet pill. It only shows: no role,
-                no focus, nothing to press but the ring inside it. A pane that names no model draws no pill
-                (.is-bare): the mark, a level if it has one, and the ring stand in the row as they are */}
+            {/* the mark, the model, the level, the context label and the cache chip as one quiet pill. It only
+                shows: no role, no focus, nothing to press but the cache chip inside it. A pane that names no model draws no pill
+                (.is-bare): the mark, a level if it has one, and the label stand in the row as they are */}
             <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
               {agent && <AgentMark agent={agent} size={14} />}
               {modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
@@ -1645,7 +1642,8 @@ export function Composer({
                   </>}
                 </span>
               </span>}
-              {metadata?.context && <ContextRing context={metadata.context} />}
+              {metadata?.context && <ContextLabel context={metadata.context} compact={mobile} />}
+              <CacheChip cache={metadata?.cache} compact={mobile} />
               {usage !== undefined && usage.problem === null && usageLimit !== undefined && <span
                 className={`composer-usage${usageLimit.used_percent >= HIGH_PERCENT ? " is-high" : ""}${usage.problem ? " has-problem" : ""}`}
                 title={`${usageName(usage)}\n${usageDetail}`}

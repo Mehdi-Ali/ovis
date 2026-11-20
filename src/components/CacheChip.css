@@ -1,0 +1,141 @@
+/* The prompt-cache chip in the composer's status row (CacheChip.tsx), and its popover.
+   Green over 15 minutes left, yellow below it, grey at ≈cold: the status tokens the row already uses. */
+.cache-chip-root {
+  display: inline-flex;
+  flex: none;
+}
+
+.cache-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--chip-h);
+  padding: 0 var(--space-1);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-variant-numeric: var(--font-numeric);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* a phone's row is one line: the clock sits against its figure */
+.cache-chip.is-compact {
+  gap: 0;
+}
+
+.cache-chip svg {
+  width: var(--icon-size-xs);
+  height: var(--icon-size-xs);
+  flex: none;
+}
+
+.cache-chip.is-green {
+  color: var(--status-done);
+}
+
+.cache-chip.is-yellow {
+  color: var(--notice);
+}
+
+.cache-chip.is-cold {
+  color: var(--text-dim);
+}
+
+/* the pill clips what leaves it: the focus ring is drawn inside the chip */
+.cache-chip:focus-visible {
+  outline-offset: -2px;
+}
+
+/* a finger gets the target's height through an invisible expander, as the task chip has it */
+@media (pointer: coarse) {
+  .cache-chip {
+    position: relative;
+  }
+
+  .cache-chip::before {
+    content: "";
+    position: absolute;
+    inset: calc((var(--chip-h) - var(--touch-target)) / 2) 0;
+  }
+}
+
+/* opens upward from the card, anchored to it (.composer-surface is positioned) and right-aligned under
+   the chip; on a phone it takes the card's width */
+.cache-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-2));
+  z-index: var(--z-popover);
+  box-sizing: border-box;
+  width: min(100%, 26rem);
+  max-height: min(70dvh, 24rem);
+  padding: var(--space-2) var(--space-3);
+  overflow-y: auto;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-variant-numeric: var(--font-numeric);
+  white-space: normal;
+}
+
+.cache-table {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.cache-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.5em 3.5em;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.cache-head {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+.cache-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cache-row.is-sub .cache-label {
+  padding-left: var(--space-3);
+  color: var(--text-dim);
+}
+
+.cache-left,
+.cache-hit {
+  text-align: right;
+}
+
+.cache-left.is-cold {
+  color: var(--text-dim);
+}
+
+.cache-line {
+  margin: var(--space-2) 0 0;
+  color: var(--text-dim);
+}
+
+.cache-recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+
+.cache-ok {
+  color: var(--status-done);
+}
+
+.cache-miss {
+  color: var(--status-blocked);
+}
+
+.cache-cold-now {
+  color: var(--text);
+}

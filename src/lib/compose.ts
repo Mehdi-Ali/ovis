@@ -513,3 +513,11 @@ export function contextLeftPercent(context: { used: number; window: number | nul
   if (context.window === null || context.window <= 0) return null;
   return Math.max(0, Math.min(100, Math.round((1 - context.used / context.window) * 100)));
 }
+
+/** The colour of the context label by the share used: green to a quarter, yellow past it, orange past 45%, red past 60%. */
+export function contextTone(usedPercent: number): "green" | "yellow" | "orange" | "red" {
+  if (usedPercent > 60) return "red";
+  if (usedPercent > 45) return "orange";
+  if (usedPercent > 25) return "yellow";
+  return "green";
+}

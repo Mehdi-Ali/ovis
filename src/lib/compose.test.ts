@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { skillSyntax } from "../../shared/skill-syntax.ts";
-import { agentDisplayLabel, claudeMainAtRest, composerDelivery, composerMessage, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertLeadingMention, insertNote, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped, submitRefusal, sameMessage, pendingActionUncertain, draftSendNote, endsWithTurn, stoppedTurn } from "./compose.ts";
+import { agentDisplayLabel, claudeMainAtRest, composerDelivery, composerMessage, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, contextTone, formatTokens, imageMention, insertLeadingMention, insertNote, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped, submitRefusal, sameMessage, pendingActionUncertain, draftSendNote, endsWithTurn, stoppedTurn } from "./compose.ts";
 import { briefDescription, COMMAND_GROUPS, commandGroup, commandsForTrigger, namesHiddenCommand, slashCommandReplacement, terminalCommand, typedTerminalCommand } from "./compose.ts";
 import type { ConversationTurn, SlashCommand } from "../../shared/protocol.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "./mentions.ts";
@@ -706,4 +706,13 @@ it("takes a word naming a command the menu hides for a command, never for one no
   expect(namesHiddenCommand(commands, "help")).toBe(false);
   expect(namesHiddenCommand(commands, "deploy")).toBe(false);
   expect(namesHiddenCommand(commands, "")).toBe(false);
+});
+
+describe("contextTone", () => {
+  it("is green to a quarter used, yellow past it, orange past 45% and red past 60%", () => {
+    expect([0, 25].map(contextTone)).toEqual(["green", "green"]);
+    expect([26, 45].map(contextTone)).toEqual(["yellow", "yellow"]);
+    expect([46, 60].map(contextTone)).toEqual(["orange", "orange"]);
+    expect([61, 100].map(contextTone)).toEqual(["red", "red"]);
+  });
 });

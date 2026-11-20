@@ -3343,7 +3343,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   (`.visually-hidden`): the header names the pane, and the state is told by Stop, the live row
   and the prompt card. No state word is drawn in the chat composer.
 - The model pill (`.composer-pill`) holds the agent mark, the model, the reasoning level and the
-  context ring in one quiet surface: `--bg-hover` fill, `--radius-pill`, `--control-h` tall,
+  context label and the cache chip in one quiet surface: `--bg-hover` fill, `--radius-pill`, `--control-h` tall,
   `--space-3` inline padding, `--space-2` between its parts. The model is in `--text` at
   `--fw-medium`; the level follows a middle dot in `--text-dim`, as the agent's own words with
   only the first letter drawn as a capital (`::first-letter`, the text is not rewritten); a pane
@@ -3389,7 +3389,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   suffix is dropped.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
   a `640px` card), then the reasoning level and model name according to the measured row. A long
-  identifier can shorten inside the pill; the context ring remains visible: a name that would
+  identifier can shorten inside the pill; the context label remains visible: a name that would
   be cut to its floor (the `3ch` the box keeps) steps out whole instead, with its mark and its
   pill (`composerLabelDraw`, `src/lib/composerLabelFit.ts`, measured again with the level
   stepped out), so the ring stands alone and whole on a `320px` phone rather than being cut by
@@ -3408,7 +3408,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   provider as a read-only usage reference inside the model pill. Plan-wide five-hour session is
   preferred, with weekly fallback; scoped, failed and unavailable limits do not substitute.
   The title names the account and reset times. This is not active-account detection. Mobile and
-  remote panes omit it. The context ring only shows: its number is in the tooltip, and a press does nothing.
+  remote panes omit it. The context label (`ctx 34%`, just `34%` on a phone) is the share of the window used, coloured green to 25%, yellow past it, orange past 45% and red past 60% (`.is-ctx-*`: `--status-done`, `--notice`, `--notice` turned toward `--status-blocked`, `--status-blocked`). It only shows: its tokens are in the tooltip, and a press does nothing.
+  The cache chip beside it (`.cache-chip`, Claude Code panes once an answer reported usage) is a Timer icon and the minutes the main session's prompt cache is estimated to have left, `--status-done` over 15 minutes, `--notice` below, `--text-dim` and `≈cold` at 0, counted down on a 30 second tick from the last request. A press opens `.cache-menu`, a `.menu` upward from the card with the main session and the latest eight subagents (left, hit rate), tokens read and written, the last five requests and, when cold, what the next send rewrites. Every figure is recorded except the time left, which is an estimate and says so.
 - Working Send on a supporting bridge adds a pending message above the input card, before the
   prompt dock. `PendingMessages` uses the chat's column and neutral user-bubble surface: plain
   text aligned right, with no outer card. Its scrolling stack is capped by `--pending-max-h`

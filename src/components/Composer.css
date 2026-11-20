@@ -322,42 +322,30 @@
   text-transform: uppercase;
 }
 
-/* what is left of the context: a ring that only shows (its number is in the tooltip), red when little is left */
+/* the share of the context that is used, in words (its tokens are in the tooltip): green to 25%, yellow past it,
+   orange past 45% and red past 60%. There is no orange token: it is the notice yellow turned toward the blocked red,
+   so it follows the theme */
 .composer-context {
   display: inline-flex;
   flex: none;
   align-items: center;
   color: var(--text-dim);
+  font-variant-numeric: var(--font-numeric);
 }
 
-.composer-context svg {
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
-  flex: none;
+.composer-context.is-ctx-green {
+  color: var(--status-done);
 }
 
-.composer-context-track,
-.composer-context-used {
-  fill: none;
-  stroke-width: 2.5;
+.composer-context.is-ctx-yellow {
+  color: var(--notice);
 }
 
-.composer-context-track {
-  stroke: var(--border);
+.composer-context.is-ctx-orange {
+  color: color-mix(in srgb, var(--notice) 40%, var(--status-blocked));
 }
 
-/* on the pill's fill --border would be the fill itself in two palettes: the track stays a ring.
-   Only on the fill: a ring left bare by a label that stepped out has the bare ring's track */
-.composer-status:not([data-model="out"]) .composer-pill:not(.is-bare) .composer-context-track {
-  stroke: var(--border-strong);
-}
-
-.composer-context-used {
-  stroke: currentColor;
-  stroke-linecap: round;
-}
-
-.composer-context.is-low {
+.composer-context.is-ctx-red {
   color: var(--status-blocked);
 }
 
