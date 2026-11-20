@@ -1,6 +1,7 @@
 import { closeSync, constants, type Dir, fstatSync, lstatSync, opendirSync, openSync, readlinkSync, readSync, realpathSync } from "node:fs";
 import { basename, dirname, join, sep } from "node:path";
 import { commandHistory, resetCommandHistory, sameHistory, vouchedEnds, watchCommandHistory, type CommandEnd, type HistoryEvidence, type HistoryVersion } from "./claude-command-history.ts";
+import { addCacheRequest, cacheUsageOf, type CacheAgent, type CacheThread } from "../shared/claude-cache.ts";
 import type { HerdrPane, OmoTask, PaneBackgroundAgentDetail } from "../shared/protocol.ts";
 
 /**
@@ -909,6 +910,92 @@ export function subagentDetails(parentPath: string, ids: Iterable<string>): Map<
   } finally { if (folder.fd !== null) closeSync(folder.fd); }
 }
 
+/** How many subagents the cache summary lists: the latest to have made a request. */
+const CACHE_AGENTS = 8;
+/** What one answer's cache figures read from a subagent's files in all: more is left for the next call. */
+const CACHE_READ_BUDGET = 16 * 1024 * 1024;
+/** A subagent file read from its last bytes only: the cache of a long run is in what it did last. */
+const CACHE_WINDOW = 16 * 1024 * 1024;
+
+/** What a subagent's transcript says of its prompt cache so far, kept so a call reads only what was appended. */
+interface CacheScan { id: string; offset: number; skipping: boolean; thread: CacheThread | undefined }
+const cacheScans = new Map<string, CacheScan>();
+
+function scanCache(path: string, where: string, budget: { left: number }): CacheScan | null {
+  const stat = plain(where);
+  if (stat === null) return null;
+  let scan = cacheScans.get(path);
+  if (!scan || scan.id !== stat.id || scan.offset > stat.size) {
+    const from = Math.max(0, stat.size - CACHE_WINDOW);
+    scan = { id: stat.id, offset: from, skipping: from > 0, thread: undefined };
+  }
+  remember(cacheScans, path, scan, 1024);
+  const state = scan;
+  while (state.offset < stat.size && budget.left > 0) {
+    const read = readLines(where, state.offset, stat, Math.min(budget.left, READ_BUDGET), (line) => {
+      // only an answer's own usage counts; the line is parsed only when it can hold one
+      if (!line.includes('"usage"')) return;
+      let entry: Row | null;
+      try { entry = row(JSON.parse(line)); } catch { return; }
+      if (entry === null || entry["type"] !== "assistant") return;
+      const message = row(entry["message"]);
+      const model = text(message?.["model"]);
+      if (model === null || model.startsWith("<")) return;
+      const usage = cacheUsageOf(message?.["usage"]);
+      if (usage === null) return;
+      state.thread = addCacheRequest(state.thread, { id: text(message?.["id"]), at: stamp(entry["timestamp"]), usage });
+    }, state.skipping);
+    const consumed = read.offset - state.offset;
+    budget.left -= consumed;
+    state.offset = read.offset;
+    state.skipping = read.skipping;
+    if (consumed === 0 || read.failed) break;
+  }
+  return state;
+}
+
+/**
+ * What the session's latest subagents did with the prompt cache (the most recent CACHE_AGENTS to have
+ * made a request), labelled as the task list labels them. Read in the main thread from the same
+ * files, held open as the readers above hold them; each file is read once and then only what was
+ * appended. A folder that is no plain session folder, or one swapped meanwhile, lists none.
+ */
+export function claudeSubagentCaches(parentPath: string, now = Date.now()): CacheAgent[] {
+  // a poll of the chat asks each second or so: the folder is looked at again after a moment, not every time
+  const kept = cacheLists.get(parentPath);
+  if (kept !== undefined && now >= kept.at && now - kept.at < CACHE_LIST_MS) return kept.agents;
+  const agents = listSubagentCaches(parentPath, now);
+  remember(cacheLists, parentPath, { at: now, agents }, 256);
+  return agents;
+}
+
+const CACHE_LIST_MS = 2_000;
+const cacheLists = new Map<string, { at: number; agents: CacheAgent[] }>();
+
+function listSubagentCaches(parentPath: string, now: number): CacheAgent[] {
+  using held = heldFolder(parentPath);
+  const folder = held.folder;
+  if (folder === null) return [];
+  const dir = subagentsDir(parentPath);
+  const inFolder = (name: string): string => folder.fd === null ? join(folder.path, name) : `${FD_DIR}/${folder.fd}/${name}`;
+  const files = agentIds(parentPath, folder).flatMap((id) => {
+    const stat = plain(inFolder(`agent-${id}.jsonl`));
+    return stat !== null && now - stat.mtimeMs <= RECENT_MS ? [{ id, mtimeMs: stat.mtimeMs }] : [];
+  }).sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, CACHE_AGENTS * 2);
+  const budget = { left: CACHE_READ_BUDGET };
+  const found: CacheAgent[] = [];
+  for (const { id } of files) {
+    const scan = scanCache(join(dir, `agent-${id}.jsonl`), inFolder(`agent-${id}.jsonl`), budget);
+    if (scan?.thread === undefined) continue;
+    const meta = readMeta(join(dir, `agent-${id}.meta.json`), inFolder(`agent-${id}.meta.json`));
+    // a file with no meta is no agent of this session (readers above skip it the same way)
+    if (meta === null) continue;
+    found.push({ id, title: meta.title ?? meta.agent ?? id, thread: scan.thread });
+  }
+  if (!intact(folder)) return [];
+  return found.sort((a, b) => (b.thread.last_at ?? 0) - (a.thread.last_at ?? 0)).slice(0, CACHE_AGENTS);
+}
+
 /**
  * GET /api/pane/background-agent: what one subagent's own transcript holds, for a reader who opens
  * it while it runs (shared/protocol.ts PaneBackgroundAgentDetail). A read of its own, apart from
@@ -1471,6 +1558,8 @@ export function forgetSubagents(): void {
   parents.clear();
   metas.clear();
   works.clear();
+  cacheScans.clear();
+  cacheLists.clear();
   tails.clear();
   listings.clear();
   staleAgents.clear();

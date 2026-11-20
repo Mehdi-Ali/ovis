@@ -277,3 +277,43 @@ describe("context use", () => {
     }
   });
 });
+
+describe("Claude prompt cache", () => {
+  const request = (id: string, at: string, usage: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    type: "assistant", timestamp: at, message: { id, role: "assistant", model: "claude-opus-5", usage }, ...extra,
+  });
+
+  it("folds the main thread's requests: totals, the clock, the lifetime of the latest write, and a miss", () => {
+    const text = jsonl(
+      request("m1", "2026-11-20T10:00:00.000Z", { input_tokens: 3, cache_read_input_tokens: 0, cache_creation_input_tokens: 20_000, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 20_000 } }),
+      request("m2", "2026-11-20T10:01:00.000Z", { input_tokens: 2, cache_read_input_tokens: 20_000, cache_creation_input_tokens: 500, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 500 } }),
+      request("m3", "2026-11-20T10:30:00.000Z", { input_tokens: 2, cache_read_input_tokens: 1_000, cache_creation_input_tokens: 48_000, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 48_000 } }),
+    );
+    const cache = parseConversationMetadata(text, "claude-transcript").cache!.main;
+    expect(cache).toMatchObject({ requests: 3, input: 7, cache_read: 21_000, cache_write: 68_500, ttl_ms: 3_600_000, last_at: Date.parse("2026-11-20T10:30:00.000Z"), last_prompt: 49_002 });
+    expect(cache.recent.map((one) => one.miss)).toEqual([false, false, true]);
+  });
+
+  it("counts an answer written as several blocks once, and leaves a subagent's request out", () => {
+    const usage = { input_tokens: 1, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 };
+    const text = jsonl(
+      request("m1", "2026-11-20T10:00:00.000Z", usage),
+      request("m1", "2026-11-20T10:00:01.000Z", usage),
+      request("sub", "2026-11-20T10:00:02.000Z", usage, { isSidechain: true }),
+    );
+    expect(parseConversationMetadata(text, "claude-transcript").cache!.main.requests).toBe(1);
+  });
+
+  it("carries on from what an earlier read said, and drops at a context clear", () => {
+    const usage = { input_tokens: 1, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 };
+    const first = parseConversationMetadata(jsonl(request("m1", "2026-11-20T10:00:00.000Z", usage)), "claude-transcript");
+    const next = parseConversationMetadata(jsonl(request("m2", "2026-11-20T10:05:00.000Z", usage)), "claude-transcript", first);
+    expect(next.cache!.main.requests).toBe(2);
+    expect(first.cache!.main.requests).toBe(1);
+  });
+
+  it("has no cache for an answer with no usage, or for another agent", () => {
+    expect(parseConversationMetadata(jsonl(request("m1", "2026-11-20T10:00:00.000Z", {})), "claude-transcript").cache).toBeUndefined();
+    expect(parseConversationMetadata(jsonl({ type: "message", message: { role: "assistant", model: "m", usage: { input: 5 } } }), "omp-transcript").cache).toBeUndefined();
+  });
+});

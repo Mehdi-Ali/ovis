@@ -85,7 +85,7 @@ import { forgetHermesTranscriptState, hermesConversationPage, hermesToolOutput, 
 import { createOmpTranscriptParser, isContextClear, MAX_TURNS, omoTaskResults, parseOmpTranscript, PI_IMAGE_REF, PI_PROMPT_IMAGE_REF, piImageBlock, piMessage, piNotice, piPromptImages, piResults, type TranscriptParser } from "./transcript-records.ts";
 import { skillPromptMessage } from "./skill-activity.ts";
 import { CLAUDE_IMAGE_REF, claudeImageType, claudeResultText, createClaudeTranscriptParser, entryHostToolResults, isHostHandoff, parseClaudeTranscript, type TranscriptEntry } from "./claude-transcript.ts";
-import { forgetSubagents, lineNotifications, subagentDetails, type SubagentDetail } from "./claude-subagents.ts";
+import { claudeSubagentCaches, forgetSubagents, lineNotifications, subagentDetails, type SubagentDetail } from "./claude-subagents.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { readsStartScreen, startScreenMetadata } from "./start-screen.ts";
 import { commandTranscriptRecords, PI_EVIDENCE_TYPES, type CommandTranscriptRecord } from "./outcome.ts";
@@ -2688,14 +2688,24 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   }
   if (resolved.agy && !sameAgyStore(resolved.agy, await resolveAgyStore(snapshot.panes.find((pane) => pane.pane_id === paneId)!))) throw new ConversationUnavailable("no_session_path");
   if (identity !== null) { writtenSessions.add(`${resolved.source}\0${identity}`); rememberPaneSession(paneId, `${resolved.source}\0${identity}`); }
-  if (resolved.source === "claude-transcript" && identity !== null && answer.metadata.context) {
-    const window = readStatuslineContext(userHome(), identity, answer.metadata.model, resolved.path);
-    if (window !== null) return {
-      ...answer,
-      metadata: { ...answer.metadata, context: { ...answer.metadata.context, window } },
-      // A statusline capture can change without a transcript append.
-      version: answerVersion(answer.version, String(window)),
+  if (resolved.source === "claude-transcript" && identity !== null) {
+    let enriched = answer;
+    // the subagents' prompt caches are in their own files, which can change without a transcript append
+    const cache = answer.metadata.cache;
+    const subagents = cache === undefined ? [] : claudeSubagentCaches(resolved.path);
+    if (cache !== undefined && subagents.length > 0) enriched = {
+      ...enriched,
+      metadata: { ...enriched.metadata, cache: { ...cache, subagents } },
+      version: answerVersion(enriched.version, subagents.map(({ id, thread }) => `${id}:${thread.requests}:${thread.last_at}`).join(",")),
     };
+    const window = answer.metadata.context ? readStatuslineContext(userHome(), identity, answer.metadata.model, resolved.path) : null;
+    if (window !== null) enriched = {
+      ...enriched,
+      metadata: { ...enriched.metadata, context: { ...answer.metadata.context!, window } },
+      // A statusline capture can change without a transcript append.
+      version: answerVersion(enriched.version, String(window)),
+    };
+    if (enriched !== answer) return enriched;
   }
   if (resolved.source === "cmd-transcript") {
     // The pane's current model can change without a transcript append. Enrich a response,

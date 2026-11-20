@@ -5,6 +5,7 @@ import { copilotRecords } from "./copilot.ts";
 import { museModel } from "./muse.ts";
 import { localCommandStdout } from "./claude-transcript.ts";
 import { CLAUDE_FAMILY, VERSION } from "./start-screen.ts";
+import { addCacheRequest, cacheUsageOf } from "../shared/claude-cache.ts";
 import type { ConversationMetadata, ConversationResponse } from "../shared/protocol.ts";
 
 type RecordValue = Record<string, unknown>;
@@ -141,7 +142,7 @@ export function parseConversationMetadata(text: string, source: ConversationResp
   for (const line of text.split("\n")) {
     let entry: RecordValue;
     try { entry = record(JSON.parse(line)); } catch { continue; }
-    if (isContextClear(entry, source)) { metadata.model = null; metadata.reasoning_effort = null; piProvider = null; delete metadata.context; delete metadata.provider; continue; }
+    if (isContextClear(entry, source)) { metadata.model = null; metadata.reasoning_effort = null; piProvider = null; delete metadata.context; delete metadata.provider; delete metadata.cache; continue; }
     if (source === "grok-transcript") {
       const update = record(record(entry.params).update);
       if (entry.method === "session/update" && update.sessionUpdate === "user_message_chunk") {
@@ -219,6 +220,10 @@ export function parseConversationMetadata(text: string, source: ConversationResp
       if (entry.type === "assistant" && entry.isSidechain !== true && label(message.model)) {
         const usage = record(message.usage);
         metadata.context = contextOf(count(usage.input_tokens) + count(usage.cache_creation_input_tokens) + count(usage.cache_read_input_tokens), metadata.model, null, metadata.context);
+        // the same pass counts what the request did with the prompt cache (its subagents' are read from their own files)
+        const cached = cacheUsageOf(usage);
+        const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+        if (cached !== null) metadata.cache = { main: addCacheRequest(metadata.cache?.main, { id: label(message.id), at: Number.isFinite(at) ? at : null, usage: cached }) };
       }
     }
   }

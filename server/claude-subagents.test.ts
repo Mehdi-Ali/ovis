@@ -6,7 +6,7 @@ import { basename, dirname, join } from "node:path";
 
 import type { HerdrPane, OmoTask } from "../shared/protocol.ts";
 import { BackgroundWait, WAIT_LIMIT_MS } from "./background-wait.ts";
-import { ClaudeSubagentStatus, DETAIL_LIMITS, LOOP_HOLD_MS, backgroundAgentDetail, backgroundCommand, claudeSubagentState, detailIo, claudeSubagents, forgetSubagents, lineNotifications, plain, readLines, remember, subagentDetails, taskNotification, validDetailId, wholeClaudeSubagents, within } from "./claude-subagents.ts";
+import { ClaudeSubagentStatus, DETAIL_LIMITS, claudeSubagentCaches, LOOP_HOLD_MS, backgroundAgentDetail, backgroundCommand, claudeSubagentState, detailIo, claudeSubagents, forgetSubagents, lineNotifications, plain, readLines, remember, subagentDetails, taskNotification, validDetailId, wholeClaudeSubagents, within } from "./claude-subagents.ts";
 import { scanClaudeTasks } from "./claude-task-scan.ts";
 import { commandHistory, commandHistorySize, holdCommandHistory, waitCommandHistory, watchCommandHistory } from "./claude-command-history.ts";
 import { runFileTask } from "./file-tasks.ts";
@@ -3569,5 +3569,47 @@ describe("claudeSubagents, a long-lived session's old history (#2510)", () => {
     status.poll("p1");
     status.poll("p2");
     expect([status.countOf("p1"), status.countOf("p2")]).toEqual([2, 2]);
+  });
+});
+
+describe("claudeSubagentCaches", () => {
+  const answer = (id: string, agent: string, minute: number, usage: Record<string, unknown>, messageId = `m${minute}`) => json({
+    isSidechain: true, sessionId: "11111111-1111-4111-8111-111111111111", agentId: agent, type: "assistant", timestamp: at(minute),
+    message: { id: messageId, model: "claude-opus-5", usage, content: [{ type: "text", text: "ok" }] },
+  });
+
+  it("sums each subagent's requests, labels it as the task list does, and counts a multi-block answer once", () => {
+    const one = session();
+    const file = one.agent("aaa", { description: "qa-reviewer", steps: [] });
+    appendFileSync(file, answer("m1", "aaa", 1, { input_tokens: 4, cache_read_input_tokens: 0, cache_creation_input_tokens: 800, cache_creation: { ephemeral_5m_input_tokens: 800, ephemeral_1h_input_tokens: 0 } }, "m1"));
+    appendFileSync(file, answer("m1", "aaa", 1, { input_tokens: 4, cache_read_input_tokens: 0, cache_creation_input_tokens: 800, cache_creation: { ephemeral_5m_input_tokens: 800, ephemeral_1h_input_tokens: 0 } }, "m1"));
+    appendFileSync(file, answer("m2", "aaa", 2, { input_tokens: 6, cache_read_input_tokens: 800, cache_creation_input_tokens: 0 }, "m2"));
+    const found = claudeSubagentCaches(one.path);
+    expect(found.map((one) => one.title)).toEqual(["qa-reviewer"]);
+    expect(found[0]!.thread).toMatchObject({ requests: 2, input: 10, cache_read: 800, cache_write: 800, ttl_ms: 5 * 60_000, last_at: NOW - 60 * 60_000 + 2 * 60_000 });
+  });
+
+  it("lists the most recent agents first, at most eight, and none for a session with no subagents", () => {
+    const one = session();
+    expect(claudeSubagentCaches(one.path)).toEqual([]);
+    for (let index = 0; index < 10; index += 1) {
+      const file = one.agent(`a${index}`, { description: `agent ${index}`, steps: [] });
+      appendFileSync(file, answer(`m${index}`, `a${index}`, index, { input_tokens: 1, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 }));
+    }
+    // the empty list was kept for a moment
+    const found = claudeSubagentCaches(one.path, Date.now() + 10_000);
+    expect(found.length).toBe(8);
+    expect(found[0]!.title).toBe("agent 9");
+    expect(found[7]!.title).toBe("agent 2");
+  });
+
+  it("reads on from where it stopped when a file grows", () => {
+    const one = session();
+    const file = one.agent("grow", { description: "grower", steps: [] });
+    appendFileSync(file, answer("m1", "grow", 1, { input_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 100 }, "m1"));
+    expect(claudeSubagentCaches(one.path, Date.now())[0]!.thread.requests).toBe(1);
+    appendFileSync(file, answer("m2", "grow", 2, { input_tokens: 1, cache_read_input_tokens: 100, cache_creation_input_tokens: 0 }, "m2"));
+    // the list is kept for a moment, so ask again later
+    expect(claudeSubagentCaches(one.path, Date.now() + 10_000)[0]!.thread.requests).toBe(2);
   });
 });
