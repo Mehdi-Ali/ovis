@@ -1,4 +1,5 @@
-import type { ConversationMetadata, HerdrPane, PaneContext, PlanStep, PlanSummary } from "../shared/protocol.ts";
+import { cacheTtlMs } from "../shared/claude-cache.ts";
+import type { ConversationMetadata, HerdrPane, PaneCache, PaneContext, PlanStep, PlanSummary } from "../shared/protocol.ts";
 import { plain } from "./claude-subagents.ts";
 import { PLAN_BUDGET, planState, readPlan, type PlanSource } from "./session-plan-reader.ts";
 export { forgetPlans, readPlan, type PlanSource } from "./session-plan-reader.ts";
@@ -21,6 +22,8 @@ export interface SessionPlanDeps {
   onChange: (paneId: string, summary: PlanSummary | null) => void;
   /** a pane's context changed (null: none reported now), for the sidebar's ring */
   onContext?: (paneId: string, context: PaneContext | null) => void;
+  /** a Claude pane's prompt cache mark changed (null: none now), for the sidebar's cache time */
+  onCache?: (paneId: string, cache: PaneCache | null) => void;
   /** a Claude session's window as its status line capture names it (server/statusline.ts), as the chat's ring takes it; null when none does */
   claudeWindow?: (transcriptPath: string, model: string | null) => number | null;
   now?: () => number;
@@ -42,6 +45,8 @@ interface Tracked {
   metadata: ConversationMetadata | null;
   /** the context last told */
   context: PaneContext | null;
+  /** the cache mark last told */
+  cache: PaneCache | null;
 }
 
 /**
@@ -83,6 +88,11 @@ export class SessionPlans {
     return this.panes.get(paneId)?.context ?? null;
   }
 
+  /** When the pane's prompt cache was last written, as the poll last told it. */
+  cacheOf(paneId: string): PaneCache | null {
+    return this.panes.get(paneId)?.cache ?? null;
+  }
+
   /**
    * The plan of the pane as herdr has it now (undefined: herdr did not say), as the poll last read it: null when it has
    * none, or its transcript is not known for the session it runs, or not read to its end yet.
@@ -112,6 +122,7 @@ export class SessionPlans {
       this.panes.delete(paneId);
       if (tracked.summary !== null) this.deps.onChange(paneId, null);
       if (tracked.context !== null) this.deps.onContext?.(paneId, null);
+      if (tracked.cache !== null) this.deps.onCache?.(paneId, null);
     }
     await Promise.all(panes.map((pane) => this.ensure(pane)));
   }
@@ -155,8 +166,9 @@ export class SessionPlans {
     const current = this.panes.get(paneId);
     const same = current !== undefined && current.where?.path === where?.path && current.where?.source === where?.source;
     const sameSession = same && current.key === key;
-    this.panes.set(paneId, { key, at: this.now(), where, sig: sameSession ? current.sig : null, summary: current?.summary ?? null, metadata: sameSession ? current.metadata : null, context: current?.key === key ? current.context : null });
+    this.panes.set(paneId, { key, at: this.now(), where, sig: sameSession ? current.sig : null, summary: current?.summary ?? null, metadata: sameSession ? current.metadata : null, context: current?.key === key ? current.context : null, cache: current?.key === key ? current.cache : null });
     if (current !== undefined && current.key !== key && current.context !== null) this.deps.onContext?.(paneId, null);
+    if (current !== undefined && current.key !== key && current.cache !== null) this.deps.onCache?.(paneId, null);
   }
 
   /** Reads the transcripts that grew, PLAN_BUDGET bytes in all; a pane whose summary or context changed is told. */
@@ -185,6 +197,7 @@ export class SessionPlans {
       }
       // a status line capture can name the window without a transcript append: asked at every poll
       this.tellContext(paneId, tracked);
+      this.tellCache(paneId, tracked);
     }
   }
 
@@ -201,6 +214,15 @@ export class SessionPlans {
     if (JSON.stringify(context) === JSON.stringify(tracked.context)) return;
     tracked.context = context;
     this.deps.onContext?.(paneId, context);
+  }
+
+  /** The main session's cache: its latest write's time and lifetime, a Claude transcript's only; none before an answer reported usage. */
+  private tellCache(paneId: string, tracked: Tracked): void {
+    const main = tracked.where?.source === "claude-transcript" ? tracked.metadata?.cache?.main : undefined;
+    const cache = main === undefined || main.last_at === null ? null : { last_at: main.last_at, ttl_ms: cacheTtlMs(main, true) };
+    if (JSON.stringify(cache) === JSON.stringify(tracked.cache)) return;
+    tracked.cache = cache;
+    this.deps.onCache?.(paneId, cache);
   }
 }
 

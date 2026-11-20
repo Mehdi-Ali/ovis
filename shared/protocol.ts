@@ -51,6 +51,7 @@ export type HerdrTab = TabInfo;
  * `background_wait`: the pane is at rest while work its turn started still runs, and the turn goes on when it ends (server/background-wait.ts); absent when not.
  * `plan`: how far the pane's agent's task list or checklist has progressed; absent when it keeps none.
  * `context`: how much of its context a Claude Code or Codex pane's last request filled, read from its transcript as the chat's ring reads it; absent before one reports it.
+ * `cache`: a Claude Code pane's prompt cache, the time of its latest write and the lifetime it asked for; absent before an answer reports usage.
  *
  * What herdr-core (server/herdr-core/snapshot.ts) reports about the terminal, each absent where it
  * reported nothing (and always on herdr's TUI runtime):
@@ -64,8 +65,11 @@ export type HerdrTab = TabInfo;
 /** What a request filled of the model's context, in tokens; `window` is null when nothing says it. */
 export type PaneContext = { used: number; window: number | null };
 
+/** When a Claude Code pane's prompt cache was last written, and the lifetime that write asked for, both as the transcript says them: all the sidebar needs to estimate the time left (shared/claude-cache.ts). */
+export type PaneCache = { last_at: number; ttl_ms: number };
+
 export type HerdrPane = PaneInfo & {
-  background_tasks?: number; background_wait?: true; plan?: PlanSummary; context?: PaneContext;
+  background_tasks?: number; background_wait?: true; plan?: PlanSummary; context?: PaneContext; cache?: PaneCache;
   parent_pane_id?: string;
   own_tab?: true;
   agent_kind?: string;
@@ -1409,7 +1413,7 @@ export type ServerMessage =
   /** this PC's clock (ms) as it sent a frame with held IDs: their ends are reckoned on the page's clock from it */ server_time?: number }
   | { type: "secret-result"; id: number; pane_id: string; ok: boolean; code?: string }
   /** agent-status push for ANY pane, attached or not (server-side status collector) */
-  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; finish_id?: number; finish_epoch?: string; /** a pane's running background tasks (OmO's, or a Claude Code pane's subagents and commands), when the frame is about them: it changes no status */ background_tasks?: number; /** every frame says it: absent, the pane does not wait on its turn's background work */ background_wait?: true; /** a pane's plan, when the frame is about it (null: it keeps none now); it changes no status */ plan?: PlanSummary | null; /** a pane's context, when the frame is about it (null: none reported now); it changes no status */ context?: PaneContext | null }
+  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; finish_id?: number; finish_epoch?: string; /** a pane's running background tasks (OmO's, or a Claude Code pane's subagents and commands), when the frame is about them: it changes no status */ background_tasks?: number; /** every frame says it: absent, the pane does not wait on its turn's background work */ background_wait?: true; /** a pane's plan, when the frame is about it (null: it keeps none now); it changes no status */ plan?: PlanSummary | null; /** a pane's context, when the frame is about it (null: none reported now); it changes no status */ context?: PaneContext | null; /** a Claude Code pane's prompt cache mark, when the frame is about it (null: none now); it changes no status */ cache?: PaneCache | null }
   /** Native transcript invalidation for an interested attached pane; signature is opaque, not a REST ETag. Refetch the existing conversation endpoint. */
   | { type: "conversation-changed"; pane_id: string; signature: string }
   /** the prompt on a watched pane's screen (`prompt-watch`) opened, closed or became another one: read GET /api/pane/prompt

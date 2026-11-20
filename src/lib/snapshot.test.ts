@@ -80,6 +80,20 @@ describe("applyPaneStatus", () => {
     expect("context" in none.panes.find((pane) => pane.pane_id === "w1:p1")!).toBe(false);
   });
 
+  it("carries a pane's prompt cache mark, keeps it through frames that say nothing of it, and drops it on null", () => {
+    const current = snapshotFixture();
+    const mark = { last_at: 1_000, ttl_ms: 3_600_000 };
+    const filled = applyPaneStatus(current, "w1:p1", "working", undefined, false, undefined, undefined, undefined, undefined, mark);
+    expect(filled.panes.find((pane) => pane.pane_id === "w1:p1")).toMatchObject({ cache: mark });
+    expect(applyPaneStatus(filled, "w1:p1", "working", undefined, false, undefined, undefined, undefined, undefined, { ...mark })).toBe(filled);
+    const later = applyPaneStatus(filled, "w1:p1", "working", undefined, false, undefined, undefined, undefined, undefined, { ...mark, last_at: 2_000 });
+    expect(later.panes.find((pane) => pane.pane_id === "w1:p1")).toMatchObject({ cache: { last_at: 2_000 } });
+    const kept = applyPaneStatus(filled, "w1:p1", "idle");
+    expect(kept.panes.find((pane) => pane.pane_id === "w1:p1")).toMatchObject({ cache: mark });
+    const none = applyPaneStatus(kept, "w1:p1", "idle", undefined, false, undefined, undefined, undefined, undefined, null);
+    expect("cache" in none.panes.find((pane) => pane.pane_id === "w1:p1")!).toBe(false);
+  });
+
   it("returns the same snapshot object when the status already matches", () => {
     const current = snapshotFixture();
     expect(applyPaneStatus(current, "w1:p1", "working")).toBe(current);

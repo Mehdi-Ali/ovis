@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { appendFileSync, chmodSync, readFileSync, writeFileSync } from "node:fs";
-import type { HerdrPane, PaneContext, PlanSummary } from "../shared/protocol.ts";
+import type { HerdrPane, PaneCache, PaneContext, PlanSummary } from "../shared/protocol.ts";
 import { transcriptPage } from "./conversation.ts";
 import { paneAfterStatus } from "./machines.ts";
 import { readPlan, SessionPlans } from "./session-plan.ts";
@@ -164,6 +164,43 @@ describe("SessionPlans", () => {
     await plans.refresh([pane("p1", "shell")]);
     expect(changes.at(-1)).toEqual(["p1", null]);
     expect(plans.contextOf("p1")).toBeNull();
+  });
+
+  it("keeps a remote PC's cache mark as its frames say", () => {
+    const frame = (cache?: PaneCache | null) => ({ type: "pane-status" as const, pane_id: "p1", agent_status: "idle" as const, ...(cache === undefined ? {} : { cache }) });
+    const marked = paneAfterStatus(pane("p1", "claude"), frame({ last_at: 5, ttl_ms: 60_000 }));
+    expect(marked).toMatchObject({ cache: { last_at: 5, ttl_ms: 60_000 } });
+    expect(paneAfterStatus(marked, frame())).toMatchObject({ cache: { last_at: 5 } });
+    expect("cache" in paneAfterStatus(marked, frame(null))).toBe(false);
+  });
+
+  it("tells a Claude pane's cache mark from its main session's latest write, its lifetime from that write, and clears it with the pane", async () => {
+    // Given a Claude transcript with no usage yet.
+    const s = claude();
+    const changes: [string, PaneCache | null][] = [];
+    const plans = new SessionPlans({ claudePath: (id) => id === "p1" ? s.path : null, codexPath: async () => null, onChange: () => {}, onCache: (id, cache) => changes.push([id, cache]) });
+    const request = (id: string, minute: number, usage: Record<string, unknown>, extra: Record<string, unknown> = {}) => s.add({ type: "assistant", timestamp: at(minute), ...extra, message: { id, role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "ok" }], usage: { input_tokens: 5, cache_read_input_tokens: 100, ...usage } } });
+    await plans.refresh([pane("p1", "claude")]);
+    plans.poll();
+    expect(changes).toEqual([]);
+    // When a request writes an hour cache, then a subagent makes its own.
+    request("m1", 1, { cache_creation_input_tokens: 500, cache_creation: { ephemeral_1h_input_tokens: 500, ephemeral_5m_input_tokens: 0 } });
+    plans.poll();
+    // Then the mark carries the request's time and the hour its write asked for.
+    expect(changes).toEqual([["p1", { last_at: Date.parse(at(1)), ttl_ms: 3_600_000 }]]);
+    expect(plans.cacheOf("p1")).toEqual({ last_at: Date.parse(at(1)), ttl_ms: 3_600_000 });
+    // A subagent's request is not the main session's; an unchanged mark is not told again.
+    request("s1", 2, { cache_creation_input_tokens: 10 }, { isSidechain: true });
+    plans.poll();
+    expect(changes).toHaveLength(1);
+    // A later main request moves it on.
+    request("m2", 3, { cache_creation_input_tokens: 40 });
+    plans.poll();
+    expect(changes.at(-1)).toEqual(["p1", { last_at: Date.parse(at(3)), ttl_ms: 3_600_000 }]);
+    // When the pane runs something else, its mark goes.
+    await plans.refresh([pane("p1", "shell")]);
+    expect(changes.at(-1)).toEqual(["p1", null]);
+    expect(plans.cacheOf("p1")).toBeNull();
   });
 
   it("takes a Claude pane's window from its status line capture, also when the capture comes after the request", async () => {
