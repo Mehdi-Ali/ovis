@@ -101,6 +101,8 @@ interface HighlightedCodeProps {
   limit?: number;
   /** opens a file path the code names (output, a log); absent, paths stay text */
   open?: ((path: string) => void) | null;
+  /** long lines wrap onto the next instead of scrolling sideways */
+  wrap?: boolean;
 }
 
 /**
@@ -109,14 +111,14 @@ interface HighlightedCodeProps {
  * blocks while one grows). A host that says "too long" elsewhere (the file viewer, in its header)
  * calls `useHighlightedLines` and draws `CodeLines` itself.
  */
-export const HighlightedCode = memo(function HighlightedCode({ code, language, limit, open = null }: HighlightedCodeProps) {
+export const HighlightedCode = memo(function HighlightedCode({ code, language, limit, open = null, wrap = false }: HighlightedCodeProps) {
   const t = useT();
   const { lines, tooLong } = useHighlightedLines(code, language, limit);
   // the whole block is measured, not each token of each line: a block of short lines is as long as its text
   const links = useMemo(() => open !== null && linksFilePaths(code), [code, open]);
   return (
     <>
-      <CodeLines lines={lines} open={links ? open : null} />
+      <CodeLines lines={lines} open={links ? open : null} wrap={wrap} />
       {tooLong && <p className="hl-note">{t("Too long to highlight")}</p>}
     </>
   );

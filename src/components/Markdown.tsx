@@ -481,7 +481,7 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
       )}
       {copyFailed && <p className="markdown-code-error" role="alert">{t("Couldn't copy. Select the text and copy it manually.")}</p>}
       {/* a block in no language is output (a log, a command's answer): the files it names open */}
-      <HighlightedCode code={fold !== null && !expanded ? fold.head : value} language={grammar} limit={CHAT_HIGHLIGHT_LIMIT} open={plain ? open : null} />
+      <HighlightedCode code={fold !== null && !expanded ? fold.head : value} language={grammar} limit={CHAT_HIGHLIGHT_LIMIT} open={plain ? open : null} wrap />
       {fold !== null && (
         <button type="button" className="markdown-code-more" aria-expanded={expanded} onClick={toggle}>
           {expanded ? t("Show less") : t("Show all {n} lines", { n: fold.lines })}
