@@ -34,6 +34,7 @@ export type {
 } from "./herdr-api.generated.ts";
 
 import type { AgentStatus, PaneInfo, SessionSnapshot as HerdrSnapshot, TabInfo, WorkspaceInfo } from "./herdr-api.generated.ts";
+import type { CacheSummary } from "./claude-cache.ts";
 
 /** GET /api/herdr-ui: the herdr client preferences of the PC serving the web UI, never the rest of its config. */
 export interface HerdrUiConfig {
@@ -762,7 +763,15 @@ export interface ConversationMetadata {
    * `openai-codex`): set by a model change and by each answer, absent when none is named.
    */
   provider?: string;
+  /**
+   * What a Claude Code session did with the prompt cache, from the usage of its answers: its main
+   * thread and its subagents. The counts are recorded; the time left is estimated by the reader
+   * (shared/claude-cache.ts). Absent until an answer reports usage, and for every other agent.
+   */
+  cache?: CacheSummary;
 }
+
+export type { CacheAgent, CacheRecent, CacheSummary, CacheThread } from "./claude-cache.ts";
 
 export type { OmoTask, OmoRunNode, OmoRun, OmoActivity, PaneBackgroundAgentDetail } from "./tasks.ts";
 
