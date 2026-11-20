@@ -48,6 +48,11 @@ export interface AppActions {
    */
   openTerminalTab: (target?: { machineId: string; workspaceId: string }) => Promise<void>;
   /**
+   * A tab in the same workspace with `kind` (an agent kind) started at once, with its Settings > Agents
+   * launch defaults and no dialog; it opens on the chat. Rejects with herdr's refusal.
+   */
+  openAgentTab: (kind: string, target?: { machineId: string; workspaceId: string }) => Promise<void>;
+  /**
    * A one-pane tab into a new tab at the end of another workspace on its PC, its process running.
    * Where its pane is shown, in either half of a split, the app follows it there, and what was typed
    * into it and not sent goes with it. Rejects with herdr's refusal; `notice` also says it over the

@@ -16,6 +16,8 @@ import { worktreeRepoName } from "./lib/composerStrip.ts";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog } from "./components/NewSessionDialog.tsx";
+import { createRequest, dialogLaunch } from "./lib/newSession.ts";
+import { launchDefaults } from "./lib/agentLaunchMode.ts";
 import { SetupGuide, SetupGuideResume } from "./components/SetupGuide.tsx";
 import { useSetupGuide } from "./lib/useSetupGuide.ts";
 import { SessionHistory } from "./components/SessionHistory.tsx";
@@ -210,6 +212,9 @@ export function App() {
   const t = useT();
   const apple = /Mac|iPhone|iPad/.test(navigator.platform);
   const { settings, resolvedTheme, resolvedEntry, update: updateSettings } = useSettings();
+  // read by the + menu's agent tabs (actions.openAgentTab) without rebuilding every action on a settings change
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   // the PCs this device hides cannot say their panes are gone (lib/namedAgentGroups.ts liveGroupKeys)
   const hiddenMachines = useHiddenMachines();
   const { alerts, alertsRef, alertsOn, alertsOnRef } = useAlertPrefs({ settings });
@@ -598,6 +603,22 @@ export function App() {
         ahead?.handTo(found.machineId, created.pane_id, still);
         if (still) selectTargetRef.current(found.machineId, created.pane_id);
       },
+      openAgentTab: async (kind, target) => {
+        const found = newTabTarget(target);
+        if (!found) return;
+        const asked = selectionRef.current;
+        // the agent's own launch defaults from Settings > Agents, as the New tab dialog would start it untouched
+        const defaults = launchDefaults(kind, settingsRef.current);
+        const launched = dialogLaunch({ agent: kind, model: defaults.model, effort: defaults.effort, prompt: "" }, settingsRef.current);
+        if ("fault" in launched) throw new Error(`launch refused: ${launched.fault}`);
+        const request = createRequest({ tab: { workspaceId: found.workspace.workspace_id, cwd: found.cwd }, directory: "", name: "" }, launched, null);
+        const created = await createTab(request as Parameters<typeof createTab>[0], found.machineId);
+        void load();
+        if (created.agent_started !== false) lenses.startedAgent(lensOwner(found.machineId, created.pane_id), window.matchMedia?.("(pointer: coarse)").matches === true);
+        // the + menu's agent entries open on the chat, whatever lens the page would pick
+        pickView(found.machineId, created.pane_id, "chat");
+        if (selectionStill(asked, selectionRef.current)) selectTargetRef.current(found.machineId, created.pane_id);
+      },
       moveTabToWorkspace: async ({ machineId, tabId, workspaceId, notice }) => {
         const roster = machinesRef.current.find((m) => m.id === machineId)?.snapshot;
         const from = roster?.panes.find((pane) => pane.tab_id === tabId)?.pane_id ?? null;
@@ -693,7 +714,7 @@ export function App() {
       // herdr's layout calls on the selected pane (lib/layoutActions.ts): only those the PC's herdr answers
       ...layoutActions({ selectedPaneId, offer: appLayout, paneSplits: !selectedPane?.own_tab, selection: selectionRef, roster: snapshotRef, load, selectPane, layoutRefused }),
     }),
-    [revealFiles, selectPane, selectTarget, selectedPaneId, selectedPane?.own_tab, selectedMachineId, appLayout, reorderCoordinator, tabStripMounted, setView, view, terminalPeek, endPeek, updateSettings, resolvedTheme, canSignOut, lock, bell.run, enableNotifications, load, layoutRefused, moveRefused, lenses, openSidebarFilter, selectedSearchable, requestSearch, split, soloSlot, settings.webLinks, settings.sidebarBackgroundWorkspaces, openWebPage],
+    [revealFiles, selectPane, selectTarget, selectedPaneId, selectedPane?.own_tab, selectedMachineId, appLayout, reorderCoordinator, tabStripMounted, setView, view, terminalPeek, endPeek, updateSettings, resolvedTheme, canSignOut, lock, bell.run, enableNotifications, load, layoutRefused, moveRefused, lenses, openSidebarFilter, selectedSearchable, requestSearch, split, soloSlot, settings.webLinks, settings.sidebarBackgroundWorkspaces, openWebPage, pickView],
   );
 
   useShortcuts(actions, locked === false);
@@ -908,6 +929,7 @@ export function App() {
                 onRenameHandled={clearRenameRequest}
                 onNewTab={() => actions.openNewTab()}
                 onNewTerminal={() => actions.openTerminalTab()}
+                onNewAgentTab={(kind) => actions.openAgentTab(kind)}
                 onMoveToWorkspace={(tabId, workspaceId) => actions.moveTabToWorkspace({ machineId: selectedMachineId, tabId, workspaceId })}
                 paneActions={(paneId) => {
                   const target = snapshot.panes.find((item) => item.pane_id === paneId);
@@ -1183,6 +1205,7 @@ export function App() {
                     onRenameHandled={clearRenameRequest}
                     onNewTab={() => actions.openNewTab(active ? undefined : { machineId, workspaceId: workspace.workspace_id })}
                     onNewTerminal={() => actions.openTerminalTab(active ? undefined : { machineId, workspaceId: workspace.workspace_id })}
+                    onNewAgentTab={(kind) => actions.openAgentTab(kind, active ? undefined : { machineId, workspaceId: workspace.workspace_id })}
                     onMoveToWorkspace={(tabId, workspaceId) => actions.moveTabToWorkspace({ machineId, tabId, workspaceId })}
                     paneActions={active ? (paneId) => {
                       const target = snapshot?.panes.find((item) => item.pane_id === paneId);

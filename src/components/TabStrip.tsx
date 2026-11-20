@@ -20,6 +20,7 @@ import { ArrowLeft, ArrowRight, Bot, ChevronDown, Ellipsis, Folder, FolderInput,
 import "./TabStrip.css";
 
 import type { HerdrPane, HerdrTab, PaneInfo, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
+import type { AgentKind } from "../../shared/agents.ts";
 import { MAX_LABEL_CHARS } from "../../shared/labels.ts";
 import { ApiError, routeMissing } from "../lib/api.ts";
 import { useFacesArrived } from "../lib/fontFaces.ts";
@@ -68,6 +69,9 @@ export interface TabStripProps {
   onNewTab: () => void;
   /** a shell tab in this workspace, with no dialog; rejects with herdr's refusal */
   onNewTerminal: () => Promise<void>;
+  /** a tab in this workspace with that agent started, no dialog, opening on its chat; given, the + opens a menu
+   *  of Terminal and this PC's agents instead of a shell tab at once. Rejects with herdr's refusal */
+  onNewAgentTab?: (kind: string) => Promise<void>;
   /** a one-pane tab into a new tab of another workspace on this PC; rejects with herdr's refusal */
   onMoveToWorkspace?: (tabId: string, workspaceId: string) => Promise<void>;
   /** the open pane's actions (PaneCanvas), offered in the touch menu */
@@ -92,14 +96,14 @@ export interface TabStripProps {
   closable?: boolean;
 }
 
-export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNewTab, onNewTerminal, onMoveToWorkspace, paneActions, panelId = PANE_TABPANEL_ID, splitDrag = false, renameRequest = null, onRenameHandled, end, inHeader = false, sheet = null, onSheetClose, browserTabs = false, closable = true }: TabStripProps) {
+export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNewTab, onNewTerminal, onNewAgentTab, onMoveToWorkspace, paneActions, panelId = PANE_TABPANEL_ID, splitDrag = false, renameRequest = null, onRenameHandled, end, inHeader = false, sheet = null, onSheetClose, browserTabs = false, closable = true }: TabStripProps) {
   const t = useT();
   const { settings } = useSettings();
   const machineId = useMachineId();
   // a tab holding a locked pinned agent (lib/paneLocks.ts) is closed from no button, key or click here
   const paneLocked = usePaneLocked(machineId);
   const pressPane = useContext(PanePressContext);
-  const { closeTab, renameTab, moveTab } = useMachineApi();
+  const { closeTab, renameTab, moveTab, fetchAgentKinds } = useMachineApi();
   // the Herdr app's window owns this PC's tabs (lib/machineContext.tsx): no rename, no move, no other workspace
   // what the PC's herdr answers for its tabs (lib/machineContext.tsx): herdr-core never reorders them
   const { rename: renameOffered, move: moveOffered, arrange } = useAppLayout();
@@ -126,6 +130,9 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   // the header's row: the room its tabs and + have, and the More list of the tabs left out of it, while open
   const [room, setRoom] = useState<{ width: number; add: number; open: number } | null>(null);
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
+  // the + menu while open, and the agents this PC can start (null until first read)
+  const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
+  const [agentKinds, setAgentKinds] = useState<AgentKind[] | null>(null);
   // the tab whose name field just went: its button takes the focus back in the same commit, so the next key lands on it
   const refocus = useRef<string | null>(null);
   // tabs whose close is on its way: a second press, or a held Delete, does not send another
@@ -397,6 +404,27 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     void onNewTerminal().catch((reason: unknown) => setError(t("New terminal failed: {reason}", { reason: said(reason) })));
   };
 
+  const newAgentTab = (agent: AgentKind): void => {
+    if (!onNewAgentTab) return;
+    setError(null);
+    void onNewAgentTab(agent.kind).catch((reason: unknown) => setError(t("New {agent} tab failed: {reason}", { agent: agent.label, reason: said(reason) })));
+  };
+  const openAddMenu = (anchor: HTMLElement): void => {
+    if (!onNewAgentTab) { newTerminal(); return; }
+    if (addAnchor) { setAddAnchor(null); return; }
+    setAddAnchor(anchor);
+    // read again on every open: an agent installed since shows up without a reload
+    void fetchAgentKinds().then(setAgentKinds, () => setAgentKinds((kept) => kept ?? []));
+  };
+  const addItems = (): RowMenuItem[] => [
+    { id: "add-terminal", label: t("Terminal"), icon: Terminal, run: newTerminal },
+    ...(agentKinds === null
+      ? [{ id: "add-loading", label: t("Reading agents…"), icon: Bot, disabled: true, run: () => undefined }]
+      : agentKinds.map((agent): RowMenuItem => ({ id: `add-agent:${agent.kind}`, label: agent.label, icon: Bot,
+        glyph: <AgentMark agent={agent.kind} size={16} />, run: () => newAgentTab(agent) }))),
+    { id: "add-dialog", label: t("New tab with agent…"), icon: Plus, divider: true, run: onNewTab },
+  ];
+
   const focusTab = (tabId: string): void => {
     window.requestAnimationFrame(() => strip.current?.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(tabId)}"]`)?.focus());
   };
@@ -663,7 +691,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
             </div>
           );
         })}
-        <button type="button" className="tab-strip-add" disabled={!closable} aria-label={t("New terminal")} title={!closable ? `${t("New terminal")} · ${t("View only")}` : t("New terminal")} onClick={newTerminal}>
+        <button type="button" className="tab-strip-add" disabled={!closable} aria-label={onNewAgentTab ? t("New tab") : t("New terminal")} title={!closable ? `${onNewAgentTab ? t("New tab") : t("New terminal")} · ${t("View only")}` : onNewAgentTab ? t("New tab") : t("New terminal")}
+          aria-haspopup={onNewAgentTab ? popup : undefined} aria-expanded={onNewAgentTab ? addAnchor !== null : undefined} onClick={(event) => openAddMenu(event.currentTarget)}>
           <Plus aria-hidden="true" />
         </button>
         {leftOut.length > 0 && <button type="button" className="tab-strip-more" aria-label={t("{n} more tabs", { n: leftOut.length })} title={t("{n} more tabs", { n: leftOut.length })}
@@ -708,6 +737,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         title={picker.workspaces ? t("Move {tab} to", { tab: nameOf(picker.tab) }) : nameOf(picker.tab)}
         header={<span className="tab-strip-menu-target">{picker.workspaces ? t("Move {tab} to", { tab: nameOf(picker.tab) }) : nameOf(picker.tab)}</span>}
         items={picker.workspaces ? workspaceItems(picker.tab) : pickerItems(picker.tab, picker.touch)} align="start" onClose={() => setPicker(null)} />}
+      {addAnchor && <RowMenu anchor={addAnchor} restoreFocusTo={addAnchor} title={t("New tab")} items={addItems()} align="start" onClose={() => setAddAnchor(null)} />}
       {moreAnchor && leftOut.length > 0 && <RowMenu anchor={moreAnchor} restoreFocusTo={moreAnchor} title={t("More tabs")} items={leftOut.map(tabItem)} align="start" onClose={() => setMoreAnchor(null)} />}
       {sheet && onSheetClose && <RowMenu anchor={sheet} title={t("Tabs of {workspace}", { workspace: workspace.label })} items={sheetItems()} onClose={onSheetClose} />}
       {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={t("Close tab")} onConfirm={async () => { await close(confirm.tab); setConfirm(null); }} onClose={() => setConfirm(null)} />}
