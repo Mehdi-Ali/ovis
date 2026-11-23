@@ -25,6 +25,7 @@ import { CLAUDE_REWIND_OPEN_MESSAGE } from "./dialogs/claude.ts";
 import { claudeRewindOpen } from "./prompt.ts";
 import { expandedDirectory } from "./directories.ts";
 import { ConversationDiagnostics } from "./conversation-diagnostics.ts";
+import { paneContextBreakdown } from "./claude-context-breakdown-read.ts";
 
 const conversationDiagnostics = new ConversationDiagnostics();
 
@@ -265,6 +266,22 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
       if (error instanceof ConversationReadPending) return jsonResponse({ error: { code: "conversation_read_pending", message: error.message } }, 503, { "cache-control": "no-store" });
       // the chat shows the terminal's scrollback there: no message of its own to search
       if (error instanceof ConversationUnavailable) return jsonResponse({ matches: [], cursor: null } satisfies ConversationSearchResponse, 200, { "cache-control": "no-store" });
+      return errorResponse(error);
+    }
+  }
+
+  if (pathname === "/api/pane/context-breakdown") {
+    setRequestRoute(pathname);
+    if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+    const paneId = url.searchParams.get("pane_id");
+    if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
+    try {
+      const breakdown = await paneContextBreakdown(paneId, options.codexHome);
+      if (breakdown === null) return jsonResponse({ error: { code: "breakdown_unavailable", message: "only a Claude Code session has a context breakdown" } }, 404, { "cache-control": "no-store" });
+      return jsonResponse(breakdown, 200, { "cache-control": "no-store" });
+    } catch (error) {
+      if (error instanceof ConversationReadPending) return jsonResponse({ error: { code: "conversation_read_pending", message: error.message } }, 503, { "cache-control": "no-store" });
+      if (error instanceof ConversationUnavailable) return jsonResponse({ error: { code: "breakdown_unavailable", message: error.message } }, 404, { "cache-control": "no-store" });
       return errorResponse(error);
     }
   }

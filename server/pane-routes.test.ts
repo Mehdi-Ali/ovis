@@ -14,6 +14,7 @@ import { paneAgentOf, resolveAgent } from "./pane-context.ts";
 import { openCodeServiceOptions } from "./opencode-service.ts";
 import * as conversation from "./conversation.ts";
 import { requestIdContext } from "./http.ts";
+import * as breakdownRead from "./claude-context-breakdown-read.ts";
 
 // The real RPC client against a unix socket this test owns; only herdr's answers are synthetic.
 let root: string;
@@ -596,4 +597,21 @@ it("asks the share rule about the folder an agent's commands are listed for, as 
     // on a Windows PC a share no pane works on is refused before it is read (directories.ts expandedPath)
     expect(expanded.mock.calls).toEqual([["//host/share"]]);
   } finally { expanded.mockRestore(); }
+});
+
+it("answers the context breakdown of a Claude pane, and 404 for another agent or a missing pane id", async () => {
+  const breakdown = { total: 10, measured_at: null, groups: [{ key: "system", label: "System prompt", tokens: 10 }], estimated: true as const };
+  const read = spyOn(breakdownRead, "paneContextBreakdown").mockResolvedValueOnce(breakdown).mockResolvedValueOnce(null);
+  try {
+    const ask = async (query: string) => {
+      const url = new URL(`http://x/api/pane/context-breakdown${query}`);
+      return (await handlePaneRequest(new Request(url), url, "/api/pane/context-breakdown", {}))!;
+    };
+    const found = await ask("?pane_id=p1");
+    expect(found.status).toBe(200);
+    expect(found.headers.get("cache-control")).toBe("no-store");
+    expect(await found.json()).toEqual(breakdown);
+    expect((await ask("?pane_id=p1")).status).toBe(404);
+    expect((await ask("")).status).toBe(400);
+  } finally { read.mockRestore(); }
 });
