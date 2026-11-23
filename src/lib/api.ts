@@ -10,6 +10,7 @@ import type { SystemReport } from "../../shared/system.ts";
 import type { MovePlanResponse, MoveStartRequest, MoveStopAllOffer, MoveStopAllRequest, MoveStopRequest } from "../../shared/runtime-move.ts";
 import type { EditableText, PaneDocuments, TextSaved, TextSaveRequest } from "../../shared/files.ts";
 import { parseSystemReport } from "./systemReport.ts";
+import type { ContextBreakdown } from "../../shared/context-breakdown.ts";
 import { machinePath, type BridgeHealth, type HerdrCoreFacts, type HerdrIdentity, type HerdrRuntimeFacts, type Machine, type MachineRoster, type RuntimeName, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   WorkspaceMoved,
@@ -798,6 +799,11 @@ export async function searchPaneConversation(paneId: string, query: string, mach
   if (page.before !== undefined) params.set("before", page.before);
   if (page.historyId !== undefined) params.set("history_id", page.historyId);
   return getJson<ConversationSearchResponse>(machinePath(machineId, `pane/conversation/search?${params.toString()}`), page.signal ? { signal: page.signal } : undefined);
+}
+
+/** GET /api/pane/context-breakdown: where a Claude Code session's context goes, estimated from its transcript. */
+export async function fetchContextBreakdown(paneId: string, machineId = "local", signal?: AbortSignal): Promise<ContextBreakdown> {
+  return getJson<ContextBreakdown>(machinePath(machineId, `pane/context-breakdown?${new URLSearchParams({ pane_id: paneId }).toString()}`), { cache: "no-store", ...(signal ? { signal } : {}) });
 }
 
 /** GET /api/pane/conversation: structured turns, or scrollback fallback; `page` as ConversationResponse.cursor describes. */

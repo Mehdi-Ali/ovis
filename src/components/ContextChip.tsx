@@ -4,9 +4,11 @@ import "./CacheChip.css";
 import "./ContextChip.css";
 
 import { contextLeftPercent, contextTone, formatTokens } from "../lib/compose.ts";
+import { fetchContextBreakdown } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
 import { usePhoneSheetBack } from "../lib/sheetHistory.ts";
 import type { CacheSummary } from "../../shared/claude-cache.ts";
+import type { ContextBreakdown } from "../../shared/context-breakdown.ts";
 import type { PaneContext } from "../../shared/protocol.ts";
 
 /** the context size at which a long session should hand over to a fresh one; drawn only when the window is larger */
@@ -18,14 +20,68 @@ export function contextGrowth(prompts: number[]): number | null {
   return Math.round((prompts[prompts.length - 1]! - prompts[0]!) / (prompts.length - 1));
 }
 
+/** the items shown under an opened group */
+const BREAKDOWN_ITEMS = 8;
+
+/**
+ * Where the context goes: one row per part of the prompt (system prompt, tools, memory, skills, hooks,
+ * messages, tool results) with its estimated tokens and share, a thin bar, and the biggest items of
+ * a group when it is opened. Read from the transcript when the popover opens; quiet while it loads or fails.
+ */
+function ContextBreakdownSection({ paneId, machineId }: { paneId: string; machineId: string }) {
+  const t = useT();
+  const [breakdown, setBreakdown] = useState<ContextBreakdown | null>(null);
+  const [opened, setOpened] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setBreakdown(null);
+    fetchContextBreakdown(paneId, machineId, controller.signal).then((answer) => { if (!controller.signal.aborted) setBreakdown(answer); }, () => {});
+    return () => controller.abort();
+  }, [paneId, machineId]);
+  if (breakdown === null || breakdown.groups.length === 0 || breakdown.total <= 0) return null;
+  const share = (tokens: number): string => {
+    const percent = (tokens / breakdown.total) * 100;
+    return percent > 0 && percent < 1 ? "<1%" : `${Math.round(percent)}%`;
+  };
+  return <div className="cache-table context-breakdown" role="table" aria-label={t("Where it goes (est.)")}>
+    <div className="cache-row context-row context-breakdown-row cache-head" role="row">
+      <span className="cache-label" role="columnheader">{t("Where it goes (est.)")}</span>
+      <span className="cache-left" role="columnheader">{t("tokens")}</span>
+      <span className="cache-left" role="columnheader">{t("share")}</span>
+    </div>
+    {breakdown.groups.map((group) => {
+      const items = (group.items ?? []).slice(0, BREAKDOWN_ITEMS);
+      const expandable = items.length > 1;
+      const open = opened === group.key && expandable;
+      return <div className="context-group" key={group.key}>
+        <div className="cache-row context-row context-breakdown-row" role="row">
+          {expandable
+            ? <button type="button" className="cache-label context-group-toggle" role="cell" aria-expanded={open} onClick={() => setOpened(open ? null : group.key)}>
+              <span aria-hidden="true">{open ? "▾" : "▸"} </span>{t(group.label)}
+            </button>
+            : <span className="cache-label" role="cell">{t(group.label)}</span>}
+          <span className="cache-left" role="cell">{formatTokens(group.tokens)}</span>
+          <span className="cache-left" role="cell">{share(group.tokens)}</span>
+        </div>
+        <div className="context-share" role="presentation"><span className="context-share-fill" style={{ width: `${Math.min(100, (group.tokens / breakdown.total) * 100)}%` }} /></div>
+        {open && items.map((item) => <div className="cache-row context-row context-breakdown-row is-sub" role="row" key={item.label}>
+          <span className="cache-label" role="cell" title={item.label}>{item.label}</span>
+          <span className="cache-left" role="cell">{formatTokens(item.tokens)}</span>
+          <span className="cache-left" role="cell">{share(item.tokens)}</span>
+        </div>)}
+      </div>;
+    })}
+  </div>;
+}
+
 /**
  * The share of the context that is used (`ctx 34%`; just `34%` on a narrow screen), coloured by how
  * full it is: green up to a quarter, then yellow, orange past 45% and red past 60%. Pressed, it opens
  * a popover with the figures: tokens used and left, a bar with the colour marks, the relay mark, and
  * for a Claude Code session the last request's make-up, the recent prompt sizes with their growth,
- * and each recent subagent's own context. A window the transcript does not name draws no label.
+ * and each recent subagent's own context. Given `breakdown` (a Claude Code pane), it also shows where the context goes. A window the transcript does not name draws no label.
  */
-export function ContextChip({ context, cache, compact }: { context: PaneContext; cache: CacheSummary | undefined; compact: boolean }) {
+export function ContextChip({ context, cache, compact, breakdown }: { context: PaneContext; cache: CacheSummary | undefined; compact: boolean; breakdown?: { paneId: string; machineId: string } }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
@@ -100,6 +156,7 @@ export function ContextChip({ context, cache, compact }: { context: PaneContext;
         {growth !== null && <span className="context-growth">{t("{sign}{n}/request", { sign: growth >= 0 ? "+" : "−", n: formatTokens(Math.abs(growth)) })}</span>}
       </p>}
       {toFull !== null && <p className="cache-line">{t("≈{n} requests until full at this rate", { n: toFull })}</p>}
+      {breakdown !== undefined && <ContextBreakdownSection paneId={breakdown.paneId} machineId={breakdown.machineId} />}
       {agents.length > 0 && <div className="cache-table context-agents" role="table">
         <div className="cache-row context-row cache-head" role="row">
           <span className="cache-label" role="columnheader">{t("Subagents")}</span>

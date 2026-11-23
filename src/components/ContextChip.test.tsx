@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { ContextChip, contextGrowth } from "./ContextChip.tsx";
 import * as settingsModule from "../lib/settings.ts";
 import * as sheetModule from "../lib/sheetHistory.ts";
+import * as apiModule from "../lib/api.ts";
 import type { CacheSummary, CacheThread } from "../../shared/claude-cache.ts";
 
 const globals = ["window", "document", "IS_REACT_ACT_ENVIRONMENT"];
@@ -101,4 +102,46 @@ it("closes on Escape", () => {
 it("averages growth per request", () => {
   expect(contextGrowth([100])).toBeNull();
   expect(contextGrowth([100, 200, 400])).toBe(150);
+});
+
+const settle = async () => { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
+const BREAKDOWN = {
+  total: 1000, measured_at: null, estimated: true as const,
+  groups: [
+    { key: "tools", label: "Tool definitions", tokens: 500 },
+    { key: "toolcalls", label: "Tool calls and results", tokens: 300, items: [{ label: "Bash", tokens: 200 }, { label: "Read", tokens: 100 }] },
+    { key: "system", label: "System prompt", tokens: 3 },
+  ],
+};
+
+it("shows where the context goes for a Claude pane, with a group's items on press", async () => {
+  const read = spyOn(apiModule, "fetchContextBreakdown").mockResolvedValue(BREAKDOWN);
+  act(() => { renderer = create(<ContextChip context={{ used: 1000, window: 200_000 }} cache={undefined} compact={false} breakdown={{ paneId: "p1", machineId: "local" }} />); });
+  act(() => { chip().props.onClick(); });
+  await settle();
+  expect(read.mock.calls[0]!.slice(0, 2)).toEqual(["p1", "local"]);
+  const json = all();
+  expect(json).toContain("Where it goes (est.)");
+  expect(json).toContain("Tool definitions");
+  expect(json).toContain("50%");
+  expect(json).toContain("<1%");
+  expect(json).not.toContain("Bash");
+  const toggle = renderer!.root.findAll((node) => node.type === "button" && node.props["aria-expanded"] !== undefined && node.props.className?.includes("context-group-toggle"));
+  expect(toggle).toHaveLength(1);
+  act(() => { toggle[0]!.props.onClick(); });
+  expect(all()).toContain("Bash");
+});
+
+it("stays quiet when the breakdown fails or the pane is not Claude's", async () => {
+  const read = spyOn(apiModule, "fetchContextBreakdown").mockRejectedValue(new Error("nope"));
+  act(() => { renderer = create(<ContextChip context={{ used: 1000, window: 200_000 }} cache={undefined} compact={false} breakdown={{ paneId: "p1", machineId: "local" }} />); });
+  act(() => { chip().props.onClick(); });
+  await settle();
+  expect(all()).not.toContain("Where it goes");
+  act(() => { renderer?.unmount(); });
+  read.mockClear();
+  render(1000, 200_000);
+  act(() => { chip().props.onClick(); });
+  await settle();
+  expect(read).not.toHaveBeenCalled();
 });

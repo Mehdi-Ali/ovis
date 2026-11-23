@@ -88,6 +88,38 @@
   grid-template-columns: minmax(0, 1fr) 5em;
 }
 
+.cache-row.context-breakdown-row {
+  grid-template-columns: minmax(0, 1fr) 4em 3.5em;
+}
+
+.context-breakdown {
+  margin-top: var(--space-2);
+}
+
+.context-group-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-share {
+  height: 3px;
+  margin: 1px 0 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  overflow: hidden;
+}
+
+.context-share-fill {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--text) 45%, transparent);
+}
+
 /* the fill takes the tone's colour from the label rules in Composer.css */
 .context-bar-fill.is-ctx-green { color: var(--status-done); }
 .context-bar-fill.is-ctx-yellow { color: var(--notice); }

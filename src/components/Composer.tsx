@@ -1621,7 +1621,7 @@ export function Composer({
                   </>}
                 </span>
               </span>}
-              {metadata?.context && <ContextChip context={metadata.context} cache={metadata.cache} compact={mobile} />}
+              {metadata?.context && <ContextChip context={metadata.context} cache={metadata.cache} compact={mobile} breakdown={agent === "claude" ? { paneId, machineId } : undefined} />}
               <CacheChip cache={metadata?.cache} compact={mobile} />
               {usage !== undefined && usage.problem === null && usageLimit !== undefined && <span
                 className={`composer-usage${usageLimit.used_percent >= HIGH_PERCENT ? " is-high" : ""}${usage.problem ? " has-problem" : ""}`}
