@@ -384,11 +384,36 @@ class Scan {
   }
 
   records(file: Found): Json[] {
-    return this.lines(file).flatMap((line) => {
-      if (line.trim() === "") return [];
-      try { return [record(JSON.parse(line))]; } catch { return []; }
-    });
+    return parsed(this.lines(file));
   }
+
+  /**
+   * The complete lines of a file's last HEAD_BYTES, parsed, when the head did not already cover it.
+   * Claude Code appends its `ai-title`/`custom-title` lines after the session's hook payloads, often
+   * hundreds of KB in, so a head-only read never sees them.
+   */
+  tailRecords(file: Found): Json[] {
+    if (file.size <= HEAD_BYTES) return [];
+    const start = Math.max(HEAD_BYTES, file.size - HEAD_BYTES);
+    let tail: Buffer;
+    try {
+      const fd = openChecked(this.budget, file);
+      try {
+        const buffer = Buffer.alloc(file.size - start);
+        tail = buffer.subarray(0, readSync(fd, buffer, 0, buffer.length, start));
+      } finally { closeSync(fd); }
+    } catch { return []; }
+    // the first line is cut unless the tail starts right where the head stopped
+    const lines = tail.toString("utf8").split("\n");
+    return parsed(start === HEAD_BYTES ? lines : lines.slice(1));
+  }
+}
+
+function parsed(lines: readonly string[]): Json[] {
+  return lines.flatMap((line) => {
+    if (line.trim() === "") return [];
+    try { return [record(JSON.parse(line))]; } catch { return []; }
+  });
 }
 
 function storeRoot(budget: Budget, path: string): string | null {
@@ -589,13 +614,19 @@ function claudeRow(scan: Scan, file: Found, cwds: readonly string[]): Row | null
   if (!CLAUDE_SESSION.test(id)) return null;
   const records = scan.records(file);
   let seenCwd: string | null = null;
-  let title: string | null = null;
+  // the latest of each kind wins; a name the user gave (`/rename`) beats Claude's own title
+  let customTitle: string | null = null;
+  let aiTitle: string | null = null;
+  const noteTitle = (value: Json) => {
+    customTitle = str(value.customTitle) ?? customTitle;
+    aiTitle = str(value.aiTitle) ?? (value.type === "summary" ? str(value.summary) : null) ?? aiTitle;
+  };
   let firstMessage: string | null = null;
   let startedAt: string | null = null;
   for (const value of records) {
     seenCwd ??= str(value.cwd);
     startedAt ??= iso(value.timestamp);
-    title = str(value.customTitle) ?? str(value.aiTitle) ?? (value.type === "summary" ? str(value.summary) : null) ?? title;
+    noteTitle(value);
     if (firstMessage === null && value.type === "user" && value.isMeta !== true && value.isSidechain !== true) {
       const text = textOf(record(value.message).content);
       if (text !== null && !CLAUDE_NOT_PROMPT.test(text)) firstMessage = text;
@@ -603,7 +634,9 @@ function claudeRow(scan: Scan, file: Found, cwds: readonly string[]): Row | null
   }
   // the project folder's name is lossy (`a_b` and `a-b` share it): a recorded cwd decides
   if (seenCwd !== null && !cwdMatches(scan.budget, seenCwd, cwds)) return null;
-  return row("claude", id, { title, firstMessage, startedAt, updatedAt: new Date(file.mtimeMs).toISOString() });
+  // the title lines usually sit far past the head
+  for (const value of scan.tailRecords(file)) noteTitle(value);
+  return row("claude", id, { title: customTitle ?? aiTitle, firstMessage, startedAt, updatedAt: new Date(file.mtimeMs).toISOString() });
 }
 
 function claudeSessions(cwds: readonly string[], home: string, env: Record<string, string | undefined>, budget: Budget, read: SessionHistoryOptions["readHead"]): Row[] {

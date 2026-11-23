@@ -1115,6 +1115,23 @@ describe("listSessions", () => {
     expect(resolved).toEqual([SHORT]);
   });
 
+  it("titles a Claude session from title lines written past the head, a custom title first", () => {
+    const home = newHome();
+    const project = join(home, ".claude", "projects", claudeProjectDir(CWD));
+    mkdirSync(project, { recursive: true });
+    const line = (value: object) => `${JSON.stringify(value)}\n`;
+    const prompt = line({ type: "user", cwd: CWD, timestamp: "2026-10-01T09:00:00.000Z", message: { role: "user", content: "https://example.com/thread" } });
+    // hook payloads push the title lines far past what the head read covers
+    const padding = line({ type: "attachment", cwd: CWD, attachment: { content: "x".repeat(HEAD_BYTES * 2) } });
+    writeFileSync(join(project, `${ID(1)}.jsonl`), prompt + padding + line({ type: "ai-title", aiTitle: "Old AI title" }) + line({ type: "ai-title", aiTitle: "Fix resume titles" }));
+    writeFileSync(join(project, `${ID(2)}.jsonl`), prompt + padding + line({ type: "custom-title", customTitle: "My name" }) + line({ type: "ai-title", aiTitle: "Later AI title" }));
+    const rows = listSessions("claude", CWD, { home, env: {} });
+    expect(rows.map((row) => [row.id, row.title, row.firstMessage]).sort()).toEqual([
+      [ID(1), "Fix resume titles", "https://example.com/thread"],
+      [ID(2), "My name", "https://example.com/thread"],
+    ]);
+  });
+
   it("finds a pi session folder of a Windows short-name cwd's long name", async () => {
     const home = newHome();
     const folder = join(home, ".pi", "agent", "sessions", "--C--Program Files-Project Folder--");
