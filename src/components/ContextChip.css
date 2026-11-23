@@ -1,0 +1,99 @@
+/* The context label in the composer's status row as a button (ContextChip.tsx), and its popover.
+   Positioning and table rows come from CacheChip.css (.cache-menu, .cache-row, .cache-line). */
+.context-chip {
+  min-height: var(--chip-h);
+  padding: 0 var(--space-1);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+  font-size: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.context-chip:focus-visible {
+  outline-offset: -2px;
+}
+
+@media (pointer: coarse) {
+  .context-chip {
+    position: relative;
+  }
+
+  .context-chip::before {
+    content: "";
+    position: absolute;
+    inset: calc((var(--chip-h) - var(--touch-target)) / 2) 0;
+  }
+}
+
+.context-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.context-dim {
+  color: var(--text-dim);
+}
+
+.context-bar {
+  position: relative;
+  height: 0.5rem;
+  margin: var(--space-2) 0 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text-dim) 20%, transparent);
+  border-radius: var(--radius-pill);
+}
+
+.context-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: currentColor;
+}
+
+.context-bar-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--text) 35%, transparent);
+}
+
+.context-bar-mark.is-relay {
+  width: 2px;
+  background: var(--accent, var(--text));
+}
+
+.context-past-relay {
+  color: var(--notice);
+}
+
+.context-trend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+
+.context-growth {
+  color: var(--text);
+}
+
+.context-agents {
+  margin-top: var(--space-2);
+}
+
+.cache-row.context-row {
+  grid-template-columns: minmax(0, 1fr) 5em;
+}
+
+/* the fill takes the tone's colour from the label rules in Composer.css */
+.context-bar-fill.is-ctx-green { color: var(--status-done); }
+.context-bar-fill.is-ctx-yellow { color: var(--notice); }
+.context-bar-fill.is-ctx-orange { color: color-mix(in srgb, var(--notice) 40%, var(--status-blocked)); }
+.context-bar-fill.is-ctx-red { color: var(--status-blocked); }
+.context-head .is-ctx-green { color: var(--status-done); }
+.context-head .is-ctx-yellow { color: var(--notice); }
+.context-head .is-ctx-orange { color: color-mix(in srgb, var(--notice) 40%, var(--status-blocked)); }
+.context-head .is-ctx-red { color: var(--status-blocked); }

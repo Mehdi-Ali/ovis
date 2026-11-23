@@ -39,10 +39,8 @@ import {
   composerStatusCompact,
   composerStatusHint,
   composerStatusWord,
-  contextLeftPercent, contextTone,
   type DraftRefusal,
   draftSendNote,
-  formatTokens,
   imageMention,
   insertLeadingMention,
   MAX_COMPOSER_CHARS,
@@ -71,6 +69,7 @@ import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 import { usePaneCommands } from "../lib/usePaneCommands.ts";
 import { CacheChip } from "./CacheChip.tsx";
+import { ContextChip } from "./ContextChip.tsx";
 import { useT } from "../lib/i18n.ts";
 import { offersRetry, userFailure, type UserFailure } from "../lib/userError.ts";
 import { AttachmentTooLargeError } from "../lib/api.ts";
@@ -186,26 +185,6 @@ function readSlashUsage(): Record<string, number> {
   } catch {
     return {};
   }
-}
-
-/**
- * The share of the context that is used, in words (`ctx 34%`; just `34%` on a narrow screen), coloured
- * by how full it is: green up to a quarter, then yellow, orange past 45% and red past 60%. It only
- * shows: the tokens are in its tooltip and read to a screen reader, and a press does nothing. A
- * window the transcript does not name draws no label.
- */
-function ContextLabel({ context, compact }: { context: NonNullable<ConversationMetadata["context"]>; compact: boolean }) {
-  const t = useT();
-  const left = contextLeftPercent(context);
-  if (left === null || context.window === null) return null;
-  // local: the label counts what is used, as the token detail beside it does
-  const used = 100 - left;
-  const label = t("Context {percent}% used", { percent: used });
-  const detail = t("{used} of {window} tokens", { used: formatTokens(context.used), window: formatTokens(context.window) });
-  return <span className={`composer-context is-ctx-${contextTone(used)}`} title={`${label} · ${detail}`}>
-    <span aria-hidden="true">{compact ? `${used}%` : t("ctx {percent}%", { percent: used })}</span>
-    <span className="visually-hidden">{label} · {detail}</span>
-  </span>;
 }
 
 function useMediaQuery(query: string): boolean {
@@ -1642,7 +1621,7 @@ export function Composer({
                   </>}
                 </span>
               </span>}
-              {metadata?.context && <ContextLabel context={metadata.context} compact={mobile} />}
+              {metadata?.context && <ContextChip context={metadata.context} cache={metadata.cache} compact={mobile} />}
               <CacheChip cache={metadata?.cache} compact={mobile} />
               {usage !== undefined && usage.problem === null && usageLimit !== undefined && <span
                 className={`composer-usage${usageLimit.used_percent >= HIGH_PERCENT ? " is-high" : ""}${usage.problem ? " has-problem" : ""}`}
