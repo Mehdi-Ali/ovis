@@ -664,7 +664,7 @@ export function App() {
         void load();
         if (created.agent_started !== false) lenses.startedAgent(lensOwner(found.machineId, created.pane_id), window.matchMedia?.("(pointer: coarse)").matches === true);
         // the + menu's agent entries open on the chat, whatever lens the page would pick
-        pickView(found.machineId, created.pane_id, "chat");
+        pickView(found.machineId, created.pane_id, "chat", null);
         if (selectionStill(asked, selectionRef.current)) selectTargetRef.current(found.machineId, created.pane_id);
       },
       moveTabToWorkspace: async ({ machineId, tabId, workspaceId, notice }) => {
