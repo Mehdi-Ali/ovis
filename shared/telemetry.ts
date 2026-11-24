@@ -78,7 +78,7 @@ export interface TelemetrySettings {
   showQuickReplies: boolean;
   showUsage: boolean;
   usageCount: "used" | "left";
-  usageGlance: "week" | "session";
+  usageGlance: "week" | "session" | "both";
   defaultView: "auto" | "chat" | "terminal";
   voiceInput: "auto" | "on" | "off";
   voiceLanguage: "auto" | "ar-SA" | "cs-CZ" | "da-DK" | "de-DE" | "el-GR" | "en-GB" | "en-US" | "es-ES" | "fi-FI" | "fr-FR" | "he-IL" | "hi-IN" | "hu-HU" | "id-ID" | "it-IT" | "ja-JP" | "ko-KR" | "nb-NO" | "nl-NL" | "pl-PL" | "pt-BR" | "pt-PT" | "ro-RO" | "ru-RU" | "sk-SK" | "sv-SE" | "th-TH" | "tr-TR" | "uk-UA" | "vi-VN" | "zh-CN" | "zh-TW";
@@ -150,7 +150,7 @@ const TELEMETRY_SETTINGS_VALIDATORS = {
   showQuickReplies: booleanValue,
   showUsage: booleanValue,
   usageCount: oneOf(["used", "left"]),
-  usageGlance: oneOf(["week", "session"]),
+  usageGlance: oneOf(["week", "session", "both"]),
   defaultView: oneOf(["auto", "chat", "terminal"]),
   voiceInput: oneOf(["auto", "on", "off"]),
   voiceLanguage: oneOf(["auto", "ar-SA", "cs-CZ", "da-DK", "de-DE", "el-GR", "en-GB", "en-US", "es-ES", "fi-FI", "fr-FR", "he-IL", "hi-IN", "hu-HU", "id-ID", "it-IT", "ja-JP", "ko-KR", "nb-NO", "nl-NL", "pl-PL", "pt-BR", "pt-PT", "ro-RO", "ru-RU", "sk-SK", "sv-SE", "th-TH", "tr-TR", "uk-UA", "vi-VN", "zh-CN", "zh-TW"]),

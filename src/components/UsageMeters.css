@@ -253,3 +253,30 @@
     animation: none;
   }
 }
+
+/* the "both" glance: the five-hour and the weekly limit side by side, each with its own hairline */
+.usage-chip.is-both {
+  gap: var(--space-1);
+  padding: 0;
+}
+
+.usage-chip-window {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--chip-h);
+  padding: 0 2px 2px;
+}
+
+.usage-chip-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  line-height: 1;
+  color: var(--text-dim);
+}
+
+.usage-chip-window.is-high .usage-chip-value { color: var(--status-blocked); }
+.usage-chip-window.is-high .usage-chip-bar {
+  background: linear-gradient(to right, var(--status-blocked) var(--fill), var(--border-strong) var(--fill));
+}

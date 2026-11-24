@@ -32,8 +32,8 @@ export type AgentGroupSort = (typeof AGENT_GROUP_SORTS)[number];
 export type AgentMarks = "color" | "mono";
 /** what the plan meters count: the share of a limit used, or what is left of it */
 export type UsageCount = "used" | "left";
-/** the limit a plan meter shows: the plan's week, or its short session (5 hours on Claude and Codex) */
-export type UsageGlance = "week" | "session";
+/** the limit a plan meter shows: the plan's week, its short session (5 hours on Claude and Codex), or both side by side */
+export type UsageGlance = "week" | "session" | "both";
 /** amber: the herdr look (the default before codex); charcoal: neutral Ghostty-style dark;
  *  catppuccin: Catppuccin Mocha in dark, Latte in light. A record naming a palette that was removed
  *  (report, lilac, forest) loads as amber. */
@@ -758,7 +758,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     showQuickReplies: typeof record["showQuickReplies"] === "boolean" ? record["showQuickReplies"] : DEFAULT_SETTINGS.showQuickReplies,
     showUsage: typeof record["showUsage"] === "boolean" ? record["showUsage"] : DEFAULT_SETTINGS.showUsage,
     usageCount: record["usageCount"] === "used" || record["usageCount"] === "left" ? record["usageCount"] : DEFAULT_SETTINGS.usageCount,
-    usageGlance: record["usageGlance"] === "week" || record["usageGlance"] === "session" ? record["usageGlance"] : DEFAULT_SETTINGS.usageGlance,
+    usageGlance: record["usageGlance"] === "week" || record["usageGlance"] === "session" || record["usageGlance"] === "both" ? record["usageGlance"] : DEFAULT_SETTINGS.usageGlance,
     defaultView: record["defaultView"] === "chat" || record["defaultView"] === "terminal" || record["defaultView"] === "auto" ? record["defaultView"] : DEFAULT_SETTINGS.defaultView,
     usageOrder: usageKeys(record["usageOrder"]),
     usageHidden: usageKeys(record["usageHidden"]),

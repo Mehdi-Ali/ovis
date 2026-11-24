@@ -40,7 +40,34 @@ function otherHigh(usage: ProviderUsage, shown: UsageWindow | null): UsageWindow
   return usage.windows.find((window) => window !== shown && window.used_percent >= HIGH_PERCENT) ?? null;
 }
 
+/** The plan's five-hour and weekly limits, in that order, for the "both" glance. */
+function planWindows(usage: ProviderUsage): UsageWindow[] {
+  return (["session", "week"] as const).map((kind) => usage.windows.find((window) => window.kind === kind && window.scope === null)).filter((window): window is UsageWindow => window !== undefined);
+}
+
+/** One limit inside a "both" chip: its short label, its percent and its hairline. */
+function Window({ window, count }: { window: UsageWindow; count: UsageCount }) {
+  const t = useT();
+  return (
+    <span className={`usage-chip-window${level(window)}`}>
+      <span className="usage-chip-label">{window.kind === "session" ? t("5h") : t("wk")}</span>
+      <span className="usage-chip-value">{formatPercent(meterPercent(window, count))}</span>
+      <span className="usage-chip-bar" style={{ "--fill": `${meterPercent(window, count)}%` } as CSSProperties} />
+    </span>
+  );
+}
+
 function Chip({ usage, count, glance }: { usage: ProviderUsage; count: UsageCount; glance: UsageGlance }) {
+  const windows = glance === "both" ? planWindows(usage) : [];
+  // a plan with fewer than two of them reads as before: one limit, the tightest when neither is there
+  if (windows.length > 1) {
+    return (
+      <span className={`usage-chip is-both${usage.problem ? " has-problem" : ""}`}>
+        <AgentMark agent={PROVIDER_MARK[usage.id]} size={14} />
+        {windows.map((window) => <Window key={window.kind} window={window} count={count} />)}
+      </span>
+    );
+  }
   const window = glanceWindow(usage, glance);
   return (
     <span className={`usage-chip${level(window)}${usage.problem ? " has-problem" : ""}`}>

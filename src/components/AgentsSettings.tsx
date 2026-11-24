@@ -320,7 +320,7 @@ function PlanLimits({ watching }: { watching: boolean }) {
       </SettingsRow>
       {settings.showUsage && <>
         <SettingsRow icon={CalendarClock} label={t("Limit shown")} description={t("Session is the 5-hour limit. Without it, the closest limit is shown.")} wide reset={["usageGlance"]}>
-          <Segmented label={t("Limit shown")} value={settings.usageGlance} onChange={(usageGlance) => update({ usageGlance })} options={[{ value: "week", label: t("Weekly") }, { value: "session", label: t("Session") }]} />
+          <Segmented label={t("Limit shown")} value={settings.usageGlance} onChange={(usageGlance) => update({ usageGlance })} options={[{ value: "week", label: t("Weekly") }, { value: "session", label: t("Session") }, { value: "both", label: t("Both") }]} />
         </SettingsRow>
         {statusline.state?.supported && <SettingsRow icon={SquareTerminal} label={t("Read Claude's limits from its status line")}
           description={t("For networks where Claude's usage API is refused. Wraps Claude Code's status line on this PC and keeps only the limits; turning it off puts Claude's settings back.")}>

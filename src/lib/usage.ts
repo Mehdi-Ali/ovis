@@ -69,8 +69,10 @@ export function tightestWindow(usage: ProviderUsage): UsageWindow | null {
  * The limit a chip shows: the plan-wide one of the kind chosen in Settings (the week, or the
  * short session), never a model's own. A plan without it shows its limit closest to running out.
  */
+/** With "both", the one window a single-limit place shows is the session. */
 export function glanceWindow(usage: ProviderUsage, glance: UsageGlance): UsageWindow | null {
-  return usage.windows.find((window) => window.kind === glance && window.scope === null) ?? tightestWindow(usage);
+  const kind = glance === "both" ? "session" : glance;
+  return usage.windows.find((window) => window.kind === kind && window.scope === null) ?? tightestWindow(usage);
 }
 
 export function windowLabel(window: UsageWindow): string {
