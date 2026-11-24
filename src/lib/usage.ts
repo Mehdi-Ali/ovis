@@ -64,7 +64,8 @@ export function tightestWindow(usage: ProviderUsage): UsageWindow | null {
 }
 
 export function glanceWindow(usage: ProviderUsage, glance: UsageGlance): UsageWindow | null {
-  return usage.windows.find((window) => window.kind === glance && window.scope === null) ?? tightestWindow(usage);
+  const kind = glance === "both" ? "session" : glance;
+  return usage.windows.find((window) => window.kind === kind && window.scope === null) ?? tightestWindow(usage);
 }
 
 export function windowLabel(window: UsageWindow): string {
