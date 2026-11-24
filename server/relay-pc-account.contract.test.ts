@@ -34,8 +34,7 @@ function stateDir(): string {
 
 const ACCOUNT = "acct_1";
 
-/** PC B in ACCOUNT (one drive member, its relay on), PC A, the local relay between them, and the account service. */
-async function accountPcs(options: { clock?: () => number; aIdentity?: boolean } = {}) {
+async function accountPcs(options: { clock?: () => number; aIdentity?: boolean; accountOpensAll?: boolean } = {}) {
   const relay = startBunRelay({ port: 0, limiters: {
     perAddress: { async limit() { return { success: true }; } },
     global: { async limit() { return { success: true }; } },
@@ -53,16 +52,19 @@ async function accountPcs(options: { clock?: () => number; aIdentity?: boolean }
     return socket;
   };
   const service = new FakeAccountService(options.clock ?? Date.now);
+  const accountOpensAll = options.accountOpensAll ?? false;
+  service.opensAll = accountOpensAll;
   const token = service.issueToken(ACCOUNT);
-  // B's account member, in devices.json before B starts, as a PC an account device linked to holds it
   const bState = stateDir();
   const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
   const memberKey = Buffer.from(await crypto.subtle.exportKey("spki", keys.publicKey)).toString("base64url");
+  if (accountOpensAll) service.registerDevice(ACCOUNT, memberKey, "Owner's phone");
   const member = { id: randomBytes(8).toString("hex"), label: "Owner's phone", role: "drive", token_hash: randomBytes(32).toString("hex"),
     relay_public_key: memberKey, account: ACCOUNT, created_at: new Date().toISOString(), last_seen_at: null };
   writeFileSync(join(bState, "devices.json"), JSON.stringify({ gate_closed_at: member.created_at, devices: [member] }), { mode: 0o600 });
   const relayService = new RelayService({ stateDir: bState, relay: `wss://127.0.0.1:${relay.port}`, connect: local });
-  const b = createServer({ port: 0, hostname: "127.0.0.1", stateDir: bState, token: "", tailscaleOwner: null, sidecar: false, registerBridge: false, relay: relayService,
+  // This fixture puts a released Step 1 member on B and uses its account-vouched comparison.
+  const b = createServer({ port: 0, hostname: "127.0.0.1", stateDir: bState, token: "", tailscaleOwner: null, sidecar: false, registerBridge: false, relay: relayService, accountOpensAll, platform: "linux",
     accountService: { url: "https://account.test", fetch: service.fetch } });
   cleanup.push(async () => { await relayService.shutdown(); b.stop(); });
   const bBase = `http://127.0.0.1:${b.port}`;
@@ -70,12 +72,12 @@ async function accountPcs(options: { clock?: () => number; aIdentity?: boolean }
   await bounded(synced.promise);
   const offered = await fetch(`${bBase}/api/relay/offer`, { method: "POST", headers: { origin: bBase, "x-herdr-update": "1" } });
   const { code: _code, ...offer } = decodeOffer((await offered.json() as { url: string }).url)!;
-  // B in the account's directory, as the page of any signed-in device reads it
   await service.fetch(new Request(`https://account.test/v1/pcs/${offer.server_id}`, { method: "PUT", headers: { authorization: `Bearer ${token}` },
     body: JSON.stringify({ label: "Desk", public_key: bytesToHex(importPublicKey(offer.server_public_key)), relay: offer.relay }) }));
+  if (accountOpensAll) expect(await b.context.services.accountMailbox.readSnapshot()).toMatchObject({ committed: true });
   const aState = stateDir();
   const aRelayIdentity = options.aIdentity ? rotateRelayIdentity(aState) : undefined;
-  const a = createServer({ port: 0, hostname: "127.0.0.1", stateDir: aState, token: "", tailscaleOwner: null, sidecar: false, registerBridge: false, relayPcSocket: local });
+  const a = createServer({ port: 0, hostname: "127.0.0.1", stateDir: aState, token: "", tailscaleOwner: null, sidecar: false, registerBridge: false, relayPcSocket: local, accountOpensAll, platform: "linux" });
   cleanup.push(() => a.stop());
   const aBase = `http://127.0.0.1:${a.port}`;
   /** the member, signed in to B over a session of B's own, that may approve through the relay */
@@ -106,7 +108,6 @@ function post(base: string, path: string, body: unknown, signal?: AbortSignal): 
   return fetch(`${base}/api/machines/relay/account/${path}`, { method: "POST", headers: machineHeaders(base), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
 }
 
-/** The lines A's pair answer sends, read one at a time. */
 function lines(response: Response) {
   const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
@@ -121,7 +122,6 @@ function lines(response: Response) {
   };
 }
 
-/** The next comparison B shows its account members. */
 function remotePrompt(b: ReturnType<typeof createServer>, check: (list: RemotePairingRequest[]) => boolean = (list) => list.length > 0): Promise<RemotePairingRequest[]> {
   const found = deferred<RemotePairingRequest[]>();
   const stop = b.context.services.relay.approvals.subscribeRemote((list) => { if (check(list)) found.resolve(list); });
@@ -135,8 +135,8 @@ async function start(base: string, pc: unknown) {
   return { status: response.status, body: await response.json() as { ticket: string; key: string; label: string; error?: { code: string } } };
 }
 
-it("adds a PC of the account once a member there picked the digits: a plain row on B, the PC in A's list after a restart, and no add anywhere", async () => {
-  const { a, aBase, aState, b, bState, member, service, pc, approver, admit } = await accountPcs();
+it.each([false, true])("adds a PC of the account once a member there picked the digits, persists after restart (Step 2: %s)", async accountOpensAll => {
+  const { a, aBase, aState, b, bState, member, service, pc, approver, admit } = await accountPcs({ accountOpensAll });
   const checked = await post(aBase, "check", { pcs: [pc] });
   expect(await checked.json()).toEqual({ pcs: [{ server_id: pc.server_id, state: "ready" }] });
   const started = await start(aBase, pc);
@@ -167,14 +167,13 @@ it("adds a PC of the account once a member there picked the digits: a plain row 
   expect(service.mailbox(pc.server_id, ACCOUNT)).toEqual([]);
   expect(existsSync(join(aState, "account-pending.json"))).toBe(false);
 
-  // A keeps the PC as any PC added through the relay: in its machine list and on disk, once
   expect(readFileSync(join(aState, "relay-pcs.json"), "utf8")).toContain(machine!.id);
   expect(relayKeys(aState)).toEqual([`${machine!.id}.json`]);
   const listed = await (await fetch(`${aBase}/api/machines`, { headers: { origin: aBase } })).json() as { machines: Machine[] };
   expect(listed.machines.some((m) => m.id === machine!.id && m.kind === "relay")).toBe(true);
   expect((await start(aBase, pc)).body.error?.code).toBe("account_pc_added");
   a.stop();
-  const again = createServer({ port: 0, hostname: "127.0.0.1", stateDir: aState, token: "", tailscaleOwner: null, sidecar: false, registerBridge: false });
+  const again = createServer({ port: 0, hostname: "127.0.0.1", stateDir: aState, token: "", tailscaleOwner: null, sidecar: false, registerBridge: false, accountOpensAll });
   cleanup.push(() => again.stop());
   const restarted = await (await fetch(`http://127.0.0.1:${again.port}/api/machines`, { headers: { origin: `http://127.0.0.1:${again.port}` } })).json() as { machines: Machine[] };
   expect(restarted.machines.some((m) => m.id === machine!.id && m.kind === "relay")).toBe(true);
@@ -286,7 +285,6 @@ it("asks a PC once when two windows add it together: the second is told it is be
   expect(b.context.services.relay.approvals.remoteList()).toHaveLength(1);
 }, 60_000);
 
-/** Every PC's sessions from here on read HELLO as an older Ovis does, knowing no pair-intent-pc-vouched; the frames they were sent. */
 function olderB(): number[] {
   const admit = Object.getOwnPropertyDescriptor(RelaySession.prototype, "admit")!.value as (this: RelaySession, frame: SessionFrame) => Promise<void>;
   const asked: number[] = [];

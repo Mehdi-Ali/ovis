@@ -84,4 +84,7 @@ export const SETUP_KO: Record<string, string> = {
   "Opens the first-run guide again, from its first step, to install coding agents on this PC and connect them. What was set up before stays as it is.": "처음 실행 때의 설정 안내를 첫 단계부터 다시 엽니다. 이 PC에 코딩 에이전트를 설치하고 연결하는 과정이며, 이미 해 둔 설정은 그대로 둡니다.",
   "Accounts of providers that none of the agents listed above signs in to, such as Cursor or an agent this PC does not have.": "위 목록의 어느 에이전트도 로그인하지 않는 서비스의 계정입니다. 예를 들어 Cursor나 이 PC에 없는 에이전트의 계정입니다.",
   "Old record": "오래된 기록",
+  "Install another agent ({count})": "다른 에이전트 설치 ({count})",
+  "None": "없음",
+  "A browser the agent can drive: Ovis adds an MCP server at a fixed version when it starts this agent. That browser uses a profile of its own, without your sign-ins, and Ovis does not watch or limit it. Applies from the next start; an agent started from a terminal is not changed.": "에이전트가 다룰 수 있는 브라우저입니다. Ovis가 이 에이전트를 띄울 때 버전을 고정한 MCP 서버를 붙입니다. 그 브라우저는 따로 만든 프로필을 써서 내 로그인은 쓰지 않고, Ovis가 지켜보거나 막지 않습니다. 다음에 띄울 때부터 적용되고, 터미널에서 직접 띄운 에이전트는 바뀌지 않습니다.",
 };

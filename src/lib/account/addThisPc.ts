@@ -5,15 +5,25 @@
  * adds it with one approval: it types the number this PC shows, and the owner approves here.
  */
 import { importPublicKey } from "../../../shared/relay-e2ee.ts";
-import { decodeOffer } from "../../../shared/relay-offer.ts";
+import { decodeOffer, type RelayOffer } from "../../../shared/relay-offer.ts";
 import { closeRelayLink, fetchHealth, requestRelayLink } from "../api.ts";
 import { apiFetch } from "../api-request-id.ts";
+import { isLoopbackHost } from "../phone.ts";
 import { serverIdOfPath } from "../shellMode.ts";
 import { pcAccountStatus, within } from "./join.ts";
 import { NEW_PC_MS } from "./myPcs.ts";
-import type { AccountService } from "./service.ts";
+import { AccountServiceError, sameSignIn, type AccountService } from "./service.ts";
+import type { AccountSession } from "./store.ts";
 
-/** The account this PC belongs to; null while it is in none. */
+/**
+ * Whether this window is this PC's own window, as the server's ownWindow judges it (server/dispatch.ts): its owner
+ * socket, or the access token on a loopback address (localhost and 127.x included, as the server sees a loopback peer). The server still decides; this only keeps a press it would refuse
+ * from costing the account a daily add (one-press PC add, docs/account.md).
+ */
+export function ownWindowHere(auth: { readonly via?: string } | null | undefined, hostname: string = typeof location === "undefined" ? "" : location.hostname): boolean {
+  return auth?.via === "local" || (auth?.via === "token" && isLoopbackHost(hostname));
+}
+
 export async function thisPcAccount(): Promise<string | null> {
   return (await pcAccountStatus(apiFetch)).account;
 }
@@ -34,44 +44,35 @@ export async function thisPcInNoAccount(): Promise<boolean> {
 
 /**
  * Opens this PC's approve-here pairing window again and nothing else: no directory call, so nothing is listed
- * and no device of the account is rung. A window lost to a restart of Ovis is back with the next call.
- * Answers the id of the PC that opened it (null when its link does not say), so a screen that resumed
- * a wait can tell the PC is the one it waited on.
+ * and no device of the account is rung. Returns the PC's ID for wait resumption and the window ID for cleanup.
  */
-export async function reopenAddWindow(): Promise<string | null> {
-  const { url } = await openAddWindow();
-  try { return decodeOffer(url)?.server_id ?? null; } catch { return null; }
+export async function reopenAddWindow(): Promise<{ readonly serverId: string | null; readonly windowId: string | undefined }> {
+  const { url, windowId } = await openAddWindow();
+  try { return { serverId: decodeOffer(url)?.server_id ?? null, windowId }; }
+  catch { return { serverId: null, windowId }; }
 }
 
-/** How long a close of this PC's window may take to answer before a new window is asked for all the same. */
 export const CLOSE_ANSWER_MS = 60_000;
 
-/** The closes of this PC's window this page sent that have not been answered yet, each for `CLOSE_ANSWER_MS` at most. */
 let closing: Promise<unknown> = Promise.resolve();
 
 /**
- * Closes this PC's pairing window (POST /api/relay/link/close), so nothing more is taken through it. The PC
- * closes whatever window is open when the request arrives, so one asked for after this call is asked for
- * only once this close was answered (`openAddWindow`): a close that arrives late never closes the window
- * of a wait that began after it.
+ * Only an explicit Stop waiting closes the current window without an ID. Serialize later Add opens
+ * after that close; automatic cleanup names its own generation and cannot affect a later open.
  */
-export function closeAddWindow(): Promise<{ readonly ok: true }> {
-  const sent = closeRelayLink();
+export function closeAddWindow(windowId?: string): Promise<{ readonly ok: true }> {
+  const sent = closeRelayLink(windowId);
+  if (windowId !== undefined) return sent;
   closing = Promise.allSettled([closing, within(CLOSE_ANSWER_MS, sent)]);
   return sent;
 }
 
-/**
- * Asks this PC for its approve-here pairing window, after every close this page sent before was answered
- * (or got no answer for `CLOSE_ANSWER_MS`: the window is then asked for all the same, and one such a close
- * shuts late is back with the wait's next reopen).
- */
-async function openAddWindow(): Promise<{ url: string }> {
+async function openAddWindow(): Promise<{ readonly url: string; readonly windowId: string | undefined }> {
   for (let seen: Promise<unknown> | null = null; seen !== closing;) { seen = closing; await seen; }
-  return await requestRelayLink({ localOnly: true });
+  const { url, window_id } = await requestRelayLink({ localOnly: true });
+  return { url, windowId: typeof window_id === "string" && /^[0-9a-f]{32}$/.test(window_id) ? window_id : undefined };
 }
 
-/** Where a waiting Add this PC screen is kept across a reload of its tab. */
 const WAITING_KEY = "ovis-add-pc-waiting";
 
 /**
@@ -79,15 +80,10 @@ const WAITING_KEY = "ovis-add-pc-waiting";
  * a tab that now shows another PC, or is signed in to another account, never resumes it.
  */
 export interface AddPcWaiting {
-  /** the name this PC is listed under */
   readonly name: string;
-  /** when the screen stops waiting (ms since the epoch) */
   readonly until: number;
-  /** the PC that waits */
   readonly serverId: string;
-  /** the account it was listed in */
   readonly account: string;
-  /** when it was last listed there (ms since the epoch): the next listing is due `RELIST_MS` after it */
   readonly listedAt: number;
 }
 
@@ -95,7 +91,6 @@ function tabStorage(): Storage | null {
   try { return typeof window === "undefined" ? null : window.sessionStorage ?? null; } catch { return null; }
 }
 
-/** The PC this page is scoped to at the hosted app (`/s/<server_id>/`); null on a PC's own address, which names none. */
 export function pagePc(): string | null {
   try { return typeof location === "undefined" ? null : serverIdOfPath(location.pathname ?? ""); } catch { return null; }
 }
@@ -116,7 +111,6 @@ export async function pcAnswers(serverId: string): Promise<boolean> {
 }
 const time = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
-/** The waiting screen this tab kept, expired or not; null when it kept none, one of another shape, or its storage cannot be read. */
 export function readAddPcWaiting(): AddPcWaiting | null {
   try {
     const kept = JSON.parse(tabStorage()?.getItem(WAITING_KEY) ?? "null") as Partial<Record<keyof AddPcWaiting, unknown>> | null;
@@ -126,19 +120,13 @@ export function readAddPcWaiting(): AddPcWaiting | null {
   } catch { return null; }
 }
 
-/** The copies of the Add this PC screen in this page that want to hear of a wait kept or forgotten. */
 const watchers = new Set<(waiting: AddPcWaiting | null) => void>();
 
-/**
- * Tells `heard` of every wait this page keeps or forgets from now on (`keepAddPcWaiting`), until the function
- * returned is called: a copy of the screen that shows the offer takes up a wait another copy began.
- */
 export function onAddPcWaiting(heard: (waiting: AddPcWaiting | null) => void): () => void {
   watchers.add(heard);
   return () => { watchers.delete(heard); };
 }
 
-/** Keeps the waiting screen for a reload of this tab, or forgets it (null). Without storage the screen works as before, not resumed. */
 export function keepAddPcWaiting(waiting: AddPcWaiting | null): void {
   try {
     if (waiting === null) tabStorage()?.removeItem(WAITING_KEY);
@@ -147,13 +135,13 @@ export function keepAddPcWaiting(waiting: AddPcWaiting | null): void {
   for (const heard of [...watchers]) heard(waiting);
 }
 
-/** This PC as `listThisPc` listed it: its name there, its id, and the account it was listed in (null when no sign-in was stored when the listing began). */
-export interface ListedPc { readonly name: string; readonly serverId: string; readonly account: string | null }
+export interface ListedPc {
+  readonly name: string;
+  readonly serverId: string;
+  readonly account: string | null;
+  readonly membership?: { readonly account: string; readonly enrolling: boolean };
+}
 
-/**
- * Why `listThisPc` wrote nothing for a wait: the address answers for another PC now (`pc`), another sign-in
- * or none is stored (`sign-in`), or the wait ended while the listing was on its way (`ended`).
- */
 export class AddPcWaitOver extends Error {
   constructor(readonly why: "pc" | "sign-in" | "ended") {
     super(`The wait to add this PC is over: ${why}`);
@@ -161,7 +149,6 @@ export class AddPcWaitOver extends Error {
   }
 }
 
-/** The wait a listing is made for (`listThisPc`): its PC, its account, and whether it still runs. */
 export interface ListedFor {
   readonly serverId: string;
   readonly account: string;
@@ -169,22 +156,18 @@ export interface ListedFor {
   readonly running: () => boolean;
 }
 
-/** The sign-in a listing is made for without a press (`listThisPc`): its account, and whether the attempt it began still runs. */
 export interface ListedAs {
   readonly account: string;
   /** asked once the window opened, and right before every write to the directory and to the PC: false once the screen gave the attempt up */
   readonly running: () => boolean;
-  /**
-   * Told how far the listing came, for a screen that gives it up: `opened` once this PC opened its pairing
-   * window, `writing` right before the first write to the directory is sent (one sent cannot be taken back).
-   */
-  readonly reached?: (step: "opened" | "writing") => void;
+  /** Right before a directory write is sent; one sent cannot be taken back. */
+  readonly writing?: () => void;
 }
 
 /**
  * Lists this PC in the account's directory and opens its approve-here pairing window; the PC as
- * listed. An entry the card would stop showing before the next relist (`RELIST_MS`) is listed anew,
- * which shows the card again and rings the account's devices, so the card lasts as long as this screen waits.
+ * listed. An invitation that would expire before the next relist (`RELIST_MS`) is refreshed in place if
+ * the service supports it, so the card lasts as long as this screen waits. Only an old service needs a relist.
  *
  * Every directory call is made as the sign-in stored when the listing began (`forSignIn`): one made meanwhile
  * (another tab signed out and in) is never written to. Listing again `for` a wait writes nothing, and throws
@@ -194,16 +177,17 @@ export interface ListedAs {
  * when the account stored at that read is another one or none, or the attempt was given up. A listing whose
  * wait or attempt ended while its entry was being written does not tell the PC the account either.
  */
-export async function listThisPc(service: AccountService, options: { relistMs: number; for?: ListedFor; as?: ListedAs }): Promise<ListedPc> {
+export async function listThisPc(service: AccountService, options: { relistMs: number; for?: ListedFor; as?: ListedAs; opened?: (windowId: string) => void }): Promise<ListedPc> {
   const wait = options.for;
   const as = options.as;
   // asked before the window: one is never opened on another PC than the wait's
   if (wait !== undefined && !await pcAnswers(wait.serverId)) throw new AddPcWaitOver("pc");
   // stopped while that was asked: no window is asked for after Stop waiting closed it
   if (wait !== undefined && !wait.running()) throw new AddPcWaitOver("ended");
-  const offer = decodeOffer((await openAddWindow()).url);
+  const { url, windowId } = await openAddWindow();
+  if (windowId !== undefined) options.opened?.(windowId);
+  const offer = decodeOffer(url);
   if (offer === null) throw new Error("This PC's pairing link did not parse");
-  as?.reached?.("opened");
   if (wait !== undefined && offer.server_id !== wait.serverId) throw new AddPcWaitOver("pc");
   // given up while the window was being opened: nothing more is read or written for it
   // (a stopped wait's listing is over at once, so whoever began it closes the late window without waiting for the directory)
@@ -213,16 +197,44 @@ export async function listThisPc(service: AccountService, options: { relistMs: n
   if (as !== undefined && session?.account !== as.account) throw new AddPcWaitOver("sign-in");
   const directory = session === undefined ? service : service.forSignIn(session);
   const runs = (): boolean => (wait === undefined || wait.running()) && (as === undefined || as.running());
-  const running = (): void => { if (!runs()) throw new AddPcWaitOver("ended"); as?.reached?.("writing"); };
+  const running = (): void => { if (!runs()) throw new AddPcWaitOver("ended"); as?.writing?.(); };
   const listed = (await directory.listPcs()).find((pc) => pc.server_id === offer.server_id);
-  if (listed !== undefined && Date.now() - Date.parse(listed.added_at) >= NEW_PC_MS - options.relistMs) {
-    running();
-    await directory.deletePc(offer.server_id);
-  }
   const name = (offer.name ?? offer.server_id.slice(0, 8)).slice(0, 48);
-  const publicKey = Array.from(importPublicKey(offer.server_public_key), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  running();
-  await directory.putPc(offer.server_id, { label: name, public_key: publicKey, relay: offer.relay });
+  const result = { name, serverId: offer.server_id, account: session?.account ?? null };
+  const readMembership = async (): Promise<ListedPc["membership"]> => {
+    if (!runs()) throw new AddPcWaitOver("ended");
+    const { account, enrolling } = await thisPcMembership();
+    if (!runs()) throw new AddPcWaitOver("ended");
+    return account === null ? undefined : { account, enrolling };
+  };
+  // A first link or one-press bind can finish while the listing is being read. A refresh must not remove it.
+  const membership = await readMembership();
+  if (membership !== undefined) return { ...result, membership };
+  // only an old service omits the ID; a row with an unusable one is a malformed answer, whatever its age: nothing is written for it
+  if (listed?.listing_id === null) throw new AccountServiceError(502, "invalid_answer", "The account service sent an unusable listing ID");
+  let refreshed = false;
+  if (listed !== undefined && Date.now() - Date.parse(listed.invited_at ?? listed.added_at) >= NEW_PC_MS - options.relistMs) {
+    running();
+    const outcome = await directory.refreshPc(offer.server_id, listed.listing_id);
+    // A new service preserves an admission even if the PC binds after the first status read. Read again
+    // both to finish that wait and to keep the local check immediately before any old-service removal.
+    const after = await readMembership();
+    if (after !== undefined) return { ...result, membership: after };
+    switch (outcome) {
+      case "refreshed": refreshed = true; break;
+      case "changed": throw new AccountServiceError(409, "listing_changed", "This add is no longer waiting for that action");
+      case "legacy":
+        running();
+        await directory.deletePc(offer.server_id);
+        break;
+      default: outcome satisfies never;
+    }
+  }
+  if (!refreshed) {
+    const publicKey = Array.from(importPublicKey(offer.server_public_key), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    running();
+    await directory.putPc(offer.server_id, { label: name, public_key: publicKey, relay: offer.relay });
+  }
   // the account this PC now asks its relay pass under (docs/relay.md, "Relay pass"); an older PC has no such route
   // (not for a wait or an attempt that ended while the entry was written: nobody waits for this PC under it)
   if (session && runs()) {
@@ -233,5 +245,63 @@ export async function listThisPc(service: AccountService, options: { relistMs: n
       (error: unknown) => console.warn("Ovis: this PC did not take the account for its relay pass", error instanceof Error ? error.name : error),
     );
   }
-  return { name, serverId: offer.server_id, account: session?.account ?? null };
+  return result;
+}
+
+/**
+ * One press (docs/account.md, "One press"): the PC just listed under `account` joins it with no device typing digits,
+ * when the account service admits it (a fresh sign-in with two-step sign-in set, within the account's daily cap) and
+ * the PC then takes the service's word for that account. The account is the stored sign-in's, never the one the PC
+ * was named for: the PC is named it again first, and refuses a press for any other. "refused" on every refusal, an
+ * older service or PC included, and once `running` says the attempt is over: the caller keeps today's digit wait.
+ * "sign-in-again" when the service refused the sign-in itself (not two-step, not fresh, or made with a code): a fresh
+ * sign-in of this device's own may then add the PC in one press. `signIn`: that sign-in alone presses (such a fresh one):
+ * with another stored in its place since, nothing is asked.
+ * `opensAll`: this PC lists account-opens-all/1 (its step-2 switch is on); without it the service is not asked at all,
+ * so a PC that would refuse the press spends none of the account's daily adds and rings nobody.
+ */
+export async function addInOnePress(service: AccountService, serverId: string, account: string, running: () => boolean, opensAll: boolean, signIn?: AccountSession): Promise<OnePress> {
+  if (!opensAll) return "refused";
+  const stored = await service.session();
+  if (stored?.account !== account || (signIn !== undefined && !sameSignIn(stored, signIn)) || !running()) return "refused";
+  const session = signIn ?? stored;
+  try { await service.forSignIn(session).admitPc(serverId); } catch (error) {
+    console.warn("Ovis: the account service did not add this PC in one press", error instanceof Error ? error.name : error);
+    return error instanceof AccountServiceError && SIGN_IN_REFUSALS.includes(error.code) ? "sign-in-again" : "refused";
+  }
+  // another tab signed in to another account while the service answered: this PC is named for nobody
+  const still = await service.session();
+  if (still === undefined || !sameSignIn(still, session) || !running()) return "refused";
+  const post = (path: string) => apiFetch(path, { method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify({ account }) });
+  try {
+    if (!running() || !(await post("/api/account/relay-account")).ok || !running()) return "refused";
+    const pressed = await post("/api/account/one-press");
+    if (!pressed.ok) console.warn("Ovis: this PC did not join in one press", pressed.status);
+    return pressed.ok ? "added" : "refused";
+  } catch (error) {
+    // the PC did not answer (it restarted, the connection dropped): the digit wait is still the way in
+    console.warn("Ovis: this PC could not be asked to join in one press", error instanceof Error ? error.name : error);
+    return "refused";
+  }
+}
+
+export type OnePress = "added" | "sign-in-again" | "refused";
+
+/** the admit refusals that are about the sign-in alone (docs/account.md, "One press"): a fresh own sign-in may pass them */
+const SIGN_IN_REFUSALS: readonly string[] = ["two_step_required", "session_not_fresh", "own_sign_in_required"];
+
+/**
+ * Lists the PC a QR code's offer names in `account`, beside the code: the code is drawn first and the listing never
+ * holds it up. The offer gives the PC's relay key, so no
+ * other pairing window of the PC is opened or closed for it. Nothing is written
+ * when the account lists the PC already, however long ago (listed anew it would ring the account's devices at every
+ * code), and nothing at all when the sign-in stored now is another account's than the one the screen showed.
+ */
+export async function listOfferedPc(service: AccountService, offer: RelayOffer, account: string): Promise<void> {
+  const session = await service.session();
+  if (session?.account !== account) throw new AddPcWaitOver("sign-in");
+  const directory = service.forSignIn(session);
+  if ((await directory.listPcs()).some((pc) => pc.server_id === offer.server_id)) return;
+  const publicKey = Array.from(importPublicKey(offer.server_public_key), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  await directory.putPc(offer.server_id, { label: (offer.name ?? offer.server_id.slice(0, 8)).slice(0, 48), public_key: publicKey, relay: offer.relay });
 }

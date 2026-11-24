@@ -1,7 +1,3 @@
-/**
- * The compiled binary's one entry (scripts/build-server.ts): `ovis-server <entry> [arguments]` runs the
- * entry server/entries.ts names, with the arguments where that entry reads them when run from source.
- */
 import { ENTRIES, type EntryName, ROOT } from "./entries.ts";
 
 const RUN: Record<EntryName, () => Promise<unknown>> = {
@@ -13,6 +9,7 @@ const RUN: Record<EntryName, () => Promise<unknown>> = {
   plugin: () => import("../scripts/plugin.ts").then((entry) => entry.runPlugin()),
   askpass: () => import("./ssh-askpass.ts"),
   "windows-launch": () => import("./windows-launch.ts"),
+  "browser-mcp": () => import("./browser-mcp.ts").then((entry) => entry.runBrowserMcp()),
 };
 
 const name = process.argv[2];

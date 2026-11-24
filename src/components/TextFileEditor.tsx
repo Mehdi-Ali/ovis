@@ -50,13 +50,10 @@ type EditorState =
   | { kind: "refused"; code: string | null; opened: boolean };
 
 export interface TextFileEditorProps {
-  /** the file's path as the viewer found it */
   path: string;
   paneId: string;
   name: string;
-  /** the editor is done: saved, or left without saving */
   onDone: (saved: boolean) => void;
-  /** whether the text now differs from the file as it was opened, so the viewer does not close over it */
   onChanged: (changed: boolean) => void;
   /** live preview (markdown files) or the plain text box; switching keeps the text typed */
   surface?: EditSurface;
@@ -110,13 +107,11 @@ export function TextFileEditor({ path, paneId, name, onDone, onChanged, surface 
     if (file === null) return;
     keepDraft(key, changed ? { file, draft } : null);
   }, [key, file, draft, changed]);
-  // a save that answers after this editor went away tells nobody
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
-  /** Leaves the editor; `saved` or not, nothing typed is kept. */
   const finish = (saved: boolean): void => {
     keepDraft(key, null);
     onChanged(false);
@@ -127,11 +122,9 @@ export function TextFileEditor({ path, paneId, name, onDone, onChanged, surface 
     if (file === null) return;
     setState({ kind: "saving" });
     try {
-      // the entry kept for this text: an editor opened again meanwhile keeps an entry of its own
       const submitted = drafts.get(key);
       await saveEditableText({ pane_id: paneId, path: file.path, revision: file.revision, text: draft });
       if (mounted.current) finish(true);
-      // the editor was closed meanwhile: only the draft this save wrote goes, not one kept since
       else if (submitted !== undefined && drafts.get(key) === submitted) keepDraft(key, null);
     } catch (reason) {
       if (!mounted.current) return;
@@ -140,7 +133,6 @@ export function TextFileEditor({ path, paneId, name, onDone, onChanged, surface 
     }
   };
 
-  /** Why the file cannot be opened or saved here, in words, by the server's code (shared/files.ts). */
   const refusal = (code: string | null): string => {
     switch (code) {
       case "outside_pane": return t("Only a file inside the pane's folder can be edited.");

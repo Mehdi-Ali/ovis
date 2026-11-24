@@ -17,7 +17,6 @@ export function applyPaneStatus(snapshot: SessionSnapshot, paneId: string, statu
       const { finish_id: _finish, ...rest } = pane;
       return rest;
     }
-    // a frame that says nothing of background tasks, the plan or the context leaves them as they were; every frame says whether the pane waits
     const tasks = background === undefined ? pane.background_tasks : background > 0 ? background : undefined;
     const progress = plan === undefined ? pane.plan : plan ?? undefined;
     const filled = context === undefined ? pane.context : context ?? undefined;
