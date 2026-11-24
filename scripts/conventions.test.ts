@@ -34,6 +34,21 @@ describe("imports", () => {
   });
 });
 
+describe("the frontend build", () => {
+  const BUILD_SCRIPTS = ["vite.config.ts", "scripts/build-xterm.ts", "scripts/compressed-assets.ts", "scripts/service-worker-build.ts", "scripts/theme-bootstrap-build.ts", "scripts/shell-build.ts", "scripts/build-cache.ts"];
+
+  it("imports nothing from server/ or relay/", () => {
+    const offenders = BUILD_SCRIPTS.flatMap((file) => {
+      const code = stripComments(read(file));
+      return [...code.matchAll(SPECIFIER)].flatMap((match) => {
+        const specifier = match[1] ?? match[2] ?? match[3]!;
+        return /(?:^|\/)(?:server|relay)\//.test(specifier) ? [`${file}:${lineOf(code, match.index)}: ${specifier}`] : [];
+      });
+    });
+    fail(offenders, "The frontend build scripts import nothing from server/ or relay/ (they would load the server's environment): put what both need in shared/ (shared/web-policy.ts) and import it from there.");
+  });
+});
+
 describe("fixed sleeps", () => {
   // A ratchet: scripts/fixed-sleeps.json is every file's count of fixed sleeps when this test was
   // added (see scripts/fixed-sleeps.ts for what counts). A file may lose sleeps, never gain one,
@@ -201,6 +216,9 @@ describe("names from before Ovis", () => {
     "server/pty/host.test.ts": "tests that both PTY hosts keep the token from the command under either name",
     "server/remote-host.ts": "a remote bundle published before the rename reads the old name",
     "install.sh": "reads the old settings of an earlier install",
+    "scripts/plugin-tui.ts": "withholds the old token name from ovis tui too, as a shell set up for an earlier install may export it",
+    "scripts/plugin-tui.test.ts": "tests that ovis tui gets the old token name no more than the new one",
+    "crates/ovis-tui/src/main.rs": "removes the old token name from its environment too, as plugin-tui.ts withholds it",
     "scripts/install-herdr-core.test.ts": "tests that install.sh replaces an earlier install's runtime under its old name",
     "scripts/install-ovis-command.test.ts": "tests that the ovis command reads an earlier install's state dir setting under its old name",
     "install.ps1": "reads the old settings of an earlier install",

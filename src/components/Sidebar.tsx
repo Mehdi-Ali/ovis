@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type AnimationEvent, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { ChevronDown, ChevronRight, Ellipsis, Folder, FolderOpen, GitBranch, History, Layers, ListChecks, Pencil, Pin, PinOff, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, Ellipsis, Folder, FolderOpen, GitBranch, History, Layers, ListChecks, Pencil, Pin, PinOff, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -108,10 +108,12 @@ function alignBreath(event: AnimationEvent<HTMLSpanElement>) {
 }
 
 /**
- * `detail`: what the agent itself said of the state (a blocked agent's reason), after the state's words.
+ * `detail`: what the agent itself said of the state (a blocked agent's reason), after the state's words. `label`: the
+ * state in the caller's own words, which are then the badge's everywhere: its name, its tooltip and its text (the
+ * inbox mode names a state as its chip and its filters do, lib/inboxRow.ts).
  * `restMark`: an agent row's cell, which says every state, so classic marks READY and unknown too, with herdr's quiet ring and dot.
  */
-export function StatusBadge({ status, compact = false, detail = null, restMark = false }: { status?: AgentStatus; compact?: boolean; detail?: string | null; restMark?: boolean }) {
+export function StatusBadge({ status, compact = false, detail = null, label: said, restMark = false }: { status?: AgentStatus; compact?: boolean; detail?: string | null; label?: string; restMark?: boolean }) {
   const t = useT();
   const { settings } = useSettings();
   const value = knownStatus(status);
@@ -119,7 +121,7 @@ export function StatusBadge({ status, compact = false, detail = null, restMark =
   // the description names the state in words a reader knows (G-020): "waiting" is said whole, and a state nobody
   // reported (an agent that said nothing yet, a PC that is away) is said to be unknown, not read as a dash
   const stateWords = value === "waiting" ? t("Agent waiting on background work") : value === "unknown" ? t("Agent state unknown") : t("Agent {status}", { status: label });
-  const description = detail ? `${stateWords} — ${detail}` : stateWords;
+  const description = said ?? (detail ? `${stateWords} — ${detail}` : stateWords);
   // classic (the default): a compact cell draws only the states that ask for a look: a red question
   // mark while the agent waits for an answer, a green dot once it has finished and was not looked
   // at, a working-coloured dot that breathes while it runs, a working-coloured ring held still while
@@ -140,7 +142,7 @@ export function StatusBadge({ status, compact = false, detail = null, restMark =
       {compact && indicators === "classic" && value === "blocked" && <span className="sidebar-status-mark" aria-hidden="true">?</span>}
       {compact && indicators === "classic" && rest && <span className="sidebar-status-glyph" aria-hidden="true">{indicatorGlyph(value, "dots")}</span>}
       {compact && indicators === "classic" && dot && <span className="sidebar-status-dot" aria-hidden="true" onAnimationStart={value === "working" ? alignBreath : undefined} />}
-      <span className={compact ? "visually-hidden" : undefined}>{label}</span>
+      <span className={compact ? "visually-hidden" : undefined}>{said ?? label}</span>
     </span>
   );
 }
@@ -569,6 +571,9 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions, watching = 
       pinned
         ? { id: "unpin-workspace", label: t("Unpin workspace"), icon: PinOff, run: () => togglePin(state) }
         : { id: "pin-workspace", label: t("Pin workspace"), icon: Pin, run: () => togglePin(state) },
+      // the tab row's own New tab with agent…, aimed at this workspace without opening it first (#3772); a tab is a drive
+      // action, so a watching device is not offered it, and a PC that is not connected has no roster to make it in
+      ...(online && !watching ? [{ id: "new-tab", label: t("New tab with agent…"), icon: Bot, run: () => actions.openNewTab({ machineId, workspaceId: workspace.workspace_id }) }] : []),
       ...(!renameOffered || !renamesWorkspace(workspace.workspace_id) ? [] : [{ id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace) }]),
       // the folder's earlier sessions, listed for the agent of the pane the row opens
       ...(historyOffered && !watching ? [{ id: "session-history", label: t("Earlier sessions…"), icon: History, run: () => actions.openSessionHistory({ machineId, workspaceId: workspace.workspace_id, agent: (panes.length > 0 ? currentPane(workspace, panes) : null)?.agent ?? null }) }] : []),
