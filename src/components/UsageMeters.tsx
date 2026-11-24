@@ -40,7 +40,33 @@ function otherHigh(usage: ProviderUsage, shown: UsageWindow | null): UsageWindow
   return usage.windows.find((window) => window !== shown && window.used_percent >= HIGH_PERCENT) ?? null;
 }
 
-function Chip({ usage, count, glance }: { usage: ProviderUsage; count: UsageCount; glance: UsageGlance }) {
+/** The five-hour and weekly limits of the whole plan, in that order: the top of the sidebar has room for both. */
+function planWindows(usage: ProviderUsage): UsageWindow[] {
+  return (["session", "week"] as const).map((kind) => usage.windows.find((window) => window.kind === kind && window.scope === null)).filter((window): window is UsageWindow => window !== undefined);
+}
+
+/** One limit inside a top chip: its short label, its percent and its hairline. */
+function Window({ window, count }: { window: UsageWindow; count: UsageCount }) {
+  const t = useT();
+  return (
+    <span className={`usage-chip-window${level(window)}`}>
+      <span className="usage-chip-label">{window.kind === "session" ? t("5h") : t("wk")}</span>
+      <span className="usage-chip-value">{formatPercent(meterPercent(window, count))}</span>
+      <span className="usage-chip-bar" style={{ "--fill": `${meterPercent(window, count)}%` } as CSSProperties} />
+    </span>
+  );
+}
+
+function Chip({ usage, count, glance, both }: { usage: ProviderUsage; count: UsageCount; glance: UsageGlance; both: boolean }) {
+  const windows = both ? planWindows(usage) : [];
+  if (windows.length > 0) {
+    return (
+      <span className={`usage-chip is-both${usage.problem ? " has-problem" : ""}`}>
+        <AgentMark agent={PROVIDER_MARK[usage.id]} size={14} />
+        {windows.map((window) => <Window key={window.kind} window={window} count={count} />)}
+      </span>
+    );
+  }
   const window = glanceWindow(usage, glance);
   return (
     <span className={`usage-chip${level(window)}${usage.problem ? " has-problem" : ""}`}>
@@ -128,8 +154,9 @@ function Provider({ usage, now, count, onLocalLogin, onFollow, watching }: { usa
  * provider its logo and the limit chosen in Settings (week or session); the whole strip opens every limit
  * with its reset time.
  */
-/** `watching`: a watching device is not offered what it cannot turn on or sign in to */
-export function UsageMeters({ onLocalLogin, watching = false }: { /** opens a sign-in tab; a watching device has none */ readonly onLocalLogin?: (paneId: string) => void; readonly watching?: boolean }) {
+/** `watching`: a watching device is not offered what it cannot turn on or sign in to. `placement`: "top" draws the strip
+ *  across the top of the sidebar, with both the five-hour and the weekly limit per plan, and opens the popover downward. */
+export function UsageMeters({ onLocalLogin, watching = false, placement = "footer" }: { /** opens a sign-in tab; a watching device has none */ readonly onLocalLogin?: (paneId: string) => void; readonly watching?: boolean; readonly placement?: "footer" | "top" }) {
   const t = useT();
   const { settings } = useSettings();
   const { report, loading, refresh } = useUsage(settings.showUsage);
@@ -210,7 +237,7 @@ export function UsageMeters({ onLocalLogin, watching = false }: { /** opens a si
   }).join(", ");
 
   return (
-    <div className="usage" ref={rootRef} onKeyDown={onKeyDown} onBlur={onBlur}>
+    <div className={`usage${placement === "top" ? " is-top" : ""}`} ref={rootRef} onKeyDown={onKeyDown} onBlur={onBlur}>
       <button
         ref={stripRef}
         type="button"
@@ -220,7 +247,7 @@ export function UsageMeters({ onLocalLogin, watching = false }: { /** opens a si
         title={summary}
         onClick={() => setOpen(!open)}
       >
-        {chips.map((usage) => <Chip key={usage.key} usage={usage} count={count} glance={settings.usageGlance} />)}
+        {chips.map((usage) => <Chip key={usage.key} usage={usage} count={count} glance={settings.usageGlance} both={placement === "top"} />)}
         {folded > 0 && <span className="usage-more">+{folded}</span>}
       </button>
       {open && (
