@@ -1203,10 +1203,3 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   background: transparent;
   transform: rotate(45deg);
 }
-
-/* Settings -> Subscription usage: the plan limits head the sidebar (UsageMeters placement="top") */
-.sidebar-usage {
-  display: flex;
-  flex: 0 0 auto;
-  padding: var(--space-2) var(--side-gutter) 0;
-}
