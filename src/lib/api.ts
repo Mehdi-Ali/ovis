@@ -49,6 +49,7 @@ import type {
   PaneDirection,
   PaneInfo,
   PanePlan,
+  ClaudePermissionMode,
   PanePromptResponse,
   PaneReadResult,
   PaneResized,
@@ -1382,14 +1383,20 @@ export async function fetchPanePrompt(paneId: string, machineId = "local"): Prom
   return (await fetchPanePromptState(paneId, machineId)).prompt;
 }
 
-export async function fetchPanePromptState(paneId: string, machineId = "local"): Promise<{ prompt: InteractivePrompt | null; suggestion: string | null; restored: string | null; outcomes: CommandOutcome[] }> {
+export async function fetchPanePromptState(paneId: string, machineId = "local"): Promise<{ prompt: InteractivePrompt | null; suggestion: string | null; restored: string | null; outcomes: CommandOutcome[]; permissionMode: ClaudePermissionMode | null }> {
   const body = await getJson<PanePromptResponse>(machinePath(machineId, `pane/prompt?pane_id=${encodeURIComponent(paneId)}`));
   return {
     prompt: body.prompt,
     suggestion: typeof body.suggestion === "string" && body.suggestion !== "" ? body.suggestion : null,
     restored: typeof body.restored === "string" && body.restored !== "" ? body.restored : null,
     outcomes: Array.isArray(body.outcomes) ? body.outcomes : [],
+    permissionMode: typeof body.permission_mode === "string" ? body.permission_mode : null,
   };
+}
+
+/** POST /api/pane/keys: named keys typed into the pane, as the composer's mode button sends Shift+Tab. */
+export async function sendPaneKeys(paneId: string, keys: string[], machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "pane/keys"), "POST", { pane_id: paneId, keys });
 }
 
 /** How long a summary request may take: the PC answers within PANE_SUMMARY_DEADLINE_MS, the rest is the way there and back. */

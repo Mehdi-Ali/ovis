@@ -114,12 +114,13 @@ describe("recorded conversation model settings", () => {
       if (next.model !== metadata.model || next.reasoning_effort !== metadata.reasoning_effort) seen.push(next);
       metadata = next as typeof before;
     }
+    // the recorded prompts carry permissionMode "default", which the fold keeps beside the model
     expect(seen).toEqual([
-      { model: "claude-sonnet-5-5", reasoning_effort: "medium" },
-      { model: "claude-sonnet-5-5", reasoning_effort: "xhigh" },
-      { model: "claude-haiku-5-5", reasoning_effort: "xhigh" },
+      { model: "claude-sonnet-5-5", reasoning_effort: "medium", permission_mode: "default" },
+      { model: "claude-sonnet-5-5", reasoning_effort: "xhigh", permission_mode: "default" },
+      { model: "claude-haiku-5-5", reasoning_effort: "xhigh", permission_mode: "default" },
     ]);
-    expect(parseConversationMetadata(recorded.join("\n"), "claude-transcript", before)).toEqual({ model: "claude-haiku-5-5", reasoning_effort: "xhigh" });
+    expect(parseConversationMetadata(recorded.join("\n"), "claude-transcript", before)).toEqual({ model: "claude-haiku-5-5", reasoning_effort: "xhigh", permission_mode: "default" });
     expect(parseConversationMetadata(jsonl({ type: "assistant", effort: "high", message: { role: "assistant", model: "claude-haiku-4-5-20251001" } }), "claude-transcript", { model: "claude-haiku-5-5", reasoning_effort: "xhigh" }))
       .toEqual({ model: "claude-haiku-4-5-20251001", reasoning_effort: "high" });
   });
@@ -154,7 +155,11 @@ describe("recorded conversation model settings", () => {
       { type: "system", subtype: "local_command", commandRun: { command: "effort", args: "" }, content: "<local-command-stdout>Set model to `Sonnet 5.5`</local-command-stdout>" },
       { type: "system", subtype: "turn_duration", content: "<local-command-stdout>Set model to `Sonnet 5.5`</local-command-stdout>" },
       { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "<local-command-stdout>Set model to `Sonnet 5.5`</local-command-stdout>" }] } },
-    ]) expect(after(unchanged)).toEqual(before);
+    ]) {
+      // a recorded permissionMode is kept on its own: only the model and effort stay as they were
+      const { permission_mode: _mode, ...settings } = after(unchanged);
+      expect(settings).toEqual(before);
+    }
   });
 
   it("tolerates absent metadata, unexpected types and a torn append without losing valid settings", () => {
@@ -315,5 +320,21 @@ describe("Claude prompt cache", () => {
   it("has no cache for an answer with no usage, or for another agent", () => {
     expect(parseConversationMetadata(jsonl(request("m1", "2026-11-20T10:00:00.000Z", {})), "claude-transcript").cache).toBeUndefined();
     expect(parseConversationMetadata(jsonl({ type: "message", message: { role: "assistant", model: "m", usage: { input: 5 } } }), "omp-transcript").cache).toBeUndefined();
+  });
+});
+
+describe("a Claude session's recorded permission mode", () => {
+  it("takes the latest mode a prompt entry carries, ignoring unknown values and sidechains", () => {
+    const text = jsonl(
+      { type: "user", permissionMode: "plan", message: { role: "user", content: "a" } },
+      { type: "user", permissionMode: "acceptEdits", message: { role: "user", content: "b" } },
+      { type: "user", permissionMode: "bogus", message: { role: "user", content: "c" } },
+      { type: "user", isSidechain: true, permissionMode: "bypassPermissions", message: { role: "user", content: "d" } },
+    );
+    expect(parseConversationMetadata(text, "claude-transcript").permission_mode).toBe("acceptEdits");
+  });
+
+  it("names none for a transcript that records none", () => {
+    expect(parseConversationMetadata(jsonl({ type: "user", message: { role: "user", content: "a" } }), "claude-transcript").permission_mode).toBeUndefined();
   });
 });

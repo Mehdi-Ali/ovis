@@ -1,0 +1,45 @@
+/* Claude's permission mode in the composer's status row (PermissionModeChip.tsx): the mode's name and the
+   button that cycles it. Quiet by default; the modes that run without asking take the notice color. */
+.permission-mode {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--chip-h);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.permission-mode.is-plan {
+  color: var(--status-done);
+}
+
+.permission-mode.is-auto,
+.permission-mode.is-acceptEdits,
+.permission-mode.is-bypassPermissions {
+  color: var(--notice);
+}
+
+.permission-mode-cycle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--chip-h);
+  padding: 0 var(--space-1);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: inherit;
+  cursor: pointer;
+}
+
+.permission-mode-cycle svg {
+  width: var(--icon-size-xs);
+  height: var(--icon-size-xs);
+}
+
+.permission-mode-cycle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

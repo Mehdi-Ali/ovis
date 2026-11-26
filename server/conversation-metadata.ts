@@ -6,7 +6,7 @@ import { museModel } from "./muse.ts";
 import { localCommandStdout } from "./claude-transcript.ts";
 import { CLAUDE_FAMILY, VERSION } from "./start-screen.ts";
 import { addCacheRequest, cacheUsageOf } from "../shared/claude-cache.ts";
-import type { ConversationMetadata, ConversationResponse } from "../shared/protocol.ts";
+import type { ClaudePermissionMode, ConversationMetadata, ConversationResponse } from "../shared/protocol.ts";
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue => value !== null && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
@@ -96,6 +96,9 @@ export function claudeSetting(value: unknown): { model?: string; effort?: string
  */
 export interface MetadataFold { piProvider: string | null }
 
+const PERMISSION_MODES: readonly unknown[] = ["default", "acceptEdits", "plan", "auto", "bypassPermissions"];
+const isPermissionMode = (value: unknown): value is ClaudePermissionMode => PERMISSION_MODES.includes(value);
+
 /** Codex turn_context is a snapshot; omp/omo setting changes are separate events. */
 export function parseConversationMetadata(text: string, source: ConversationResponse["source"], before?: ConversationMetadata, piAgentDir?: string | null, fold?: MetadataFold): ConversationMetadata {
   const metadata: ConversationMetadata = before ? { ...before } : { model: null, reasoning_effort: null };
@@ -146,7 +149,7 @@ export function parseConversationMetadata(text: string, source: ConversationResp
   for (const line of text.split("\n")) {
     let entry: RecordValue;
     try { entry = record(JSON.parse(line)); } catch { continue; }
-    if (isContextClear(entry, source)) { metadata.model = null; metadata.reasoning_effort = null; piProvider = null; delete metadata.context; delete metadata.provider; delete metadata.cache; continue; }
+    if (isContextClear(entry, source)) { metadata.model = null; metadata.reasoning_effort = null; piProvider = null; delete metadata.context; delete metadata.provider; delete metadata.cache; delete metadata.permission_mode; continue; }
     if (source === "grok-transcript") {
       const update = record(record(entry.params).update);
       if (entry.method === "session/update" && update.sessionUpdate === "user_message_chunk") {
@@ -214,6 +217,8 @@ export function parseConversationMetadata(text: string, source: ConversationResp
       const set = claudeSetting(entry);
       if (set.model !== undefined) metadata.model = set.model;
       if (set.effort !== undefined) metadata.reasoning_effort = set.effort;
+      // each prompt entry records the mode it was sent in: the latest is the session's, until the screen says otherwise
+      if (entry.isSidechain !== true && isPermissionMode(entry.permissionMode)) metadata.permission_mode = entry.permissionMode;
       if (entry.type === "assistant" && entry.isSidechain !== true && label(message.model)) {
         const usage = record(message.usage);
         metadata.context = contextOf(count(usage.input_tokens) + count(usage.cache_creation_input_tokens) + count(usage.cache_read_input_tokens), metadata.model, null, metadata.context);

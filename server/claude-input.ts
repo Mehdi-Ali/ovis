@@ -1,4 +1,4 @@
-import type { InteractivePrompt } from "../shared/protocol.ts";
+import type { ClaudePermissionMode, InteractivePrompt } from "../shared/protocol.ts";
 import { ANSI_RE, SOLID_RULE_RE, normalizeText, parsedByPublicPrompt } from "./dialogs/shared.ts";
 import { claudeRewindPanelBelow } from "./dialogs/claude.ts";
 import { paneRead } from "./herdr/client.ts";
@@ -117,6 +117,25 @@ function claudeInputBox(screen: string): { plain: string[]; raw: string[] } | "c
   while (start >= 0 && !rule(plain[start]!)) start--;
   if (start < 0) return "clipped";
   return { plain: plain.slice(start + 1, end), raw: raw.slice(start + 1, end) };
+}
+
+/**
+ * The permission mode Claude Code's footer names, read only from the rows under the input box's bottom rule so
+ * chat text quoting a phrase ("plan mode on") above it never matches. The footer shows no line for `default`:
+ * a screen with a box and no mode line is `default`. null when the screen shows no box (a menu is up, or the
+ * pane is not Claude), so the caller falls back to what the transcript recorded.
+ */
+export function parseClaudePermissionMode(screen: string): ClaudePermissionMode | null {
+  const plain = screen.split("\n").map((line) => line.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "").trim());
+  let end = plain.length - 1;
+  while (end >= 0 && !SOLID_RULE_RE.test(plain[end]!) && !BOX_LABELED_RULE_RE.test(plain[end]!)) end--;
+  if (end < 0) return null;
+  const footer = plain.slice(end + 1).join("\n");
+  if (/\bbypass permissions on\b/i.test(footer)) return "bypassPermissions";
+  if (/\baccept edits on\b/i.test(footer)) return "acceptEdits";
+  if (/\bplan mode on\b/i.test(footer)) return "plan";
+  if (/\bauto mode on\b/i.test(footer)) return "auto";
+  return "default";
 }
 
 const CLAUDE_TIP_ROW_RE = /^Try "[^"]+"$/;

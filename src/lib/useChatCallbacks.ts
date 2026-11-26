@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState, type MutableRefObject } from "react";
 import { afterRead, greetingMemory, rememberGreeting, type ChatRead } from "./greeting.ts";
 import { paneStorageId } from "../../shared/machines.ts";
-import type { AgentStatus, ConversationMetadata, InteractivePrompt } from "../../shared/protocol.ts";
+import type { AgentStatus, ClaudePermissionMode, ConversationMetadata, InteractivePrompt } from "../../shared/protocol.ts";
 import type { TypedAnswer } from "./promptAnswer.ts";
 import type { HerdrSocket } from "./ws.ts";
 import type { StillOpen } from "./paneTerminalShared.ts";
@@ -62,6 +62,12 @@ export function useChatCallbacks(deps: ChatCallbacksDeps) {
       ? (current?.pane === pane && current.value === value ? current : { pane, value })
       : current?.pane === pane ? null : current);
   }, []);
+  const [chatPermissionMode, setChatPermissionMode] = useState<{ pane: string; value: ClaudePermissionMode } | null>(null);
+  const onChatPermissionMode = useCallback((pane: string, value: ClaudePermissionMode | null) => {
+    setChatPermissionMode((current) => value !== null
+      ? (current?.pane === pane && current.value === value ? current : { pane, value })
+      : current?.pane === pane ? null : current);
+  }, []);
   const [chatRestored, setChatRestored] = useState<{ pane: string; value: string } | null>(null);
   const onChatRestored = useCallback((pane: string, value: string | null) => {
     setChatRestored((current) => value !== null
@@ -92,9 +98,10 @@ export function useChatCallbacks(deps: ChatCallbacksDeps) {
     setChatMetadata((previous) => previous?.pane === pane && previous.value?.model === value?.model
       && previous.value?.reasoning_effort === value?.reasoning_effort
       && previous.value?.provider === value?.provider
+      && previous.value?.permission_mode === value?.permission_mode
       && previous.value?.context?.used === value?.context?.used
       && previous.value?.context?.window === value?.context?.window ? previous : { pane, value });
   }, []);
 
-  return { conversationPushes, setConversationPushes, onConversationWatch, chatOutputRef, onTerminalOutput, chatSent, setChatSent, chatUnsent, setChatUnsent, chatMetadata, redrawGreeting, onChatRead, greetingRoom, setGreetingRoom, greetingRef, chatPrompt, promptRefresh, setPromptRefresh, chatSuggestion, chatRestored, pendingAnswer, setPendingAnswer, promptDock, setPromptDock, onPromptAnswered, clearPendingAnswer, onChatPrompt, onChatMetadata, onChatSuggestion, onChatRestored };
+  return { conversationPushes, setConversationPushes, onConversationWatch, chatOutputRef, onTerminalOutput, chatSent, setChatSent, chatUnsent, setChatUnsent, chatMetadata, redrawGreeting, onChatRead, greetingRoom, setGreetingRoom, greetingRef, chatPrompt, promptRefresh, setPromptRefresh, chatSuggestion, chatRestored, chatPermissionMode, pendingAnswer, setPendingAnswer, promptDock, setPromptDock, onPromptAnswered, clearPendingAnswer, onChatPrompt, onChatMetadata, onChatSuggestion, onChatRestored, onChatPermissionMode };
 }

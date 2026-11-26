@@ -800,6 +800,8 @@ export interface ConversationMetadata {
    * (shared/claude-cache.ts). Absent until an answer reports usage, and for every other agent.
    */
   cache?: CacheSummary;
+  /** A Claude Code session's last recorded permission mode: the fallback for a screen that shows none. */
+  permission_mode?: ClaudePermissionMode;
 }
 
 export type { CacheAgent, CacheRecent, CacheSummary, CacheThread } from "./claude-cache.ts";
@@ -1035,7 +1037,12 @@ export interface PanePromptResponse {
   restored?: string | null;
   /** the pane's tracked command outcomes */
   outcomes?: CommandOutcome[];
+  /** a Claude pane's live permission mode, read off the footer under its input box (Shift+Tab cycles it); absent when the screen shows no box */
+  permission_mode?: ClaudePermissionMode;
 }
+
+/** Claude Code's permission modes, as its transcript names them; `default` is the one its footer shows no line for. */
+export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" | "bypassPermissions";
 
 /**
  * GET /api/pane/prompt: an agent's interactive TUI menu currently on the pane's screen
@@ -1166,6 +1173,12 @@ export interface PromptAnswer {
   step_index?: number;
   /** Unsent edits for the current OpenCode step, saved only when navigating back. */
   draft?: { option_indices: number[]; custom_text: string };
+  /** Esc, as the Dismiss button: closes a Claude prompt without picking an option. Takes no other answer field. */
+  dismiss?: boolean;
+  /** Claude's plan card only, with `dismiss`: a message submitted once Esc has brought the input box back (the card's "Esc + /handoff"). */
+  followup_text?: string;
+  /** this page's connection to the PC (MachineSession.connection): the one that may type `followup_text` on its own */
+  followup_connection?: string;
 }
 
 /** WebSocket at /ws

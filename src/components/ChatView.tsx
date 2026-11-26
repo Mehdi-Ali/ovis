@@ -105,7 +105,7 @@ import { CARD_TEXT_PREFIX, paneLifetimes } from "../lib/paneLifetime.ts";
 import { composerDraftKey, composerDrafts } from "../lib/composerDraft.ts";
 import type { ConversationSearchMatch } from "../../shared/conversation-search.ts";
 import { pickAhead, pickedTurn, pickSettled } from "../../shared/conversation-search.ts";
-import type { AgentStatus, CommandOutcome, ConversationMetadata, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt, OmoTaskResult, PendingMessage, SlashCommand } from "../../shared/protocol.ts";
+import type { AgentStatus, ClaudePermissionMode, CommandOutcome, ConversationMetadata, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt, OmoTaskResult, PendingMessage, SlashCommand } from "../../shared/protocol.ts";
 import { chatIsBlank, type ChatRead } from "../lib/greeting.ts";
 import { TurnTime } from "./TurnTime.tsx";
 import { currentLocale, useT } from "../lib/i18n.ts";
@@ -230,6 +230,8 @@ export interface ChatViewProps {
   onPrompt?: (paneId: string, prompt: InteractivePrompt | null, answered?: boolean) => void;
   onSuggestion?: (paneId: string, suggestion: string | null) => void;
   onRestored?: (paneId: string, restored: string | null) => void;
+  /** a Claude pane's live permission mode, from each prompt read (the composer's badge) */
+  onPermissionMode?: (paneId: string, mode: ClaudePermissionMode | null) => void;
   promptRefreshKey?: number;
   pendingAnswer?: { promptId: string; answer: TypedAnswer } | null;
   onPendingAnswerDone?: (paneId: string, promptId?: string) => void;
@@ -1311,7 +1313,7 @@ function TerminalFallback({ paneId, visible, explained = false }: { paneId: stri
   </details>;
 }
 
-export const ChatView = memo(function ChatView({ paneId, presentationKey, finishEpoch, finishId, active = true, visible: paneVisible = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, unsentKey = 0, pendingRows = NO_ROWS, localSend, navigation, connected, ended, agent, agentStatus, agentSession = null, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered, title = null, onOpenTerminal, covered = false, peek = null, onCommandScreenClosed, onOutcomes, interactive = false, watching = false, quotable = false, cwd = null, promptContext = null, searchRequest = 0 }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, presentationKey, finishEpoch, finishId, active = true, visible: paneVisible = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, unsentKey = 0, pendingRows = NO_ROWS, localSend, navigation, connected, ended, agent, agentStatus, agentSession = null, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, onPermissionMode, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered, title = null, onOpenTerminal, covered = false, peek = null, onCommandScreenClosed, onOutcomes, interactive = false, watching = false, quotable = false, cwd = null, promptContext = null, searchRequest = 0 }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, peekPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -1406,6 +1408,8 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
   onSuggestionRef.current = onSuggestion;
   const onRestoredRef = useRef(onRestored);
   onRestoredRef.current = onRestored;
+  const onPermissionModeRef = useRef(onPermissionMode);
+  onPermissionModeRef.current = onPermissionMode;
   const [restored, setRestored] = useState<string | null>(null);
   const [outcomes, setOutcomes] = useState<CommandOutcome[]>([]);
   const outcomesNow = useRef(outcomes);
@@ -1849,7 +1853,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
       if (typed.text.trim() !== "") composerDrafts.restorePending(composerDraftKey(promptKey), typed.text);
     };
     if (promptGone) { lastPrompts.delete(promptKey); keepCardText(null, null); setPrompt(null); }
-    if (!pollPrompt) { setPromptStale(false); failedPromptReads.current = 0; setRestored(null); onSuggestionRef.current?.(paneId, null); onRestoredRef.current?.(paneId, null); return; }
+    if (!pollPrompt) { setPromptStale(false); failedPromptReads.current = 0; setRestored(null); onSuggestionRef.current?.(paneId, null); onRestoredRef.current?.(paneId, null); onPermissionModeRef.current?.(paneId, null); return; }
     if (!visible) return;
     let cancelled = false;
     let timer = 0;
@@ -1879,6 +1883,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
           noteCatalogChanges(next.outcomes, catalogNoted.current, () => invalidatePaneCommands(paneId, machineId));
           if (sentKeyRef.current === sent) {
             onSuggestionRef.current?.(paneId, next.suggestion);
+            onPermissionModeRef.current?.(paneId, next.permissionMode);
             setRestored(next.restored);
             onRestoredRef.current?.(paneId, next.restored);
           }
@@ -1899,7 +1904,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
     return () => onPrompt?.(paneId, null);
   }, [onPrompt, paneId, prompt, answeredPrompt]);
 
-  useEffect(() => () => { onSuggestionRef.current?.(paneId, null); onRestoredRef.current?.(paneId, null); }, [paneId]);
+  useEffect(() => () => { onSuggestionRef.current?.(paneId, null); onRestoredRef.current?.(paneId, null); onPermissionModeRef.current?.(paneId, null); }, [paneId]);
 
   // away from the page, the prompt is not read: it can be answered in the terminal and asked
   // again unseen, so a typed pick waiting for Confirm does not outlive the page being hidden

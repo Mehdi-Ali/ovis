@@ -18,7 +18,7 @@ import { ArrowUp, ClipboardPaste, FileText, Folder, FolderGit2, GitBranch, Loade
 
 import "./Composer.css";
 
-import type { AgentStatus, ClientRole, ConversationMetadata, PlanSummary, SlashCommand } from "../../shared/protocol.ts";
+import type { AgentStatus, ClaudePermissionMode, ClientRole, ConversationMetadata, PlanSummary, SlashCommand } from "../../shared/protocol.ts";
 import { skillSyntax } from "../../shared/skill-syntax.ts";
 import { labelledAgent } from "../../shared/supported-agents.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
@@ -72,6 +72,7 @@ import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 import { usePaneCommands } from "../lib/usePaneCommands.ts";
 import { CacheChip } from "./CacheChip.tsx";
+import { PermissionModeChip } from "./PermissionModeChip.tsx";
 import { ContextChip } from "./ContextChip.tsx";
 import { useT } from "../lib/i18n.ts";
 import { offersRetry, userFailure, type UserFailure } from "../lib/userError.ts";
@@ -95,6 +96,8 @@ export interface ComposerProps {
   plan?: PlanSummary | null;
   backgroundWait?: boolean;
   metadata?: ConversationMetadata | null;
+  /** a Claude pane's live mode, read off its footer (the transcript's last one stands in until a read has it) */
+  permissionMode?: ClaudePermissionMode | null;
   answerHint?: string | null;
   waitingAnswer?: { confirm(): Promise<boolean | string>; cancel(): void } | null;
   /** what the agent suggests typing next (the grey text in Claude's, gjc's or omp's empty input): the placeholder, taken with Tab */
@@ -180,6 +183,7 @@ export function Composer({
   plan = null,
   backgroundWait = false,
   metadata,
+  permissionMode = null,
   answerHint = null,
   waitingAnswer = null,
   suggestion = null,
@@ -1488,6 +1492,7 @@ export function Composer({
                 <span className="visually-hidden">{usageAccessible}</span>
               </span>}
             </span>
+            {kind === "claude" && (permissionMode ?? metadata?.permission_mode) && <PermissionModeChip paneId={paneId} mode={(permissionMode ?? metadata?.permission_mode)!} disabled={viewOnly || !connected} />}
             {/* the chip is a button in the left controls; its count is still said here, where a change is announced */}
             {backgroundTasks > 0 && <span className="composer-task-count visually-hidden">{t(backgroundTasks === 1 ? "{n} background task" : "{n} background tasks", { n: backgroundTasks })}</span>}
           </span>
