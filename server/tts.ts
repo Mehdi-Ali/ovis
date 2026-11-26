@@ -3,8 +3,10 @@
 // seconds; requests go through it one at a time and each answer is a WAV file the server reads
 // and deletes. A worker that dies is spawned again by the next request.
 import { readFile, unlink } from "node:fs/promises";
+import { homedir } from "node:os";
 
-const KOKORO = "C:/Users/mehdiali/.claude/tools/kokoro";
+// from the home folder, not one machine's user name: each PC has its own (mehdiali, alime)
+const KOKORO = `${homedir().replaceAll("\\", "/")}/.claude/tools/kokoro`;
 export const TTS_MAX_CHARS = 2000;
 const TTS_VOICE = "bm_fable";
 const TTS_SPEED = 1.1;
