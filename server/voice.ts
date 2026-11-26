@@ -201,6 +201,46 @@ export function parseClip(form: FormData): VoiceClip {
   return { audio, filename: `audio.${extension}`, mode, polish: form.get(VOICE_FORM.polish) === "1", keywords, languages };
 }
 
+/**
+ * Whisper models (OpenAI's whisper-1, Groq's free whisper-large-v3-turbo, local faster-whisper
+ * servers) take the classic form: one optional `language` and a `prompt`. Groq refuses the
+ * GPT transcribe fields (`stream`, `languages[]`, `keywords[]`) outright, so they are left out.
+ */
+const WHISPER_MODEL = /whisper/i;
+/** Whisper reads only the prompt's last 224 tokens: keep the hint list short */
+const WHISPER_PROMPT_MAX_CHARS = 600;
+
+function transcribeForm(clip: VoiceClip, model: string): FormData {
+  const form = new FormData();
+  form.append("file", new File([clip.audio], clip.filename, { type: clip.audio.type }));
+  form.append("model", model);
+  form.append("stream", "true");
+  for (const language of clip.languages) form.append("languages[]", language);
+  // hints only fill the room the required fields leave, first ones first: a pane with many
+  // slash commands would otherwise make the provider refuse the whole recording
+  const room = Math.max(0, PROVIDER_FORM_FIELDS_MAX - ([...form.keys()].length + 1));
+  for (const keyword of clip.keywords.slice(0, room)) form.append("keywords[]", keyword);
+  form.append("prompt", PROMPTS[clip.mode]);
+  return form;
+}
+
+function whisperForm(clip: VoiceClip, model: string): FormData {
+  const form = new FormData();
+  form.append("file", new File([clip.audio], clip.filename, { type: clip.audio.type }));
+  form.append("model", model);
+  // the speaker's language plus English means "either": Whisper detects it best unnamed
+  if (clip.languages.length === 1) form.append("language", clip.languages[0]!);
+  let prompt = PROMPTS[clip.mode];
+  const terms: string[] = [];
+  for (const keyword of clip.keywords) {
+    if (prompt.length + ". Terms: ".length + [...terms, keyword].join(", ").length > WHISPER_PROMPT_MAX_CHARS) break;
+    terms.push(keyword);
+  }
+  if (terms.length) prompt += `. Terms: ${terms.join(", ")}`;
+  form.append("prompt", prompt);
+  return form;
+}
+
 export class VoiceService {
   private readonly path: string;
   private readonly env: Record<string, string | undefined>;
@@ -286,16 +326,7 @@ export class VoiceService {
     if (!key) throw new VoiceError("voice_not_configured", 409, "Set an OpenAI API key for voice input");
     const cancelled = new AbortController();
     const upstream = AbortSignal.any([signal, cancelled.signal]);
-    const form = new FormData();
-    form.append("file", new File([clip.audio], clip.filename, { type: clip.audio.type }));
-    form.append("model", transcribeModel);
-    form.append("stream", "true");
-    for (const language of clip.languages) form.append("languages[]", language);
-    // hints only fill the room the required fields leave, first ones first: a pane with many
-    // slash commands would otherwise make the provider refuse the whole recording
-    const room = Math.max(0, PROVIDER_FORM_FIELDS_MAX - ([...form.keys()].length + 1));
-    for (const keyword of clip.keywords.slice(0, room)) form.append("keywords[]", keyword);
-    form.append("prompt", PROMPTS[clip.mode]);
+    const form = WHISPER_MODEL.test(transcribeModel) ? whisperForm(clip, transcribeModel) : transcribeForm(clip, transcribeModel);
 
     let response: Response;
     try {

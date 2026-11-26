@@ -228,6 +228,23 @@ describe("voice transcribe", () => {
     expect((form.get("file") as File).name).toBe("audio.webm");
   });
 
+  it("sends a Whisper model only the classic fields, which Groq and whisper-1 accept", async () => {
+    handler = () => Response.json({ text: "git status" });
+    writeFileSync(join(stateDir, "voice.json"), JSON.stringify({ api_key: KEY, base_url: "https://api.groq.com/openai/v1", transcribe_model: "whisper-large-v3-turbo" }));
+    const voice = service();
+    const keywords = JSON.stringify(["git", "server/voice.ts"]);
+    expect(await events(await transcribe(voice, clipForm({ keywords })))).toEqual([{ type: "done", text: "git status" }]);
+    expect(await events(await transcribe(voice, clipForm({ language: "en" })))).toEqual([{ type: "done", text: "git status" }]);
+
+    expect(requests.map((request) => request.url)).toEqual(Array(2).fill("https://api.groq.com/openai/v1/audio/transcriptions"));
+    const [mixed, english] = requests.map((request) => request.init.body as FormData);
+    // two languages (the speaker's and English) leave Whisper to detect it; one names it
+    expect([...mixed!.keys()].sort()).toEqual(["file", "model", "prompt"]);
+    expect(mixed!.get("prompt")).toBe("Dictation of a message to a coding agent. Terms: git, server/voice.ts");
+    expect([...english!.keys()].sort()).toEqual(["file", "language", "model", "prompt"]);
+    expect(english!.get("language")).toBe("en");
+  });
+
   it("keeps the provider form within 32 fields when the pane has many hints", async () => {
     handler = transcriptAnswer;
     const hints = Array.from({ length: 50 }, (_, i) => `/command-${i}`);
