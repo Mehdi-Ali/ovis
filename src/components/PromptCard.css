@@ -684,3 +684,10 @@
     font-size: var(--fs-md);
   }
 }
+
+/* Dismiss (Esc), and on a plan card Esc + /handoff: a quiet row under the answers */
+.prompt-card-dismiss-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

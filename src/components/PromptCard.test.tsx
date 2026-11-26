@@ -215,3 +215,33 @@ describe("a question's typed answer survives a page reload (G-008)", () => {
     }
   });
 });
+
+describe("Dismiss (Esc) and Esc + /handoff on Claude's cards", () => {
+  const claude: InteractivePrompt = {
+    id: "c", agent: "claude", kind: "approval", title: "Run it", question: "Do you want to proceed?", body: null,
+    options: [{ label: "Yes", description: null }, { label: "No", description: null }], multi_select: false, custom_option_index: null,
+  };
+  const plan: InteractivePrompt = { ...claude, id: "p", kind: "plan", title: "Ready to code?" };
+  const codex: InteractivePrompt = { ...claude, id: "x", agent: "codex" };
+
+  it("offers Dismiss on a Claude card, in the reader's language, and no handoff button off the plan card", () => {
+    for (const language of ["en", "ko", "ja", "zh"] as const) {
+      const html = render(claude, [language]);
+      expect(html).toContain(translate(language, "Dismiss (Esc)"));
+      expect(html).not.toContain(translate(language, "Esc + /handoff"));
+    }
+  });
+
+  it("offers Esc + /handoff on the plan card only", () => {
+    const html = render(plan, ["en"]);
+    expect(html).toContain("Dismiss (Esc)");
+    expect(html).toContain("Esc + /handoff");
+    expect(render({ ...claude, kind: "question" }, ["en"])).not.toContain("Esc + /handoff");
+  });
+
+  it("offers neither on another agent's card", () => {
+    const html = render(codex, ["en"]);
+    expect(html).not.toContain("Dismiss (Esc)");
+    expect(html).not.toContain("Esc + /handoff");
+  });
+});

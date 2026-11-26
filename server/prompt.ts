@@ -38,7 +38,7 @@ import { parsePiAsk } from "./dialogs/pi-ask.ts";
 import { navigatePiAsk } from "./dialogs/pi-ask-navigate.ts";
 import { draftKept, nativeStepTarget, navigateNativeSteps } from "./dialogs/step-navigate.ts";
 import { gjcCustomEditorMatches, parseFallbackPrompt } from "./dialogs/fallback.ts";
-import { SUGGESTION_READ_MS, claudeHeldIsGrey, claudeInputBoxContent, claudeInputDraft, claudeRestoredDraft, parseClaudeSuggestion, viewportShowsLive } from "./claude-input.ts";
+import { SUGGESTION_READ_MS, claudeHeldIsGrey, claudeInputBoxContent, claudeInputDraft, claudeRestoredDraft, parseClaudePermissionMode, parseClaudeSuggestion, viewportShowsLive } from "./claude-input.ts";
 import { parseGjcSuggestion, parseOmpSuggestion } from "./omp-input.ts";
 import { OMO_FORM_RE, omoAskOf, omoAsksFor } from "./omo-questions.ts";
 import { codexQueuedPrompt, queuedQuestionCount, type QueueFront } from "./codex-queue.ts";
@@ -47,7 +47,7 @@ export { removedInvisible } from "./dialogs/claude.ts";
 export { INVISIBLE_CHAR_RE } from "./dialogs/claude.ts";
 export type { OmoAsk } from "./dialogs/shared.ts";
 export { parseFallbackPrompt } from "./dialogs/fallback.ts";
-export { CLAUDE_CLEAR_INPUT_KEYS, INPUT_BOX_SHOWN_CHARS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxContent, claudeSendAnywayBox, claudeInputBoxText, foldedPlaceholder, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, historyEndShowsLive, isClaudeHeld, parseClaudeSuggestion, shownInputBox, viewportShowsLive } from "./claude-input.ts";
+export { CLAUDE_CLEAR_INPUT_KEYS, INPUT_BOX_SHOWN_CHARS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxContent, claudeSendAnywayBox, claudeInputBoxText, foldedPlaceholder, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, historyEndShowsLive, isClaudeHeld, parseClaudeSuggestion, parseClaudePermissionMode, shownInputBox, viewportShowsLive } from "./claude-input.ts";
 export { hermesInputDraft } from "./hermes-input.ts";
 export { OpenCodePromptState } from "./opencode-prompt.ts";
 export { openOmoAsks, pendingOmoAsk } from "./omo-questions.ts";
@@ -440,10 +440,16 @@ export function parseInteractivePrompt(agent: string, screen: string, omoAsk: Om
 
 class InvalidAnswer extends Error {}
 
-export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer, "option_index" | "option_indices" | "custom_text">): AnswerStep[] {
+export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer, "option_index" | "option_indices" | "custom_text" | "dismiss">): AnswerStep[] {
   const parsed = parsedByPublicPrompt.get(prompt);
   if (!parsed) throw new InvalidAnswer("The prompt was not produced by parseInteractivePrompt.");
   if (parsed.piQuestionnaireInput !== undefined) throw new InvalidAnswer("Finish or cancel the terminal-owned questionnaire draft in the terminal.");
+  // the card's Dismiss: Esc, for any Claude prompt, with no option picked
+  if (answer.dismiss !== undefined) {
+    if (answer.dismiss !== true || parsed.agent !== "claude") throw new InvalidAnswer("Only a Claude prompt can be dismissed.");
+    if (answer.option_index !== undefined || answer.option_indices !== undefined || answer.custom_text !== undefined) throw new InvalidAnswer("A dismissal takes no other answer.");
+    return keySteps([KEY.escape]);
+  }
   const combined = Boolean(parsed.checks_with_text && parsed.multi_select && answer.option_indices !== undefined && answer.custom_text !== undefined && answer.option_index === undefined);
   const supplied = [answer.option_index !== undefined, answer.option_indices !== undefined, answer.custom_text !== undefined].filter(Boolean).length;
   if (supplied !== 1 && !combined) throw new InvalidAnswer("Exactly one answer is required.");
@@ -1317,6 +1323,10 @@ export interface PromptRequestOptions {
   onAnswered?: () => void;
   answerDeadlineMs?: number;
   beforeKey?: (paneId: string, agent: string, deadline: AbortSignal) => Promise<void>;
+  /** the message of a plan card's "Esc + /handoff", queued for the Claude pane once its input box is back (core's queueFirstMessage); `connection` is the page's own */
+  queueFollowup?: (paneId: string, text: string, connection: string | null) => Promise<unknown>;
+  /** how long the input box has to come back after the Esc of a followup */
+  followupWaitMs?: number;
 }
 
 /**
@@ -1417,6 +1427,28 @@ const SUGGESTION_PARSERS: Readonly<Record<string, (ansi: string) => string | nul
   omp: parseOmpSuggestion,
 };
 
+const FOLLOWUP_MAX = 2000;
+const FOLLOWUP_WAIT_MS = 3_000;
+
+/**
+ * After a plan card's Esc: waits, bounded, until Claude shows no menu and its input box is back, then queues the
+ * message the way Ovis queues a first message for a pane (it is typed once the agent takes input). Esc has already
+ * gone, so a box that never returns answers with an error saying so and sends nothing.
+ */
+async function sendFollowup(paneId: string, text: string, connection: string | null, options: PromptRequestOptions): Promise<Response | null> {
+  const until = Date.now() + (options.followupWaitMs ?? FOLLOWUP_WAIT_MS);
+  for (;;) {
+    const read = await Promise.race([paneRead({ paneId, source: "detection", format: "text" }), Bun.sleep(Math.max(0, until - Date.now())).then(() => null)]).catch(() => null);
+    if (read !== null && parseInteractivePrompt("claude", read.text) === null && claudeInputBoxContent(read.text) !== null) break;
+    if (Date.now() >= until) {
+      return jsonResponse({ error: { code: "followup_not_ready", message: "The plan was dismissed, but Claude's input box did not come back in time, so the follow-up message was not sent." } }, 409);
+    }
+    await Bun.sleep(100);
+  }
+  await options.queueFollowup!(paneId, text, connection);
+  return null;
+}
+
 export async function handlePromptRequest(request: Request, url: URL, options: PromptRequestOptions = {}): Promise<Response | null> {
   if (url.pathname !== "/api/pane/prompt" && url.pathname !== "/api/pane/prompt/answer") return null;
   setRequestRoute(url.pathname);
@@ -1463,8 +1495,11 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       const suggestion = found === null || agent === "claude" ? found
         : await paneScrollInfo(paneId, undefined, SUGGESTION_READ_MS).then((scroll) => (scroll?.offset_from_bottom ?? 0) > 0 ? null : found, () => null);
       const outcomes = await commandOutcomes(paneId, read.pane, read.prompt, read.screen, readSendId, options.codexHome, read.snapshot);
+      // Claude's footer under the input box names the live mode (Shift+Tab cycles it); a screen with a menu up shows none
+      const permissionMode = agent === "claude" && read.screen !== undefined ? parseClaudePermissionMode(read.screen) : null;
       return jsonResponse({
         prompt,
+        ...(permissionMode === null ? {} : { permission_mode: permissionMode }),
         suggestion,
         restored: box === null || agent !== "claude" ? null : await restoredOnLiveScreen(paneId, box).catch(() => null),
         ...(outcomes.length ? { outcomes: watching ? outcomes.map(({ preview: _preview, result_text: _resultText, ...outcome }) => outcome) : outcomes } : {}),
@@ -1551,6 +1586,21 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       if (body.step_next === true && ((!parsedPrompt?.nativeSteps && !parsedPrompt?.piAskForm && !parsedPrompt?.piAskUser)
         || body.option_index !== undefined || body.option_indices !== undefined || body.custom_text !== undefined)) {
         return badRequest("invalid_answer", "Next goes to another question and answers none.");
+      }
+      if (body.dismiss !== undefined && (body.dismiss !== true || parsedPrompt?.agent !== "claude"
+        || body.step_back === true || body.step_next === true || body.step_index !== undefined || body.draft !== undefined)) {
+        return badRequest("invalid_answer", "Only a Claude prompt can be dismissed, with no other answer.");
+      }
+      if (body.followup_text !== undefined) {
+        // the text goes to the agent's own input box: only the plan card offers it, after its Esc, and only as one plain line
+        if (body.dismiss !== true || parsedPrompt?.responder !== "claude-plan" || typeof body.followup_text !== "string"
+          || !body.followup_text.trim() || body.followup_text.length > FOLLOWUP_MAX || [...body.followup_text].some((char) => char.charCodeAt(0) < 32 || (char.charCodeAt(0) >= 127 && char.charCodeAt(0) <= 159))) {
+          return badRequest("invalid_answer", "A follow-up message goes only with a dismissed plan card, as one line.");
+        }
+        if (options.queueFollowup === undefined) return badRequest("invalid_answer", "This server cannot send a follow-up message.");
+        if (body.followup_connection !== undefined && (typeof body.followup_connection !== "string" || !body.followup_connection || body.followup_connection.length > 128)) {
+          return badRequest("invalid_answer", "followup_connection must be the id of this page's connection.");
+        }
       }
       if (parsedPrompt?.responder === "opencode-question" && parsedPrompt.openCodeForm) {
         const openCodeForm = parsedPrompt.openCodeForm;
@@ -1911,7 +1961,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         const parsed = parsedByPublicPrompt.get(target)!;
         const responder = parsed.responder;
         const reader = registry.readerFor(responder);
-        const interaction = body.custom_text === undefined ? reader?.interaction?.(parsed) : undefined;
+        const interaction = body.custom_text === undefined && body.dismiss !== true ? reader?.interaction?.(parsed) : undefined;
         const checkBeforeText = responder === "fallback-gjc-menu" || responder === "pi-ask-question"
           || responder === "pi-questionnaire-question" || responder === "agy-question";
         const editorAnswer = body.custom_text !== undefined && (checkBeforeText || responder === "dsh-question"
@@ -2180,7 +2230,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         delivered = true;
         const sent = chatSent.get(body.pane_id)?.commands.at(-1);
         if (committed && sent?.dialogId === prompt.id && sent.form?.dialog === parsed.responder
-          && body.option_index !== parsed.rejectWithEscapeIndex) noteCommandEvidence(body.pane_id, sent.id, { kind: "dialog", at: Date.now() });
+          && body.option_index !== parsed.rejectWithEscapeIndex && body.dismiss !== true) noteCommandEvidence(body.pane_id, sent.id, { kind: "dialog", at: Date.now() });
       } catch (error) {
         if (error instanceof InvalidAnswer) return badRequest("invalid_answer", error.message);
         if (error instanceof KeyRefused) return promptChanged();
@@ -2203,6 +2253,10 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       if (parsedByPublicPrompt.get(target)?.responder === "codex-async-question") {
         queueFronts.delete(body.pane_id);
         await closeQueue(body.pane_id, contentId(target)!);
+      }
+      if (body.dismiss === true && body.followup_text !== undefined) {
+        const refused = await sendFollowup(body.pane_id, body.followup_text.trim(), body.followup_connection ?? null, options);
+        if (refused) return refused;
       }
       const responder = parsedByPublicPrompt.get(target)?.responder;
       if (responder === "omo-question" || responder === "omo-review" || responder === "omo-typing" || responder === "omo-pending"

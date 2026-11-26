@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import type { InteractivePrompt } from "../../shared/protocol.ts";
+import type { ClaudePermissionMode, InteractivePrompt } from "../../shared/protocol.ts";
 import { answerKeys, claudeRewindOpen, parseInteractivePrompt } from "../prompt.ts";
+import { parseClaudePermissionMode } from "../claude-input.ts";
 import { withoutClaudeSidePanel } from "./claude.ts";
 import { executeInteractionPlan } from "./interaction-plan.ts";
 import { registry } from "./registry.ts";
@@ -630,5 +631,98 @@ describe("the preview Claude draws for the option under its cursor (#1212)", () 
     const plain = parseInteractivePrompt("claude", readFileSync(new URL("../fixtures/claude-question-words-2.1.311-120.txt", import.meta.url), "utf8"));
     expect(plain?.kind).toBe("question");
     expect(plain?.option_preview).toBeUndefined();
+  });
+});
+
+const RULE = "─".repeat(40);
+/** Claude Code's input box with its footer under the bottom rule, over some chat text */
+const withFooter = (footer: string[], chat = "● Done."): string => [chat, RULE, "❯ ", RULE, ...footer].join("\n");
+
+describe("Claude's permission mode, read off the footer under the input box", () => {
+  test.each<[string, ClaudePermissionMode]>([
+    ["⏵⏵ auto mode on (shift+tab to cycle)", "auto"],
+    ["⏸ plan mode on (shift+tab to cycle)", "plan"],
+    ["⏵⏵ accept edits on (shift+tab to cycle)", "acceptEdits"],
+    ["⏵⏵ bypass permissions on (shift+tab to cycle)", "bypassPermissions"],
+    ["  ? for shortcuts", "default"],
+  ])("%s is %s", (line, mode) => {
+    expect(parseClaudePermissionMode(withFooter([line]))).toBe(mode);
+  });
+
+  test("matches on the words, whatever glyph or color draws them", () => {
+    expect(parseClaudePermissionMode(withFooter(["\u001b[38;5;141m>> auto mode on\u001b[0m (shift+tab to cycle)"]))).toBe("auto");
+  });
+
+  test("a footer with no mode line is the default mode", () => {
+    expect(parseClaudePermissionMode(withFooter([]))).toBe("default");
+  });
+
+  test("a phrase quoted in the chat above the box is not the mode", () => {
+    const chat = "● The footer reads: ⏸ plan mode on (shift+tab to cycle)\n  and later: bypass permissions on";
+    expect(parseClaudePermissionMode(withFooter(["  ? for shortcuts"], chat))).toBe("default");
+  });
+
+  test("a named session's labeled rule still ends the box", () => {
+    const screen = ["chat", RULE, "❯ ", `──── my-session ${"─".repeat(20)}`, "⏸ plan mode on (shift+tab to cycle)"].join("\n");
+    expect(parseClaudePermissionMode(screen)).toBe("plan");
+  });
+
+  test("a screen with no box says nothing", () => {
+    expect(parseClaudePermissionMode("just some text\nplan mode on")).toBeNull();
+  });
+});
+
+describe("dismissing a Claude prompt with Esc", () => {
+  const plan = parseInteractivePrompt("claude", `
+Ready to code?
+
+Here is Claude's plan:
+Add a heading to the README file.
+
+Claude has written up a plan and is ready to execute. Would you like to proceed?
+
+❯ 1. Yes, auto-accept edits
+  2. Yes, manually approve edits
+  3. No, refine with Ultraplan on Claude Code on the web
+  4. Tell Claude what to change
+     shift+tab to approve with this feedback
+`)!;
+  const approval = parseInteractivePrompt("claude", `
+Bash command
+
+  curl -I https://example.com
+  Fetch HTTP headers.
+
+This command requires approval
+
+Do you want to proceed?
+❯ 1. Yes
+  2. Yes, and don’t ask again for: curl *
+  3. No
+
+Esc to cancel · Tab to amend · ctrl+e to explain
+`)!;
+
+  test("is only Esc, whatever the card's cursor and options", () => {
+    expect(answerKeys(plan, { dismiss: true })).toEqual([{ keys: ["esc"] }]);
+    expect(answerKeys(approval, { dismiss: true })).toEqual([{ keys: ["esc"] }]);
+  });
+
+  test("takes no other answer with it", () => {
+    expect(() => answerKeys(plan, { dismiss: true, option_index: 0 })).toThrow();
+    expect(() => answerKeys(plan, { dismiss: true, custom_text: "x" })).toThrow();
+  });
+
+  test("is refused for another agent's card, which keeps its own behavior", () => {
+    const codex = parseInteractivePrompt("codex", `
+  Would you like to run the following command?
+
+  $ git status
+
+› 1. Yes, proceed (y)
+  2. No, and tell Codex what to do differently (esc)
+`);
+    if (codex !== null) expect(() => answerKeys(codex, { dismiss: true })).toThrow();
+    expect(answerKeys(approval, { option_index: 2 })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }]);
   });
 });

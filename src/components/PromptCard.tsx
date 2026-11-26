@@ -4,7 +4,8 @@ import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, FileText, Send } 
 import "./PromptCard.css";
 
 import { ApiError } from "../lib/api.ts";
-import { useMachineApi } from "../lib/machineContext.tsx";
+import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+import { useMachineSessions } from "../lib/machineSessionContext.tsx";
 import type { InteractivePrompt, PromptAnswer } from "../../shared/protocol.ts";
 import { blocksStepNavigation, focusFollowsAnswer, pressOrigin, sendsChecksWithText, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { approvalScope, optionName, promptWords, type ApprovalScope } from "../lib/promptText.ts";
@@ -43,6 +44,8 @@ export interface PromptCardProps {
 export function PromptCard({ paneId, prompt, onPromptChanged, onTextChange, initialText, onAnswered, answered = false, typedAnswer = null, onTypedAnswerDone, stale = false, screenWords = null, context = null, watching = false }: PromptCardProps) {
   const t = useT();
   const { answerPanePrompt } = useMachineApi();
+  const machineId = useMachineId();
+  const machineSessions = useMachineSessions();
   const [selected, setSelected] = useState<Set<number>>(() => {
     if (prompt.default_option_indices && prompt.default_option_indices.length > 0) {
       return new Set(prompt.default_option_indices);
@@ -365,6 +368,21 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onTextChange, init
         <button type="button" className="btn prompt-card-skip" disabled={held} aria-describedby={watchDescribed} title={watchReason} onClick={(event) => void answer({ custom_text: "" }, event)}>
           {t("Skip question")}
         </button>
+      )}
+      {prompt.agent === "claude" && (
+        <div className="prompt-card-dismiss-row">
+          {/* Esc, as the terminal's own way out of any Claude menu: nothing is picked */}
+          <button type="button" className="btn prompt-card-dismiss" disabled={held} aria-describedby={watchDescribed} title={watchReason} onClick={(event) => void answer({ dismiss: true }, event)}>
+            {t("Dismiss (Esc)")}
+          </button>
+          {/* the plan card only: Esc leaves plan mode's approval, then /handoff is typed into the box that comes back */}
+          {prompt.kind === "plan" && (
+            <button type="button" className="btn prompt-card-dismiss" disabled={held} aria-describedby={watchDescribed} title={watchReason}
+              onClick={(event) => void answer({ dismiss: true, followup_text: "/handoff", ...(machineSessions?.peek(machineId)?.connection ? { followup_connection: machineSessions.peek(machineId)!.connection! } : {}) }, event)}>
+              {t("Esc + /handoff")}
+            </button>
+          )}
+        </div>
       )}
       {typedAnswer?.option_index !== undefined && (
         <div className="prompt-card-confirm" role="alert" ref={confirmRef}>
