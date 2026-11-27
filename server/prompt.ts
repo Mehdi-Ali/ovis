@@ -440,7 +440,7 @@ export function parseInteractivePrompt(agent: string, screen: string, omoAsk: Om
 
 class InvalidAnswer extends Error {}
 
-export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer, "option_index" | "option_indices" | "custom_text" | "dismiss" | "chat_about">): AnswerStep[] {
+export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer, "option_index" | "option_indices" | "custom_text" | "dismiss" | "chat_about" | "notes_text">): AnswerStep[] {
   const parsed = parsedByPublicPrompt.get(prompt);
   if (!parsed) throw new InvalidAnswer("The prompt was not produced by parseInteractivePrompt.");
   if (parsed.piQuestionnaireInput !== undefined) throw new InvalidAnswer("Finish or cancel the terminal-owned questionnaire draft in the terminal.");
@@ -454,7 +454,20 @@ export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer,
   if (answer.chat_about !== undefined) {
     if (answer.chat_about !== true || parsed.responder !== "claude-question" || parsed.chatMenuIndex === undefined) throw new InvalidAnswer("Only a Claude question can be chatted about.");
     if (answer.option_index !== undefined || answer.option_indices !== undefined || answer.custom_text !== undefined || answer.dismiss !== undefined) throw new InvalidAnswer("Chat about this takes no other answer.");
-    return keySteps([...navigationKeys(parsed.chatMenuIndex - parsed.selectedIndex), KEY.enter]);
+    if (answer.notes_text !== undefined) throw new InvalidAnswer("Chat about this takes no note.");
+    // Enter in an open note editor would submit no option: Esc leaves it first
+    return keySteps([...(parsed.notesEditing ? [KEY.escape] : []), ...navigationKeys(parsed.chatMenuIndex - parsed.selectedIndex), KEY.enter]);
+  }
+  // a preview question's note: n opens the editor (already open: skipped), the text, then Esc, which keeps the note and
+  // leaves the editor, and only then the pick: Enter in the editor submits with no option (measured on 2.1.332)
+  if (answer.notes_text !== undefined) {
+    if (parsed.responder !== "claude-question" || !parsed.accepts_notes) throw new InvalidAnswer("Only a Claude preview question takes a note.");
+    if (answer.option_index === undefined || answer.option_indices !== undefined || answer.custom_text !== undefined) throw new InvalidAnswer("A note goes with one picked option.");
+    const note = answer.notes_text;
+    if (typeof note !== "string" || !note.trim() || note.length > FOLLOWUP_MAX || /[\u0000-\u001f\u007f-\u009f]/.test(note)) throw new InvalidAnswer("A note is one plain line.");
+    const index = answer.option_index;
+    if (!Number.isInteger(index) || index < 0 || index >= parsed.options.length) throw new InvalidAnswer("A valid option index is required.");
+    return [...(parsed.notesEditing ? [] : [{ text: "n" }]), { text: note.trim() }, ...keySteps([KEY.escape, ...navigationKeys(index - parsed.selectedIndex), KEY.enter])];
   }
   const combined = Boolean(parsed.checks_with_text && parsed.multi_select && answer.option_indices !== undefined && answer.custom_text !== undefined && answer.option_index === undefined);
   const supplied = [answer.option_index !== undefined, answer.option_indices !== undefined, answer.custom_text !== undefined].filter(Boolean).length;
@@ -549,7 +562,7 @@ export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer,
   }
   if (parsed.optionSteps) return parsed.optionSteps[index!]!;
   if (parsed.rejectWithEscapeIndex === index) return keySteps([KEY.escape]);
-  return keySteps([...navigationKeys(index! - parsed.selectedIndex), KEY.enter]);
+  return keySteps([...(parsed.notesEditing && parsed.responder === "claude-question" ? [KEY.escape] : []), ...navigationKeys(index! - parsed.selectedIndex), KEY.enter]);
 }
 
 /**
@@ -1601,6 +1614,12 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         || body.dismiss !== undefined || body.step_back === true || body.step_next === true || body.step_index !== undefined || body.draft !== undefined
         || body.option_index !== undefined || body.option_indices !== undefined || body.custom_text !== undefined)) {
         return badRequest("invalid_answer", "Only a Claude question can be chatted about, with no other answer.");
+      }
+      // a preview question's note travels with the one option picked, and with no other move
+      if (body.notes_text !== undefined && (typeof body.notes_text !== "string" || parsedPrompt?.responder !== "claude-question" || !parsedPrompt.accepts_notes
+        || !Number.isInteger(body.option_index) || body.option_indices !== undefined || body.custom_text !== undefined || body.dismiss !== undefined || body.chat_about !== undefined
+        || body.step_back === true || body.step_next === true || body.step_index !== undefined || body.draft !== undefined)) {
+        return badRequest("invalid_answer", "A note goes only with the option picked on a Claude preview question.");
       }
       if (body.followup_text !== undefined) {
         // the text goes to the agent's own input box: only the plan card offers it, after its Esc, and a question card

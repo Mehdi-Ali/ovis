@@ -874,3 +874,71 @@ Esc to cancel · Tab to amend · ctrl+e to explain
     if (codex !== null) expect(() => answerKeys(codex, { chat_about: true })).toThrow();
   });
 });
+
+describe("Notes on a Claude preview question", () => {
+  const HINT = "Enter to select · ↑/↓ to navigate · n to add notes · Esc\nto cancel";
+  const EDITING_HINT = "Enter to select · ↑/↓ to navigate · n to add notes · ctrl+g\nto edit in Notepad · Esc to cancel";
+  const NOTES_ROW = "                                Notes: press n to add\n                                       notes";
+  const withNotes = (rows: string, hint = HINT): string => QUESTION_C.replace(NOTES_ROW, rows).replace(HINT, hint);
+  const OPTION_B = (screen: string): string => screen.replace("❯ 1. A ", "  1. A ").replace("  2. B ", "❯ 2. B ");
+
+  test("takes a note, and the box's wrapped placeholder is no option's description", () => {
+    const card = parseInteractivePrompt("claude", QUESTION_C)!;
+    expect(card.accepts_notes).toBe(true);
+    expect(card.notes).toBeUndefined();
+    expect(card.options).toEqual([{ label: "A", description: null }, { label: "B", description: null }]);
+    expect(parseInteractivePrompt("claude", QUESTION_B)!.accepts_notes).toBeUndefined();
+  });
+
+  test("types the note first, leaves the editor with Esc, then picks (n, text, Esc, move, Enter)", () => {
+    const card = parseInteractivePrompt("claude", QUESTION_C)!;
+    expect(answerKeys(card, { option_index: 1, notes_text: "  taller  " })).toEqual([
+      { text: "n" }, { text: "taller" }, { keys: ["esc"] }, { keys: ["down"] }, { keys: ["enter"] },
+    ]);
+    expect(answerKeys(card, { option_index: 0, notes_text: "wider" })).toEqual([{ text: "n" }, { text: "wider" }, { keys: ["esc"] }, { keys: ["enter"] }]);
+  });
+
+  test("still reads the card, its note and its option rows while a note is typed or being edited", () => {
+    const typed = parseInteractivePrompt("claude", withNotes("                                Notes: taller"))!;
+    expect(typed).toMatchObject({ kind: "question", accepts_notes: true, notes: "taller" });
+    expect(typed.options).toEqual([{ label: "A", description: null }, { label: "B", description: null }]);
+    const plain = parseInteractivePrompt("claude", QUESTION_C)!;
+    // the note is no part of the card's identity: the same card gains a note in the terminal
+    expect(typed.id).toBe(plain.id);
+    const wrapped = parseInteractivePrompt("claude", withNotes("                                Notes: a much taller layout\n                                       please"))!;
+    expect(wrapped.notes).toBe("a much taller layout please");
+    expect(wrapped.options[1]).toEqual({ label: "B", description: null });
+    const editing = parseInteractivePrompt("claude", withNotes("                                Notes: Add notes on this d…", EDITING_HINT))!;
+    expect(editing).toMatchObject({ kind: "question", accepts_notes: true });
+    expect(editing.notes).toBeUndefined();
+    const editingTyped = parseInteractivePrompt("claude", withNotes("                                Notes: taller", EDITING_HINT))!;
+    expect(editingTyped.notes).toBe("taller");
+  });
+
+  test("an open editor is left with Esc before any pick, and its own n is not typed again", () => {
+    const editing = parseInteractivePrompt("claude", withNotes("                                Notes: taller", EDITING_HINT))!;
+    expect(answerKeys(editing, { option_index: 1 })).toEqual([{ keys: ["esc"] }, { keys: ["down"] }, { keys: ["enter"] }]);
+    expect(answerKeys(editing, { option_index: 1, notes_text: "and wider" })).toEqual([{ text: "and wider" }, { keys: ["esc"] }, { keys: ["down"] }, { keys: ["enter"] }]);
+    expect(answerKeys(editing, { chat_about: true })).toEqual([{ keys: ["esc"] }, { keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("picks from the row the cursor stands on", () => {
+    const card = parseInteractivePrompt("claude", OPTION_B(withNotes("                                Notes: taller")))!;
+    expect(answerKeys(card, { option_index: 0, notes_text: "x" })).toEqual([{ text: "n" }, { text: "x" }, { keys: ["esc"] }, { keys: ["up"] }, { keys: ["enter"] }]);
+  });
+
+  test("is refused off a preview question, without an option, or as anything but one plain line", () => {
+    const card = parseInteractivePrompt("claude", QUESTION_C)!;
+    expect(() => answerKeys(parseInteractivePrompt("claude", QUESTION_B)!, { option_index: 0, notes_text: "x" })).toThrow();
+    expect(() => answerKeys(parseInteractivePrompt("claude", REVIEW_2_1_332)!, { option_index: 0, notes_text: "x" })).toThrow();
+    expect(() => answerKeys(card, { notes_text: "x" })).toThrow();
+    expect(() => answerKeys(card, { option_index: 5, notes_text: "x" })).toThrow();
+    expect(() => answerKeys(card, { option_index: 0, notes_text: "   " })).toThrow();
+    expect(() => answerKeys(card, { option_index: 0, notes_text: "two\nlines" })).toThrow();
+    expect(() => answerKeys(card, { option_index: 0, notes_text: "esc\u001b" })).toThrow();
+    expect(() => answerKeys(card, { option_index: 0, notes_text: "x".repeat(2001) })).toThrow();
+    expect(() => answerKeys(card, { option_index: 0, notes_text: "x", custom_text: "y" })).toThrow();
+    expect(() => answerKeys(card, { notes_text: "x", chat_about: true })).toThrow();
+    expect(answerKeys(card, { option_index: 0, notes_text: "x".repeat(2000) })).toHaveLength(4);
+  });
+});

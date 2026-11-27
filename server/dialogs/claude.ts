@@ -52,7 +52,10 @@ function hintAt(lines: string[], index: number, re: RegExp, end = index + CLAUDE
  * The box stands in one column on every line (its top corner names it), so only what sits in
  * that column goes: a `│` inside an option's own text stays.
  */
-const CLAUDE_PREVIEW_HINT_RE = /\bn to add notes\b/i;
+const CLAUDE_PREVIEW_HINT_RE = /\bn to (?:add|edit) notes\b/i;
+
+/** while a preview question's note is being typed, the hint gains `ctrl+g to edit in Notepad` (measured on 2.1.332) */
+const CLAUDE_NOTES_EDITING_RE = /\bctrl\+g to edit\b/i;
 
 const PREVIEW_EDGE = "┌│└├╭╰┐┘╮╯";
 
@@ -187,18 +190,48 @@ function previewText(lines: string[], box: { top: number; column: number; inner:
   return null;
 }
 
-function withoutPreview(lines: string[], from: number, to: number): string[] {
+function previewBoxOf(lines: string[], from: number, to: number): { top: number; column: number; inner: number } | null {
   // Claude opens the box on the first option's row: a box drawn higher up (a diagram in its answer)
   // stands at a column of its own
   const first = menuRows(lines, from, to)[0]?.lineIndex;
-  const box = (first === undefined ? null : previewBox(lines, first, first)) ?? previewBox(lines, from, to);
+  return (first === undefined ? null : previewBox(lines, first, first)) ?? previewBox(lines, from, to);
+}
+
+/**
+ * The preview's note, drawn under its box at the box's column: `Notes: press n to add notes` when empty,
+ * the typed text after `Notes: ` otherwise, wrapped at the pane's edge onto lines indented past the label
+ * (measured on 2.1.332). A question's own text may begin with "Notes:" too, which is never at the box's column.
+ */
+function notesRows(lines: string[], box: { top: number; column: number }): { from: number; to: number } | null {
+  const indent = (line: string): number => Bun.stringWidth(line.slice(0, line.length - line.trimStart().length));
+  const from = lines.findIndex((line, index) => index > box.top && indent(line) === box.column && /^Notes:\s/.test(line.trim()));
+  if (from < 0) return null;
+  let to = from + 1;
+  while (to < lines.length && lines[to]!.trim() !== "" && !isDivider(lines[to]!) && indent(lines[to]!) === box.column + Bun.stringWidth("Notes: ")) to += 1;
+  return { from, to };
+}
+
+/** the note a preview question holds, and whether its editor is open; null when the screen shows no notes line */
+function previewNotes(raw: string[], hintIndex: number): { text: string | null; editing: boolean } | null {
+  const box = previewBoxOf(raw, Math.max(0, hintIndex - 64), hintIndex);
+  const rows = box === null ? null : notesRows(raw, box);
+  if (rows === null) return null;
+  const text = joinWrapped(raw.slice(rows.from, rows.to), screenWidth(raw), /^\s*Notes:\s+/);
+  const empty = text === "" || /^press n to add notes$/i.test(text) || /^Add notes on this/i.test(text);
+  return { text: empty ? null : text, editing: CLAUDE_NOTES_EDITING_RE.test(wrapped(raw, hintIndex)) };
+}
+
+function withoutPreview(lines: string[], from: number, to: number): string[] {
+  const box = previewBoxOf(lines, from, to);
   const column = box?.column ?? -1;
+  const notes = box === null ? null : notesRows(lines, box);
   return lines.map((line, index) => {
     // nothing above the box's top row is the box's: a question may draw an edge at its column
     const at = column >= 2 && index >= box!.top ? indexAtColumn(line, column) : -1;
     const edge = at >= 0 ? line[at] : undefined;
     const boxed = edge !== undefined && PREVIEW_EDGE.includes(edge) && line.slice(Math.max(0, at - 2), at) === "  ";
-    // only the preview's own notes line goes: a question may begin with "Notes:" too
+    // only the preview's own notes go, wherever the pane wrapped them: a question may begin with "Notes:" too
+    if (notes !== null && index >= notes.from && index < notes.to) return "";
     return (boxed ? line.slice(0, at).trimEnd() : line).replace(/^\s*Notes:\s+press n to add notes\b.*$/i, "");
   });
 }
@@ -250,12 +283,15 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   const nav = shown !== null && shown.index < tabs!.tabs.length ? shown : null;
   const title = titleOf(nav?.index ?? open);
   const words = claudeWordsAbove(raw, rows[0]!.lineIndex);
+  const notes = preview ? previewNotes(raw, hintIndex) : null;
   const menuLabels = submit ? [...rows.slice(0, -1).map((row) => row.label), "Submit", rows.at(-1)!.label] : rows.map((row) => row.label);
   const parsed = finishPrompt("claude", {
     kind: "question", title, question, body: null,
     options: optionRows.map((row) => ({ label: row.label, description: row.description ?? null })),
     // a multiple choice takes its typed answer where its Submit row shows: Enter there sends it
     multi_select: multiSelect, custom_option_index: preview || (multiSelect && !submit) ? null : customIndex,
+    // a preview question takes a note with its pick (n, the text, Esc), which the card offers
+    ...(preview && !multiSelect ? { accepts_notes: true as const } : {}),
     ...(nav ? { steps: nav.steps, can_step_back: nav.index > 0 } : {}),
   }, {
     responder: "claude-question",
@@ -263,6 +299,7 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
     menuLabels,
     // the numbered layout ends on the row, the preview layout draws it unnumbered under the options
     chatMenuIndex: preview ? menuLabels.length : menuLabels.length - 1,
+    ...(notes?.editing ? { notesEditing: true as const } : {}),
     selectedIndex,
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
     customMenuIndex: preview ? null : customIndex, rejectWithEscapeIndex: null,
@@ -300,6 +337,8 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
       },
     } : {}),
     ...(words === null ? {} : { screen_words: words }),
+    // the note as typed so far: not part of the card's id
+    ...(notes?.text ? { notes: notes.text } : {}),
     ...(drawn === null ? {} : { option_preview: { option_index: rowAt, ...drawn } }),
   };
 }

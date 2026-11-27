@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 
 import type { InteractivePrompt } from "../../shared/protocol.ts";
+import * as apiModule from "../lib/api.ts";
 import { translate } from "../lib/i18n.ts";
 import * as settingsModule from "../lib/settings.ts";
 import { SettingsProvider } from "../lib/settings.ts";
@@ -257,5 +258,57 @@ describe("Dismiss (Esc) and Esc + /handoff on Claude's cards", () => {
     const html = render(codex, ["en"]);
     expect(html).not.toContain("Dismiss (Esc)");
     expect(html).not.toContain("Esc + /handoff");
+  });
+});
+
+describe("a note on Claude's preview question", () => {
+  const preview: InteractivePrompt = {
+    id: "n1", agent: "claude", kind: "question", title: "Layout", question: "Pick a layout?", body: null,
+    options: [{ label: "A", description: null }, { label: "B", description: null }], multi_select: false, custom_option_index: null,
+    accepts_notes: true, can_chat_about: true,
+  };
+
+  it("offers the note field only where the question takes notes, in the reader's language", () => {
+    for (const language of ["en", "ko", "ja", "zh"] as const) {
+      expect(render(preview, [language])).toContain(translate(language, "Note for your pick"));
+      expect(render(preview, [language])).toContain(translate(language, "Chat about this"));
+      expect(render({ ...preview, accepts_notes: undefined }, [language])).not.toContain(translate(language, "Note for your pick"));
+    }
+    expect(translate("ko", "Note for your pick")).not.toBe("Note for your pick");
+    expect(render({ ...preview, notes: "taller" }, ["en"])).toContain("Note so far: taller");
+    expect(render(preview, ["en"])).not.toContain("Note so far");
+  });
+
+  it("sends the typed note with the option picked, and nothing extra without one", async () => {
+    const answered: unknown[] = [];
+    const spy = spyOn(apiModule, "answerPanePrompt").mockImplementation(async (body) => { answered.push(body); });
+    const settingsSpy = spyOn(settingsModule, "useSettings").mockReturnValue({ settings: settingsModule.DEFAULT_SETTINGS, resolvedLanguage: "en" } as ReturnType<typeof settingsModule.useSettings>);
+    const listen = { addEventListener() {}, removeEventListener() {} };
+    const savedWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const savedAct = Object.getOwnPropertyDescriptor(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+    Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, writable: true, value: true });
+    Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: { ...listen, matchMedia: () => ({ matches: false, ...listen }) } });
+    const card = () => createElement(PromptCard, { paneId: "w1:p1", prompt: preview, onPromptChanged: () => {}, onAnswered: () => {} });
+    let renderer: ReactTestRenderer | undefined;
+    const option = (index: number) => renderer!.root.findAll((node) => node.type === "button" && String(node.props.className).startsWith("prompt-card-option"))[index]!;
+    try {
+      await act(async () => { renderer = create(card()); });
+      await act(async () => { option(0).props.onClick({ nativeEvent: {}, currentTarget: {} }); });
+      expect(answered.at(-1)).toMatchObject({ option_index: 0 });
+      expect(answered.at(-1)).not.toHaveProperty("notes_text");
+      await act(async () => { renderer!.unmount(); });
+
+      await act(async () => { renderer = create(card()); });
+      const field = renderer!.root.find((node) => node.type === "input");
+      await act(async () => { field.props.onChange({ currentTarget: { value: "  taller" + String.fromCharCode(10) + "please  " } }); });
+      await act(async () => { option(1).props.onClick({ nativeEvent: {}, currentTarget: {} }); });
+      expect(answered.at(-1)).toEqual({ pane_id: "w1:p1", prompt_id: "n1", option_index: 1, notes_text: "taller please" });
+    } finally {
+      await act(async () => { renderer?.unmount(); });
+      spy.mockRestore();
+      settingsSpy.mockRestore();
+      if (savedWindow) Object.defineProperty(globalThis, "window", savedWindow); else Reflect.deleteProperty(globalThis, "window");
+      if (savedAct) Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", savedAct); else Reflect.deleteProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+    }
   });
 });

@@ -15,6 +15,12 @@ import { userErrorMessage, type UserError } from "../lib/userError.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { InlineMarkdown, Markdown } from "./Markdown.tsx";
 
+/** the longest note the bridge types into Claude's note editor (FOLLOWUP_MAX in server/prompt.ts) */
+const NOTE_MAX = 2000;
+
+/** a note is one plain line: control characters become spaces */
+const oneLine = (text: string): string => text.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+
 function scopeCue(t: Translate, scope: ApprovalScope): string {
   switch (scope) {
     case "once": return t("This time only");
@@ -56,6 +62,8 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onTextChange, init
     return new Set();
   });
   const [custom, setCustom] = useState(() => initialText ?? prompt.default_custom_text ?? "");
+  // a preview question's note, sent along with the option picked (Claude's `n`)
+  const [note, setNote] = useState("");
   const [sending, setPending] = useState(false);
   const pending = sending || answered;
   const held = pending || watching;
@@ -99,6 +107,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onTextChange, init
         ...(custom.trim() ? { custom_text: custom.trim() } : {}),
       };
     }
+    if (prompt.accepts_notes === true && choice.option_index !== undefined && choice.notes_text === undefined && oneLine(note) !== "") choice = { ...choice, notes_text: oneLine(note) };
     // read now: the pressed button is disabled while the answer is on its way, and loses the focus
     const fromCard = cardRef.current?.contains(document.activeElement) === true;
     const click = press?.nativeEvent as Partial<PointerEvent> | undefined;
@@ -145,6 +154,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onTextChange, init
   };
 
   const customLabelId = useId();
+  const noteId = useId();
   const contextId = useId();
 
   const scopeIdBase = useId();
@@ -338,6 +348,13 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onTextChange, init
               </Fragment>
             );
           })}
+        </div>
+      )}
+      {prompt.accepts_notes === true && (
+        <div className="prompt-card-custom">
+          <label className="prompt-card-custom-label" htmlFor={noteId}>{t("Note for your pick")}</label>
+          {prompt.notes !== undefined && <p className="prompt-card-note-now">{t("Note so far: {note}", { note: prompt.notes })}</p>}
+          <input id={noteId} className="input" value={note} maxLength={NOTE_MAX} disabled={held} title={watchReason} aria-describedby={watchDescribed} placeholder={t("Added when you pick an option")} onChange={(event) => { setNote(event.currentTarget.value); dropRetry(); }} />
         </div>
       )}
       {prompt.multi_select && (
