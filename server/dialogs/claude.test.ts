@@ -771,3 +771,106 @@ describe("Claude Code 2.1.332's answer review", () => {
     expect(parseInteractivePrompt("claude", "Some notes\n\n❯ 1. Submit answers\n  2. Cancel\n")).toBeNull();
   });
 });
+
+/** Claude Code 2.1.332's questions (captured live, 57 columns): B has the tab bar, a typed-answer row and a numbered Chat about this; C is a preview question, its Chat about this unnumbered under the rule */
+const QUESTION_B = `─────────────────────────────────────────────────────────
+←  ☐ Color  ☐ Size  ✔ Submit  →
+
+Which color?
+
+❯ 1. Red
+     Choose red.
+  2. Blue
+     Choose blue.
+  3. Type something.
+─────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to
+cancel
+`;
+
+const QUESTION_C = `─────────────────────────────────────────────────────────
+ ☐ Layout
+
+Pick a layout?
+
+❯ 1. A                          ┌─────────────────────┐
+  2. B                          │ +-----------------+ │
+                                │ | Header          | │
+                                │ +-----------------+ │
+                                │ | Body            | │
+                                │ +-----------------+ │
+                                └─────────────────────┘
+
+                                Notes: press n to add
+                                       notes
+
+─────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc
+to cancel
+`;
+
+describe("Chat about this on a Claude question", () => {
+  test("goes down to the numbered row under the typed answer, then Enter (fixture B)", () => {
+    const card = parseInteractivePrompt("claude", QUESTION_B)!;
+    expect(card).toMatchObject({ kind: "question", can_chat_about: true });
+    expect(answerKeys(card, { chat_about: true })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("goes down past the last option to the unnumbered row of a preview question (fixture C)", () => {
+    const card = parseInteractivePrompt("claude", QUESTION_C)!;
+    expect(card).toMatchObject({ kind: "question", can_chat_about: true });
+    expect(card.options.map((option) => option.label)).toEqual(["A", "B"]);
+    expect(answerKeys(card, { chat_about: true })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("starts from the row the cursor stands on", () => {
+    const second = QUESTION_B.replace("❯ 1. Red", "  1. Red").replace("  2. Blue", "❯ 2. Blue");
+    expect(answerKeys(parseInteractivePrompt("claude", second)!, { chat_about: true })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }]);
+    const last = QUESTION_C.replace("❯ 1. A", "  1. A").replace("  2. B ", "❯ 2. B ");
+    expect(answerKeys(parseInteractivePrompt("claude", last)!, { chat_about: true })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("takes no other answer field", () => {
+    const card = parseInteractivePrompt("claude", QUESTION_B)!;
+    expect(() => answerKeys(card, { chat_about: true, option_index: 0 })).toThrow();
+    expect(() => answerKeys(card, { chat_about: true, custom_text: "x" })).toThrow();
+    expect(() => answerKeys(card, { chat_about: true, dismiss: true })).toThrow();
+    expect(() => answerKeys(card, { chat_about: false })).toThrow();
+  });
+
+  test("is refused on every card that is not a Claude question", () => {
+    const approval = parseInteractivePrompt("claude", `
+Bash command
+
+  curl -I https://example.com
+  Fetch HTTP headers.
+
+This command requires approval
+
+Do you want to proceed?
+❯ 1. Yes
+  2. Yes, and don’t ask again for: curl *
+  3. No
+
+Esc to cancel · Tab to amend · ctrl+e to explain
+`)!;
+    expect(approval.can_chat_about).toBeUndefined();
+    expect(() => answerKeys(approval, { chat_about: true })).toThrow();
+    const review = parseInteractivePrompt("claude", REVIEW_2_1_332)!;
+    expect(review.can_chat_about).toBeUndefined();
+    expect(() => answerKeys(review, { chat_about: true })).toThrow();
+    const codex = parseInteractivePrompt("codex", `
+  Would you like to run the following command?
+
+  $ git status
+
+› 1. Yes, proceed (y)
+  2. No, and tell Codex what to do differently (esc)
+`);
+    if (codex !== null) expect(() => answerKeys(codex, { chat_about: true })).toThrow();
+  });
+});

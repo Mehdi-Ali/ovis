@@ -150,6 +150,8 @@ export type ParsedPrompt = InteractivePrompt & {
   lettaTab?: string;
   lettaTabs?: string[];
   menuLabels: string[];
+  /** where the cursor stands on the "Chat about this" row (Claude's question): past `menuLabels` when the preview layout draws it unnumbered under the options */
+  chatMenuIndex?: number;
   selectedIndex: number;
   checkedOptionIndices: number[];
   customMenuIndex: number | null;
@@ -359,6 +361,7 @@ export function publicPrompt(parsed: ParsedPrompt): InteractivePrompt {
     ...(parsed.own_text ? { own_text: parsed.own_text } : {}),
     ...(parsed.screen_words ? { screen_words: parsed.screen_words } : {}),
     ...(parsed.option_preview ? { option_preview: parsed.option_preview } : {}),
+    ...(parsed.chatMenuIndex !== undefined ? { can_chat_about: true as const } : {}),
   };
   parsedByPublicPrompt.set(prompt, parsed);
   return prompt;

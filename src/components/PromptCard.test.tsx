@@ -239,6 +239,20 @@ describe("Dismiss (Esc) and Esc + /handoff on Claude's cards", () => {
     expect(render({ ...claude, kind: "question" }, ["en"])).not.toContain("Esc + /handoff");
   });
 
+  it("offers Chat about this on a Claude question that lists it, in the reader's language", () => {
+    const question: InteractivePrompt = { ...claude, kind: "question", can_chat_about: true };
+    for (const language of ["en", "ko", "ja", "zh"] as const) expect(render(question, [language])).toContain(translate(language, "Chat about this"));
+    expect(translate("ko", "Chat about this")).not.toBe("Chat about this");
+    expect(render(question, ["en"])).toContain("Chat about this");
+  });
+
+  it("offers Chat about this on no other Claude card or agent's", () => {
+    expect(render(claude, ["en"])).not.toContain("Chat about this");
+    expect(render({ ...claude, kind: "question" }, ["en"])).not.toContain("Chat about this");
+    expect(render(plan, ["en"])).not.toContain("Chat about this");
+    expect(render({ ...codex, kind: "question" }, ["en"])).not.toContain("Chat about this");
+  });
+
   it("offers neither on another agent's card", () => {
     const html = render(codex, ["en"]);
     expect(html).not.toContain("Dismiss (Esc)");

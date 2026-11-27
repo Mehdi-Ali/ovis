@@ -1115,6 +1115,8 @@ export interface InteractivePrompt {
    * option's, so it follows the cursor; not part of the card's id. Absent without a preview box.
    */
   option_preview?: { option_index: number; text: string; hidden_lines?: number };
+  /** Claude's question shows a "Chat about this" row: the card offers it, answered with `chat_about` */
+  can_chat_about?: true;
   /**
    * The card's own words, which the bridge wrote rather than read off the agent's screen (an Esc
    * offered as Close, a fallback card's title): for each such field above, its English as a key with
@@ -1175,7 +1177,9 @@ export interface PromptAnswer {
   draft?: { option_indices: number[]; custom_text: string };
   /** Esc, as the Dismiss button: closes a Claude prompt without picking an option. Takes no other answer field. */
   dismiss?: boolean;
-  /** Claude's plan card only, with `dismiss`: a message submitted once Esc has brought the input box back (the card's "Esc + /handoff"). */
+  /** Claude's question card only: moves to the "Chat about this" row and presses Enter, which rejects the question so the user can talk it over. Takes no other answer field but `followup_text`. */
+  chat_about?: boolean;
+  /** Claude's plan card only, with `dismiss`, or a question card with `chat_about`: a message submitted once Esc has brought the input box back (the card's "Esc + /handoff"). */
   followup_text?: string;
   /** this page's connection to the PC (MachineSession.connection): the one that may type `followup_text` on its own */
   followup_connection?: string;

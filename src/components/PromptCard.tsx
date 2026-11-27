@@ -375,6 +375,12 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onTextChange, init
           <button type="button" className="btn prompt-card-dismiss" disabled={held} aria-describedby={watchDescribed} title={watchReason} onClick={(event) => void answer({ dismiss: true }, event)}>
             {t("Dismiss (Esc)")}
           </button>
+          {/* a question that lists it: the row under the options, which turns the question into a talk with Claude */}
+          {prompt.can_chat_about === true && (
+            <button type="button" className="btn prompt-card-dismiss" disabled={held} aria-describedby={watchDescribed} title={watchReason} onClick={(event) => void answer({ chat_about: true }, event)}>
+              {t("Chat about this")}
+            </button>
+          )}
           {/* the plan card only: Esc leaves plan mode's approval, then /handoff is typed into the box that comes back */}
           {prompt.kind === "plan" && (
             <button type="button" className="btn prompt-card-dismiss" disabled={held} aria-describedby={watchDescribed} title={watchReason}

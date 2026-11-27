@@ -26,6 +26,7 @@ export const COMPOSER_JA: Record<string, string> = {
   "Not sent: the agent started for this message has ended. Review the message before sending it.": "未送信: このメッセージのために起動したエージェントは終了しました。送信する前にメッセージを確認してください。",
   "Not sent: the pane's terminal or agent session changed. Review the message before sending it again.": "未送信: ペインのターミナルまたはエージェントセッションが変わりました。再送信する前にメッセージを確認してください。",
   "Dismiss (Esc)": "閉じる (Esc)",
+  "Chat about this": "このことについて話す",
   "Esc + /handoff": "Esc + /handoff",
   "Cycle mode (Shift+Tab)": "モードを切り替え (Shift+Tab)",
   "Mode: default": "モード: 標準",

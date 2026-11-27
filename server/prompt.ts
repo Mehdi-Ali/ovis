@@ -440,15 +440,21 @@ export function parseInteractivePrompt(agent: string, screen: string, omoAsk: Om
 
 class InvalidAnswer extends Error {}
 
-export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer, "option_index" | "option_indices" | "custom_text" | "dismiss">): AnswerStep[] {
+export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer, "option_index" | "option_indices" | "custom_text" | "dismiss" | "chat_about">): AnswerStep[] {
   const parsed = parsedByPublicPrompt.get(prompt);
   if (!parsed) throw new InvalidAnswer("The prompt was not produced by parseInteractivePrompt.");
   if (parsed.piQuestionnaireInput !== undefined) throw new InvalidAnswer("Finish or cancel the terminal-owned questionnaire draft in the terminal.");
   // the card's Dismiss: Esc, for any Claude prompt, with no option picked
   if (answer.dismiss !== undefined) {
     if (answer.dismiss !== true || parsed.agent !== "claude") throw new InvalidAnswer("Only a Claude prompt can be dismissed.");
-    if (answer.option_index !== undefined || answer.option_indices !== undefined || answer.custom_text !== undefined) throw new InvalidAnswer("A dismissal takes no other answer.");
+    if (answer.option_index !== undefined || answer.option_indices !== undefined || answer.custom_text !== undefined || answer.chat_about !== undefined) throw new InvalidAnswer("A dismissal takes no other answer.");
     return keySteps([KEY.escape]);
+  }
+  // the card's Chat about this: the cursor goes down to that row and Enter rejects the question, which hands the talk to the user
+  if (answer.chat_about !== undefined) {
+    if (answer.chat_about !== true || parsed.responder !== "claude-question" || parsed.chatMenuIndex === undefined) throw new InvalidAnswer("Only a Claude question can be chatted about.");
+    if (answer.option_index !== undefined || answer.option_indices !== undefined || answer.custom_text !== undefined || answer.dismiss !== undefined) throw new InvalidAnswer("Chat about this takes no other answer.");
+    return keySteps([...navigationKeys(parsed.chatMenuIndex - parsed.selectedIndex), KEY.enter]);
   }
   const combined = Boolean(parsed.checks_with_text && parsed.multi_select && answer.option_indices !== undefined && answer.custom_text !== undefined && answer.option_index === undefined);
   const supplied = [answer.option_index !== undefined, answer.option_indices !== undefined, answer.custom_text !== undefined].filter(Boolean).length;
@@ -1441,7 +1447,7 @@ async function sendFollowup(paneId: string, text: string, connection: string | n
     const read = await Promise.race([paneRead({ paneId, source: "detection", format: "text" }), Bun.sleep(Math.max(0, until - Date.now())).then(() => null)]).catch(() => null);
     if (read !== null && parseInteractivePrompt("claude", read.text) === null && claudeInputBoxContent(read.text) !== null) break;
     if (Date.now() >= until) {
-      return jsonResponse({ error: { code: "followup_not_ready", message: "The plan was dismissed, but Claude's input box did not come back in time, so the follow-up message was not sent." } }, 409);
+      return jsonResponse({ error: { code: "followup_not_ready", message: "The prompt was answered, but Claude's input box did not come back in time, so the follow-up message was not sent." } }, 409);
     }
     await Bun.sleep(100);
   }
@@ -1591,11 +1597,17 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         || body.step_back === true || body.step_next === true || body.step_index !== undefined || body.draft !== undefined)) {
         return badRequest("invalid_answer", "Only a Claude prompt can be dismissed, with no other answer.");
       }
+      if (body.chat_about !== undefined && (body.chat_about !== true || parsedPrompt?.responder !== "claude-question" || parsedPrompt.chatMenuIndex === undefined
+        || body.dismiss !== undefined || body.step_back === true || body.step_next === true || body.step_index !== undefined || body.draft !== undefined
+        || body.option_index !== undefined || body.option_indices !== undefined || body.custom_text !== undefined)) {
+        return badRequest("invalid_answer", "Only a Claude question can be chatted about, with no other answer.");
+      }
       if (body.followup_text !== undefined) {
-        // the text goes to the agent's own input box: only the plan card offers it, after its Esc, and only as one plain line
-        if (body.dismiss !== true || parsedPrompt?.responder !== "claude-plan" || typeof body.followup_text !== "string"
+        // the text goes to the agent's own input box: only the plan card offers it, after its Esc, and a question card
+        // after its Chat about this, and only as one plain line
+        if (!((body.dismiss === true && parsedPrompt?.responder === "claude-plan") || (body.chat_about === true && parsedPrompt?.responder === "claude-question")) || typeof body.followup_text !== "string"
           || !body.followup_text.trim() || body.followup_text.length > FOLLOWUP_MAX || [...body.followup_text].some((char) => char.charCodeAt(0) < 32 || (char.charCodeAt(0) >= 127 && char.charCodeAt(0) <= 159))) {
-          return badRequest("invalid_answer", "A follow-up message goes only with a dismissed plan card, as one line.");
+          return badRequest("invalid_answer", "A follow-up message goes only with a dismissed plan card or a Chat about this, as one line.");
         }
         if (options.queueFollowup === undefined) return badRequest("invalid_answer", "This server cannot send a follow-up message.");
         if (body.followup_connection !== undefined && (typeof body.followup_connection !== "string" || !body.followup_connection || body.followup_connection.length > 128)) {
@@ -1961,7 +1973,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         const parsed = parsedByPublicPrompt.get(target)!;
         const responder = parsed.responder;
         const reader = registry.readerFor(responder);
-        const interaction = body.custom_text === undefined && body.dismiss !== true ? reader?.interaction?.(parsed) : undefined;
+        const interaction = body.custom_text === undefined && body.dismiss !== true && body.chat_about !== true ? reader?.interaction?.(parsed) : undefined;
         const checkBeforeText = responder === "fallback-gjc-menu" || responder === "pi-ask-question"
           || responder === "pi-questionnaire-question" || responder === "agy-question";
         const editorAnswer = body.custom_text !== undefined && (checkBeforeText || responder === "dsh-question"
@@ -2230,7 +2242,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         delivered = true;
         const sent = chatSent.get(body.pane_id)?.commands.at(-1);
         if (committed && sent?.dialogId === prompt.id && sent.form?.dialog === parsed.responder
-          && body.option_index !== parsed.rejectWithEscapeIndex && body.dismiss !== true) noteCommandEvidence(body.pane_id, sent.id, { kind: "dialog", at: Date.now() });
+          && body.option_index !== parsed.rejectWithEscapeIndex && body.dismiss !== true && body.chat_about !== true) noteCommandEvidence(body.pane_id, sent.id, { kind: "dialog", at: Date.now() });
       } catch (error) {
         if (error instanceof InvalidAnswer) return badRequest("invalid_answer", error.message);
         if (error instanceof KeyRefused) return promptChanged();
@@ -2254,7 +2266,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         queueFronts.delete(body.pane_id);
         await closeQueue(body.pane_id, contentId(target)!);
       }
-      if (body.dismiss === true && body.followup_text !== undefined) {
+      if ((body.dismiss === true || body.chat_about === true) && body.followup_text !== undefined) {
         const refused = await sendFollowup(body.pane_id, body.followup_text.trim(), body.followup_connection ?? null, options);
         if (refused) return refused;
       }

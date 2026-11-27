@@ -685,7 +685,7 @@
   }
 }
 
-/* Dismiss (Esc), and on a plan card Esc + /handoff: a quiet row under the answers */
+/* Dismiss (Esc), Chat about this on a question, and on a plan card Esc + /handoff: a quiet row under the answers */
 .prompt-card-dismiss-row {
   display: flex;
   flex-wrap: wrap;

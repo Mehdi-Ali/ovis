@@ -26,6 +26,7 @@ export const COMPOSER_KO: Record<string, string> = {
   "Not sent: the agent started for this message has ended. Review the message before sending it.": "보내지 않음: 이 메시지를 위해 시작한 에이전트가 종료되었습니다. 보내기 전에 메시지를 확인하세요.",
   "Not sent: the pane's terminal or agent session changed. Review the message before sending it again.": "보내지 않음: 패널의 터미널이나 에이전트 세션이 바뀌었습니다. 다시 보내기 전에 메시지를 확인하세요.",
   "Dismiss (Esc)": "닫기 (Esc)",
+  "Chat about this": "이 내용에 대해 대화하기",
   "Esc + /handoff": "Esc + /handoff",
   "Cycle mode (Shift+Tab)": "모드 전환 (Shift+Tab)",
   "Mode: default": "모드: 기본",

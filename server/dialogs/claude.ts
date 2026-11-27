@@ -250,6 +250,7 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   const nav = shown !== null && shown.index < tabs!.tabs.length ? shown : null;
   const title = titleOf(nav?.index ?? open);
   const words = claudeWordsAbove(raw, rows[0]!.lineIndex);
+  const menuLabels = submit ? [...rows.slice(0, -1).map((row) => row.label), "Submit", rows.at(-1)!.label] : rows.map((row) => row.label);
   const parsed = finishPrompt("claude", {
     kind: "question", title, question, body: null,
     options: optionRows.map((row) => ({ label: row.label, description: row.description ?? null })),
@@ -259,7 +260,9 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   }, {
     responder: "claude-question",
     ...(nav ? { claudeTabs: { identity: nav.identity, index: nav.index } } : {}),
-    menuLabels: submit ? [...rows.slice(0, -1).map((row) => row.label), "Submit", rows.at(-1)!.label] : rows.map((row) => row.label),
+    menuLabels,
+    // the numbered layout ends on the row, the preview layout draws it unnumbered under the options
+    chatMenuIndex: preview ? menuLabels.length : menuLabels.length - 1,
     selectedIndex,
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
     customMenuIndex: preview ? null : customIndex, rejectWithEscapeIndex: null,
