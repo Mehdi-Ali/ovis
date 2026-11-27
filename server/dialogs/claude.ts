@@ -514,14 +514,18 @@ function claudeReviewAnswers(panel: string[], width: number): { answers: Interac
  */
 function parseClaudeSubmit(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const questionIndex = findLastIndex(lines, (line) => /^Ready to submit your answers\?$/i.test(cleanLine(line)));
-  if (questionIndex < 0) return null;
-  const tabsIndex = findLastIndex(lines.slice(0, questionIndex), (line) => CLAUDE_TABS_RE.test(cleanLine(line)));
-  const panel = lines.slice(tabsIndex + 1, questionIndex);
+  const asked = findLastIndex(lines, (line) => /^Ready to submit your answers\?$/i.test(cleanLine(line)));
+  // Claude Code 2.1.332 prints no such line: the panel runs straight into its Submit answers row
+  const firstRow = asked >= 0 ? -1 : findLastIndex(lines, (line) => /^(?:[›>❯]\s*)?1\.\s+Submit answers$/.test(cleanLine(line)));
+  if (asked < 0 && firstRow < 0) return null;
+  // the panel ends and the rows start after this line
+  const questionIndex = asked >= 0 ? asked : firstRow - 1;
+  const tabsIndex = findLastIndex(lines.slice(0, questionIndex + 1), (line) => CLAUDE_TABS_RE.test(cleanLine(line)));
+  const panel = lines.slice(tabsIndex + 1, asked >= 0 ? asked : firstRow);
   if (panel.some((line) => isDivider(line))) return null;
   const rows = parseNumberedRows(lines, questionIndex + 1, lines.length);
   if (!sequentialRows(rows) || rows.length < 2 || rows.filter((row) => row.selected).length !== 1) return null;
-  if (tabsIndex < 0 && (!panel.some((line) => /^→\s/.test(cleanLine(line)))
+  if ((tabsIndex < 0 || asked < 0) && (!panel.some((line) => /^→\s/.test(cleanLine(line)))
     || rows.map((row) => row.label).join("\n") !== "Submit answers\nCancel")) return null;
   const review = claudeReviewAnswers(panel, screenWidth(lines));
   const answers = review?.answers;
@@ -532,7 +536,7 @@ function parseClaudeSubmit(screen: string): ParsedPrompt | null {
   const nav = shown !== null && shown.index === bar!.tabs.length ? shown : null;
   return finishPrompt("claude", {
     // a menu, not a question: a typed pick submits every answer at once, so it waits for Confirm
-    kind: "menu", title: own("Review your answers"), question: cleanLine(lines[questionIndex]!), body: body || null,
+    kind: "menu", title: own("Review your answers"), question: asked >= 0 ? cleanLine(lines[asked]!) : own("Ready to submit your answers?"), body: body || null,
     ...(answers ? { answers } : {}),
     options: rows.map((row) => ({ label: row.label, description: null })), multi_select: false, custom_option_index: null,
     ...(nav ? { steps: nav.steps, can_step_back: true } : {}),

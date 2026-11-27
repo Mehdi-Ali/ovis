@@ -726,3 +726,48 @@ Esc to cancel · Tab to amend · ctrl+e to explain
     expect(answerKeys(approval, { option_index: 2 })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }]);
   });
 });
+
+/** Claude Code 2.1.332's answer review, which no longer prints "Ready to submit your answers?" (captured live, 57 columns) */
+const REVIEW_2_1_332 = `─────────────────────────────────────────────────────────
+←  ☒ Color  ☒ Size  ✔ Submit  →
+
+Review your answers
+
+ ● Which color?
+   → Red
+ ● Which size?
+   → Small
+
+❯ 1. Submit answers
+  2. Cancel
+`;
+
+describe("Claude Code 2.1.332's answer review", () => {
+  for (const [name, screen] of [
+    ["plain", REVIEW_2_1_332],
+    ["with colors", REVIEW_2_1_332.replace("Review your answers", "\x1b[1mReview your answers\x1b[22m").replace("❯ 1. Submit answers", "\x1b[38;5;153m❯ 1. Submit answers\x1b[39m")],
+  ] as const) {
+    test(`reads the card without a question line (${name})`, () => {
+      const review = parseInteractivePrompt("claude", screen);
+      expect(review).toMatchObject({ kind: "menu", title: "Review your answers", question: "Ready to submit your answers?", custom_option_index: null });
+      expect(review?.answers).toEqual([
+        { question: "Which color?", answer: "Red" },
+        { question: "Which size?", answer: "Small" },
+      ]);
+      expect(review?.options.map((option) => option.label)).toEqual(["Submit answers", "Cancel"]);
+      expect(answerKeys(review!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
+      expect(answerKeys(review!, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+    });
+  }
+
+  test("reads a review cut off at the top", () => {
+    const cut = " ● Which size?\n   → Small\n\n❯ 1. Submit answers\n  2. Cancel\n";
+    const review = parseInteractivePrompt("claude", cut);
+    expect(review).toMatchObject({ kind: "menu", title: "Review your answers" });
+    expect(review?.options.map((option) => option.label)).toEqual(["Submit answers", "Cancel"]);
+  });
+
+  test("ignores a lone Submit answers row with no review above it", () => {
+    expect(parseInteractivePrompt("claude", "Some notes\n\n❯ 1. Submit answers\n  2. Cancel\n")).toBeNull();
+  });
+});

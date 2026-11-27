@@ -213,6 +213,7 @@ export const COMPOSER_ZH: Record<string, string> = {
   "Waiting for input": "等待输入",
   "Submit these answers?": "提交这些答案吗？",
   "Submit your answers?": "提交你的答案吗？",
+  "Ready to submit your answers?": "准备好提交你的答案了吗？",
   "The message waits in its input. Send it as it is now?": "消息还在输入框中等待。按现在的内容发送吗？",
   "No goal set": "未设置目标",
   "Set effort for this session": "设置此会话的推理强度",

@@ -213,6 +213,7 @@ export const COMPOSER_KO: Record<string, string> = {
   "Waiting for input": "입력을 기다리는 중",
   "Submit these answers?": "이 답을 제출할까요?",
   "Submit your answers?": "답을 제출할까요?",
+  "Ready to submit your answers?": "답을 제출할 준비가 되었나요?",
   "The message waits in its input. Send it as it is now?": "메시지가 입력란에서 기다리고 있습니다. 지금 모습 그대로 보낼까요?",
   "No goal set": "설정된 목표 없음",
   "Set effort for this session": "이 세션의 추론 강도 설정",

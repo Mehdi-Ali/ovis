@@ -213,6 +213,7 @@ export const COMPOSER_JA: Record<string, string> = {
   "Waiting for input": "入力待ち",
   "Submit these answers?": "これらの回答を送信しますか?",
   "Submit your answers?": "回答を送信しますか?",
+  "Ready to submit your answers?": "回答を送信する準備はできましたか?",
   "The message waits in its input. Send it as it is now?": "メッセージが入力欄で待っています。今のまま送信しますか?",
   "No goal set": "目標は未設定",
   "Set effort for this session": "このセッションの推論レベルを設定",

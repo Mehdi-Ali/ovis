@@ -25,6 +25,7 @@ const CARD_TEXT = [
   "Waiting for input",
   "Submit these answers?",
   "Submit your answers?",
+  "Ready to submit your answers?",
   "The message waits in its input. Send it as it is now?",
   "No goal set",
   "Set effort for this session",
